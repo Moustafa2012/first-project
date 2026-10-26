@@ -22,11 +22,19 @@
 
 ## التقنيات
 
-لم تُحدَّد بعد، وسيُحدَّث هذا القسم عند اختيار حزمة التقنيات.
+- Next.js (App Router) وTypeScript
+- Supabase للمصادقة وقاعدة البيانات (PostgreSQL)
+- واجهة عربية باتجاه RTL
 
 ## البدء
 
-سيُضاف شرح التثبيت والتشغيل هنا عند توفر الكود.
+```bash
+npm install
+cp .env.example .env.local   # أضف بيانات مشروع Supabase
+npm run dev
+```
+
+المخطط الأولي لقاعدة البيانات في `supabase/migrations/`، والبنية في `docs/architecture.md`.
 
 ## الخصوصية والأمان
 

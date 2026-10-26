@@ -1,0 +1,22 @@
+:root {
+  --bg: #ffffff;
+  --fg: #14212b;
+  --accent: #0f7b6c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1a21;
+    --fg: #e6eef2;
+    --accent: #3fc1ad;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
+}

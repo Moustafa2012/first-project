@@ -20,6 +20,12 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------- baseline: take everything away
+-- Supabase grants new tables/functions to anon + authenticated by default. Switch that off for everything
+-- created from now on (later migrations must grant explicitly), then clean up what already exists.
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from anon, authenticated;
+alter default privileges revoke execute on functions from public;
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
 revoke execute on all functions in schema public from public, anon, authenticated;

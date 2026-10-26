@@ -48,3 +48,13 @@ select test.throws(format($$insert into public.medical_documents (patient_id, ti
   'permission denied', 'documents cannot be inserted directly');
 select test.as_super();
 select test.ok(exists (select 1 from public.audit_logs where table_name = 'medical_documents' and record_id = :'doc'::uuid and actor_id = :'alice'::uuid), 'document registration is audited with the user as actor');
+
+-- ---------------------------------------------------------------- stored-file attributes are not user-editable
+select test.as_user(:'alice'::uuid);
+update public.medical_documents set title = 'CBC scan (renamed)', sensitivity = 'sensitive' where id = :'doc';
+select test.ok((select title from public.medical_documents where id = :'doc') = 'CBC scan (renamed)', 'document title and sensitivity can be edited');
+select test.throws(format($$update public.medical_documents set storage_path = %L where id = %L$$, :'pa' || '/other.pdf', :'doc'), 'permission denied', 'storage path cannot be edited');
+select test.throws(format($$update public.medical_documents set sha256 = repeat('0', 64) where id = %L$$, :'doc'), 'permission denied', 'checksum cannot be edited');
+select test.throws(format($$update public.medical_documents set mime_type = 'image/png' where id = %L$$, :'doc'), 'permission denied', 'mime type cannot be edited');
+update public.medical_documents set record_status = 'entered_in_error', invalidated_reason = 'wrong scan' where id = :'doc';
+select test.ok((select record_status from public.medical_documents where id = :'doc') = 'entered_in_error', 'a document can be invalidated');

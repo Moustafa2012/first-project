@@ -1,0 +1,34 @@
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import { isConfigured, publicEnv } from "@/lib/env";
+
+const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot", "/auth", "/s/", "/api/health"];
+
+/** Refreshes the auth cookies and redirects anonymous visitors away from private pages. */
+export async function updateSession(request: NextRequest) {
+  let response = NextResponse.next({ request });
+  const path = request.nextUrl.pathname;
+  const isPublic = path === "/" || PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p));
+  if (!isConfigured()) return response;
+
+  const { url, key } = publicEnv();
+  const supabase = createServerClient(url, key, {
+    cookies: {
+      getAll: () => request.cookies.getAll(),
+      setAll: (list) => {
+        list.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        list.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+      },
+    },
+  });
+  const { data } = await supabase.auth.getUser();
+  if (!data.user && !isPublic) {
+    const to = request.nextUrl.clone();
+    to.pathname = "/login";
+    to.search = "";
+    to.searchParams.set("next", path);
+    return NextResponse.redirect(to);
+  }
+  return response;
+}

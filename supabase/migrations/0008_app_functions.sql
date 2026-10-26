@@ -74,3 +74,9 @@ end $$;
 
 grant execute on function public.register_document(uuid, text, text, text, text, text, bigint, text, uuid, text, date, text, uuid, uuid, uuid) to authenticated;
 grant execute on function public.create_lab_report(uuid, jsonb, jsonb) to authenticated;
+
+-- Document rows are registered through register_document(); afterwards users may only edit descriptive
+-- metadata, never the storage path, checksum, size or type of a stored file.
+revoke update on public.medical_documents from authenticated;
+grant update (specialty_id, encounter_id, lab_report_id, imaging_id, doc_type, title, description, document_date, sensitivity,
+              record_status, invalidated_reason) on public.medical_documents to authenticated;

@@ -1,0 +1,11 @@
+type R = Record<string, unknown>;
+export interface Bundle {
+  status: "ok";
+  meta: { title: string; recipient_label: string | null; scope_kind: string; specialties: { code: string; name_ar: string; name_en: string }[]; include: string[];
+          date_from: string | null; date_to: string | null; expires_at: string; allow_download: boolean; allow_print: boolean; allow_notes: boolean; generated_at: string };
+  patient: { mrn: string; full_name: string; full_name_en: string | null; date_of_birth: string; age_years: number; sex: string; nationality: string | null; blood_group: string | null; blood_group_verified: boolean; phone?: string | null };
+  allergy_assertion: string;
+  allergies: R[]; chronic_conditions: R[]; medications: R[];
+  emergency_contacts?: R[]; other_conditions?: R[]; encounters?: R[]; procedures?: R[]; imaging?: R[]; family_history?: R[]; immunizations?: R[];
+  care_plans?: R[]; notes?: R[]; specialty_records?: R[]; observations?: R[]; documents?: R[]; specialties: { id: string; code: string; name_ar: string; name_en: string }[];
+}

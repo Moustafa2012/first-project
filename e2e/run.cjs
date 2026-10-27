@@ -216,7 +216,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Enter a valid number.").waitFor();
   });
 
-  await step("vitals: period switch, compare with previous period, daily/weekly summaries, CSV export", async () => {
+  await step("vitals: period switch, compare with previous period, daily/weekly summaries, vector PDF report", async () => {
     await page.goto(`${BASE}/patients/${pid}/vitals?type=blood_pressure`);
     await page.getByRole("link", { name: "7 days" }).click();
     await page.waitForURL(/range=7/);
@@ -225,10 +225,11 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("svg.chart").first().waitFor();
     await page.getByRole("link", { name: "Weekly" }).click();
     await page.getByText("Mean").first().waitFor();
-    const r = await ctx.request.get(`${BASE}/api/patients/${pid}/export?type=blood_pressure`);
-    assert(r.status() === 200 && /text\/csv/.test(r.headers()["content-type"]), "csv served");
-    const body = await r.text();
-    assert(body.includes("Blood pressure") && body.split("\n").length >= 6, "csv has the readings");
+    const r = await ctx.request.get(`${BASE}/api/patients/${pid}/report?scope=vitals&type=blood_pressure&range=all`);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]) && /no-store/.test(r.headers()["cache-control"]), "pdf served: " + r.status());
+    const buf = await r.body();
+    assert(buf.subarray(0, 5).toString() === "%PDF-" && buf.length > 5000, "a real PDF document (" + buf.length + " bytes)");
+    fs.writeFileSync(path.join(OUT, "vitals-report.pdf"), buf);
   });
 
   await step("vitals: glucose with context is classified; units are not mixed", async () => {
@@ -254,9 +255,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await row.locator('form:has(button:has-text("Save correction")) input[name="reason"]').fill("misread the monitor");
     await row.getByRole("button", { name: "Save correction" }).click();
     await page.locator("tr.superseded").first().waitFor();
-    await page.getByText("Superseded").first().waitFor();   // the server action has committed and the list was re-rendered
+    await page.getByText("Superseded", { exact: true }).first().waitFor();   // the server action has committed and the list was re-rendered
     await page.reload();
-    await page.getByText("Superseded").first().waitFor();
+    await page.getByText("Superseded", { exact: true }).first().waitFor();
     await page.getByText("Correction", { exact: true }).first().waitFor();
     assert((await page.locator("tr.superseded").count()) >= 1, "original row kept and struck through");
   });
@@ -443,6 +444,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const noSession = await (await newContext(browser)).request.get(BASE + link);
     assert(noSession.status() === 401, "no cookie => 401: " + noSession.status());
     assert(/no-store/.test(ok.headers()["cache-control"]), "no-store");
+    assert((await dctx.request.get(`${BASE}/s/${token}/pdf`)).status() === 403, "PDF refused when printing is not allowed");
+    assert((await (await newContext(browser)).request.get(`${BASE}/s/${token}/pdf`)).status() === 401, "PDF needs a session");
   });
 
   await step("doctor: leaves a note; patient sees it and marks it reviewed", async () => {
@@ -500,6 +503,27 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
   const bctx = await newContext(browser);
   const bob = await bctx.newPage();
   watch(bob, "bob");
+  await step("doctor print: a vector PDF of exactly the shared scope, only when the patient allowed printing", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_print"]');
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link2 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin2 = await page.locator('input[aria-label="PIN"]').inputValue();
+    const c2 = await newContext(browser); const d2 = await c2.newPage(); watch(d2, "doctor2");
+    await d2.goto(link2); await d2.fill("#pin", pin2); await d2.getByRole("button", { name: "Open file" }).click(); await d2.waitForURL(/\/view$/);
+    await d2.getByRole("link", { name: /Print \(PDF\)/ }).waitFor();
+    const token2 = link2.split("/s/")[1];
+    const r = await c2.request.get(`${BASE}/s/${token2}/pdf`);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]) && /no-store/.test(r.headers()["cache-control"]), "pdf " + r.status());
+    const buf = await r.body();
+    assert(buf.subarray(0, 5).toString() === "%PDF-", "pdf header");
+    fs.writeFileSync(path.join(OUT, "shared-bundle.pdf"), buf);
+    await c2.close();
+  });
+
   await step("another user cannot see or reach Alice's file, documents or exports", async () => {
     await signup(bob, `bob-${stamp}@example.test`, "Bob Beta");
     await bob.getByText("No files yet").waitFor();
@@ -509,8 +533,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     }
     const href = "/api/documents/" + cardioDocId;
     assert((await bctx.request.get(BASE + href)).status() === 404, "document hidden from bob");
-    const csv = await (await bctx.request.get(`${BASE}/api/patients/${pid}/export`)).text();
-    assert(csv.trim().split("\n").length === 1, "export contains no rows for bob");
+    assert((await bctx.request.get(`${BASE}/api/patients/${pid}/report?scope=full`)).status() === 404, "report hidden from bob");
     const up = await bctx.request.post(`${BASE}/api/patients/${pid}/documents`, { multipart: { file: { name: "x.pdf", mimeType: "application/pdf", buffer: pdf() }, title: "intruder" }, maxRedirects: 0 });
     assert(up.status() === 403, "upload into alice file refused: " + up.status());
     const adm = await bob.goto(`${BASE}/admin/specialties`);
@@ -579,7 +602,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     if (/Female/.test(await page.locator("header.patient-head").innerText())) assert(/Obstetrics/.test(fem) && !/Men's health/.test(fem), "female file view");
   });
 
-  await step("share register: lists every share across files with token ending, filters, CSV without secrets", async () => {
+  await step("share register: lists every share across files with token ending and filters", async () => {
     await page.goto(`${BASE}/shares`);
     await page.getByRole("heading", { name: "Share register" }).waitFor();
     assert((await page.locator("tbody tr").count()) >= 2, "rows listed");
@@ -590,9 +613,6 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert((await page.locator("tbody tr").count()) >= 1, "revoked filter");
     await page.goto(`${BASE}/shares?q=zzzz-no-match`);
     await page.getByText("Nothing matches these filters.").waitFor();
-    const csv = await (await page.request.get(`${BASE}/api/shares/export`)).text();
-    assert(/^\uFEFFshare_id,file_mrn,purpose/.test(csv) && /Brute target/.test(csv), "csv has rows");
-    assert(!csv.includes(shareLink.split("/s/")[1]) && !csv.includes(sharePin), "csv contains neither token nor PIN");
     await page.goto(`${BASE}/shares`);
     await page.getByText("Latest activity across all shares").waitFor();
     await page.screenshot({ path: path.join(OUT, "desktop-share-register.png"), fullPage: true });

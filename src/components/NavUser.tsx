@@ -4,13 +4,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, Languages, Link2, LogOut, Moon, Settings, ShieldCheck, Sun, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, Languages, Link2, LogOut, Moon, Settings, ShieldCheck, Sun, Users } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { setLang, setTheme } from "@/app/actions/prefs";
 
 export interface NavUserText {
   patients: string; shares: string; account: string; admin: string; signOut: string; menu: string;
-  langLabel: string; nextLang: "ar" | "en"; themeLabel: string; nextTheme: "light" | "dark"; dark: boolean;
+  sectionAccount: string; sectionPrefs: string; roleLabel: string; langCode: string; langLabel: string; nextLang: "ar" | "en"; themeLabel: string; nextTheme: "light" | "dark"; dark: boolean;
 }
 
 const initials = (n: string) => Array.from(n.trim().split(/\s+/).slice(0, 2).map((w) => Array.from(w)[0] ?? "").join("") || "?").join("").toUpperCase();
@@ -46,39 +46,47 @@ export function NavUser({ name, email, admin, text, avatar }: { name: string; em
     else if (e.key === "Tab") setOpen(false);
   };
 
+  const face = (cls: string) => <span className={`avatar ${cls}`} aria-hidden="true">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials(name || email)}</span>;
   return (
     <div className="navuser" ref={root} onKeyDown={onKey}>
       <button ref={trigger} type="button" className="navuser-btn" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
         aria-label={`${text.menu}: ${name}`} onClick={() => setOpen((v) => !v)}>
-        <span className="avatar sm" aria-hidden="true">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials(name || email)}</span>
-        <span className="navuser-name">{name || email}</span>
+        {face("sm")}
+        <span className="navuser-id">
+          <span className="navuser-name">{name || email}</span>
+          <span className="navuser-sub">{text.roleLabel}</span>
+        </span>
         <ChevronDown size={16} aria-hidden="true" className="navuser-chev" />
       </button>
+      {open && <div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
       {open && (
         <div className="menu" id={menuId} role="menu" aria-label={text.menu}>
+          <div className="menu-grab" aria-hidden="true" />
           <div className="menu-head" role="presentation">
-            <span className="avatar" aria-hidden="true">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials(name || email)}</span>
+            {face("lg-ring")}
             <div style={{ minWidth: 0 }}>
               <strong className="menu-name">{name || email}</strong>
               <div className="menu-mail"><span className="ltr">{email}</span></div>
+              <span className="chip info menu-role">{admin ? <ShieldCheck size={12} aria-hidden="true" /> : null}{text.roleLabel}</span>
             </div>
           </div>
-          <Link role="menuitem" href="/patients" className="menu-item" tabIndex={-1}><Users size={17} aria-hidden="true" />{text.patients}</Link>
-          <Link role="menuitem" href="/shares" className="menu-item" tabIndex={-1}><Link2 size={17} aria-hidden="true" />{text.shares}</Link>
-          <Link role="menuitem" href="/account" className="menu-item" tabIndex={-1}><Settings size={17} aria-hidden="true" />{text.account}</Link>
-          {admin && <Link role="menuitem" href="/admin/specialties" className="menu-item" tabIndex={-1}><ShieldCheck size={17} aria-hidden="true" />{text.admin}</Link>}
-          <div className="menu-sep" role="separator" />
+          <div className="menu-label" role="presentation">{text.sectionAccount}</div>
+          <Link role="menuitem" href="/patients" className="menu-item" tabIndex={-1}><span className="mi"><Users size={16} aria-hidden="true" /></span><span className="mt">{text.patients}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>
+          <Link role="menuitem" href="/shares" className="menu-item" tabIndex={-1}><span className="mi"><Link2 size={16} aria-hidden="true" /></span><span className="mt">{text.shares}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>
+          <Link role="menuitem" href="/account" className="menu-item" tabIndex={-1}><span className="mi"><Settings size={16} aria-hidden="true" /></span><span className="mt">{text.account}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>
+          {admin && <Link role="menuitem" href="/admin/specialties" className="menu-item" tabIndex={-1}><span className="mi"><ShieldCheck size={16} aria-hidden="true" /></span><span className="mt">{text.admin}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>}
+          <div className="menu-label" role="presentation">{text.sectionPrefs}</div>
           <form action={setLang} role="none">
             <input type="hidden" name="lang" value={text.nextLang} />
-            <button role="menuitem" className="menu-item" tabIndex={-1}><Languages size={17} aria-hidden="true" />{text.langLabel}</button>
+            <button role="menuitem" className="menu-item" tabIndex={-1}><span className="mi"><Languages size={16} aria-hidden="true" /></span><span className="mt">{text.langLabel}</span><span className="chip menu-badge">{text.langCode}</span></button>
           </form>
           <form action={setTheme} role="none">
             <input type="hidden" name="theme" value={text.nextTheme} />
-            <button role="menuitem" className="menu-item" tabIndex={-1}>{text.dark ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}{text.themeLabel}</button>
+            <button role="menuitem" className="menu-item" tabIndex={-1}><span className="mi">{text.dark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</span><span className="mt">{text.themeLabel}</span><span className={`switch${text.dark ? " on" : ""}`} aria-hidden="true" /></button>
           </form>
           <div className="menu-sep" role="separator" />
           <form action={logout} role="none">
-            <button role="menuitem" className="menu-item danger" tabIndex={-1}><LogOut size={17} aria-hidden="true" />{text.signOut}</button>
+            <button role="menuitem" className="menu-item danger" tabIndex={-1}><span className="mi"><LogOut size={16} aria-hidden="true" /></span><span className="mt">{text.signOut}</span></button>
           </form>
         </div>
       )}

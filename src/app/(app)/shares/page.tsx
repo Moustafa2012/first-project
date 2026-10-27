@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Download, Link2, ShieldAlert, ShieldCheck, Timer, Ban } from "lucide-react";
+import { Link2, ShieldAlert, ShieldCheck, Timer, Ban } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getTz, requireUser } from "@/lib/auth";
@@ -52,8 +52,7 @@ export default async function SharesRegister({ searchParams }: { searchParams: {
   return (
     <>
       <PageHead title={t("سجل المشاركات", "Share register")}
-        sub={t("كل الروابط والرموز التي أنشأتها لكل ملفاتك: حالتها ومن فتحها ومتى، مع إمكانية الإلغاء الفوري.", "Every link and PIN you created across all your files: status, who opened it and when, with instant revocation.")}
-        actions={<a className="btn" href={`/api/shares/export${statusFilter !== "all" ? `?status=${statusFilter}` : ""}`}><Download size={16} aria-hidden="true" />{t("تصدير CSV", "Export CSV")}</a>} />
+        sub={t("كل الروابط والرموز التي أنشأتها لكل ملفاتك: حالتها ومن فتحها ومتى، مع إمكانية الإلغاء الفوري.", "Every link and PIN you created across all your files: status, who opened it and when, with instant revocation.")} />
 
       <div className="grid cols-4" style={{ marginBlockEnd: "1rem" }}>
         <div className="tile"><div className="k"><ShieldCheck size={14} aria-hidden="true" /> {t("نشطة", "Active")}</div><div className="v">{count("active")}</div></div>

@@ -9,7 +9,7 @@ const security = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  experimental: { serverActions: { bodySizeLimit: "2mb" } },
+  experimental: { serverActions: { bodySizeLimit: "2mb" }, serverComponentsExternalPackages: ["pdfkit", "fontkit", "bidi-js"] },
   // Some static hosts (e.g. shared Node.js hosting) do not decode %5B/%5D in URLs, so browser chunks named after
   // dynamic routes such as app/.../[pid]/page-<hash>.js answered 404 and the page crashed. Emit them without brackets.
   webpack(config, { isServer, dev }) {

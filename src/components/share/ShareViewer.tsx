@@ -1,4 +1,4 @@
-import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut } from "lucide-react";
+import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut, Printer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime } from "@/lib/format";
@@ -8,7 +8,7 @@ import { REF_LINES } from "@/lib/clinical/refs";
 import type { Bundle } from "@/lib/share-types";
 import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
-import { ActionForm, PrintButton, SubmitButton } from "@/components/ui/client";
+import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
 import { endShare, addShareNote } from "@/app/actions/share-viewer";
 
@@ -41,7 +41,7 @@ export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
       <div className="row between no-print">
         <div className="muted small">{t("جلسة محدودة المدة — انتهاء المشاركة", "Time-limited session — share expires")}: <strong>{dt(b.meta.expires_at)}</strong></div>
         <div className="row">
-          {b.meta.allow_print ? <PrintButton label={t("طباعة", "Print")} /> : <Chip tone="muted">{t("الطباعة غير مسموحة", "Printing not allowed")}</Chip>}
+          {b.meta.allow_print ? <a className="btn sm" href={`/s/${token}/pdf`} target="_blank" rel="noopener noreferrer"><Printer size={14} aria-hidden="true" />{t("طباعة (PDF)", "Print (PDF)")}</a> : <Chip tone="muted">{t("الطباعة غير مسموحة", "Printing not allowed")}</Chip>}
           <form action={endShare}><input type="hidden" name="_t" value={token} /><button className="btn sm"><LogOut size={14} aria-hidden="true" />{t("إنهاء الجلسة", "End session")}</button></form>
         </div>
       </div>

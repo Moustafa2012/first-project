@@ -89,7 +89,3 @@ export function CopyButton({ text, label, done }: { text: string; label: string;
     </button>
   );
 }
-
-export function PrintButton({ label }: { label: string }) {
-  return <button type="button" className="btn sm" onClick={() => window.print()}>{label}</button>;
-}

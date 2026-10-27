@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { appliesToSex, forSex } from "@/lib/sex";
-import { Download } from "lucide-react";
+import { Printer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient } from "@/lib/data";
@@ -12,7 +12,6 @@ import { REF_LINES } from "@/lib/clinical/refs";
 import { qs } from "@/lib/qs";
 import type { ObservationRow } from "@/lib/types";
 import { Banner, Card, Empty, PageHead } from "@/components/ui";
-import { PrintButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
 import { ObservationTable } from "@/components/observations/ObservationTable";
 import { VitalForm } from "@/components/observations/VitalForm";
@@ -59,7 +58,7 @@ export default async function VitalsPage({ params, searchParams }: { params: { p
       <PageHead
         title={t("القياسات الحيوية", "Vital signs & home readings")}
         sub={t("سجّل قراءات الضغط والسكر والوزن وغيرها لتظهر اتجاهاتها عبر الزمن.", "Log blood pressure, glucose, weight and more to see how they change over time.")}
-        actions={<><Link className="btn sm" href={`/api/patients/${p.id}/export?type=${type.code}`}><Download size={14} aria-hidden="true" />CSV</Link><PrintButton label={t("طباعة", "Print")} /></>}
+        actions={<a className="btn sm" href={`/api/patients/${p.id}/report${qs({ scope: "vitals", type: type.code, range: searchParams.range, from: searchParams.from, to: searchParams.to })}`} target="_blank" rel="noopener"><Printer size={14} aria-hidden="true" />{t("تقرير PDF للطباعة", "PDF report")}</a>}
       />
       <Banner tone="info">
         {t("التصنيفات (مرتفع / منخفض…) مؤشرات فحص عامة للبالغين وليست تشخيصاً؛ تتطلب تقييم مختص. قراءات غير البالغين وقراءات ما بعد الجهد لا تُصنَّف.",

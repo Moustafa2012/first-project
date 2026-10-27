@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { appliesToSex, forSex } from "@/lib/sex";
-import { Plus } from "lucide-react";
+import { Plus, Printer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient } from "@/lib/data";
@@ -38,7 +38,7 @@ export default async function LabsPage({ params, searchParams }: { params: { pid
     <PageHead
       title={t("التحاليل المخبرية", "Laboratory results")}
       sub={t("كل تحليل بتاريخه ومختبره ومجاله المرجعي. تبقى النتائج القديمة وتُصحَّح بسجل جديد لا بالمحو.", "Each test with its date, lab and reference range. Old results stay; corrections are new records, never overwrites.")}
-      actions={access.canWrite ? <Link className="btn primary" href={`${base}/new`}><Plus size={16} aria-hidden="true" />{t("تقرير تحاليل جديد", "New lab report")}</Link> : undefined}
+      actions={<><a className="btn" href={`/api/patients/${p.id}/report?scope=labs`} target="_blank" rel="noopener"><Printer size={16} aria-hidden="true" />{t("تقرير PDF للطباعة", "PDF report")}</a>{access.canWrite ? <Link className="btn primary" href={`${base}/new`}><Plus size={16} aria-hidden="true" />{t("تقرير تحاليل جديد", "New lab report")}</Link> : null}</>}
     />
   );
   const tabs = (

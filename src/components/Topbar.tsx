@@ -18,7 +18,7 @@ export function Topbar({ signedIn, admin, user }: { signedIn: boolean; admin?: b
           <>
             <Link href="/patients" className="btn ghost sm topbar-link">{t("المرضى", "Patients")}</Link>
             <NavUser name={user.name} email={user.email} avatar={user.avatar} admin={!!admin} text={{
-              patients: t("المرضى", "Patients"), shares: t("سجل المشاركات", "Share register"), account: t("حسابي", "My account"), admin: t("الإدارة", "Admin"), signOut: t("تسجيل الخروج", "Sign out"), menu: t("قائمة الحساب", "Account menu"),
+              patients: t("المرضى", "Patients"), shares: t("سجل المشاركات", "Share register"), account: t("حسابي", "My account"), admin: t("الإدارة", "Admin"), signOut: t("تسجيل الخروج", "Sign out"), menu: t("قائمة الحساب", "Account menu"), sectionAccount: t("الحساب", "Account"), sectionPrefs: t("التفضيلات", "Preferences"), roleLabel: admin ? t("مدير النظام", "Administrator") : t("مستخدم", "Member"), langCode: lang === "ar" ? "AR" : "EN",
               langLabel: lang === "ar" ? "English" : "العربية", nextLang: lang === "ar" ? "en" : "ar",
               themeLabel: dark ? t("المظهر الفاتح", "Light mode") : t("المظهر الداكن", "Dark mode"), nextTheme: dark ? "light" : "dark", dark,
             }} />

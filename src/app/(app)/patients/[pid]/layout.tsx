@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TriangleAlert, ShieldCheck, CircleHelp } from "lucide-react";
+import { TriangleAlert, ShieldCheck, CircleHelp, Printer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getPatient } from "@/lib/data";
@@ -59,6 +59,7 @@ export default async function PatientLayout({ children, params }: { children: Re
           </div>
           </div>
           <div className="row">
+            <a className="btn sm" href={`/api/patients/${p.id}/report?scope=full`} target="_blank" rel="noopener"><Printer size={14} aria-hidden="true" />{t("تقرير PDF", "PDF report")}</a>
             {p.blood_abo ? <Chip tone="info" title={p.blood_group_verified ? t("موثقة", "Verified") : t("غير موثقة", "Unverified")}>{t("الدم", "Blood")}: <span className="ltr">{p.blood_abo}{p.blood_rh ?? ""}</span>{p.blood_group_verified ? "" : " *"}</Chip> : <Chip tone="muted">{t("فصيلة الدم غير مسجلة", "Blood group not recorded")}</Chip>}
           </div>
         </div>

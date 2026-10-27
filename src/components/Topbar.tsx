@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { Languages, LogOut, Moon, Sun } from "lucide-react";
+import { Languages, Moon, Sun } from "lucide-react";
+import { NavUser } from "@/components/NavUser";
 import { LogoMark, Wordmark } from "@/components/Logo";
 import { i18n } from "@/lib/i18n";
 import { getTheme } from "@/lib/auth";
-import { logout } from "@/app/actions/auth";
 import { setLang, setTheme } from "@/app/actions/prefs";
 
-export function Topbar({ signedIn, admin }: { signedIn: boolean; admin?: boolean }) {
+export function Topbar({ signedIn, admin, user }: { signedIn: boolean; admin?: boolean; user?: { name: string; email: string } }) {
   const { lang, t } = i18n();
   const dark = getTheme() === "dark";
   return (
@@ -14,21 +14,26 @@ export function Topbar({ signedIn, admin }: { signedIn: boolean; admin?: boolean
       <div className="topbar-in">
         <Link href={signedIn ? "/patients" : "/"} className="brand"><LogoMark size={36} /><Wordmark ar="بوابة شفاء" en="Shifa Portal" /></Link>
         <div className="spacer" />
-        {signedIn && <Link href="/patients" className="btn ghost sm">{t("المرضى", "Patients")}</Link>}
-        {signedIn && <Link href="/account" className="btn ghost sm">{t("حسابي", "Account")}</Link>}
-        {admin && <Link href="/admin/specialties" className="btn ghost sm">{t("الإدارة", "Admin")}</Link>}
-        <form action={setLang}>
-          <input type="hidden" name="lang" value={lang === "ar" ? "en" : "ar"} />
-          <button className="btn ghost sm"><Languages size={16} aria-hidden="true" /><span className="btn-label">{lang === "ar" ? "English" : "العربية"}</span></button>
-        </form>
-        <form action={setTheme}>
-          <input type="hidden" name="theme" value={dark ? "light" : "dark"} />
-          <button className="btn ghost sm" aria-label={t("تبديل المظهر", "Toggle theme")}>{dark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
-        </form>
-        {signedIn && (
-          <form action={logout}>
-            <button className="btn ghost sm"><LogOut size={16} aria-hidden="true" /><span className="btn-label">{t("خروج", "Sign out")}</span></button>
-          </form>
+        {signedIn && user ? (
+          <>
+            <Link href="/patients" className="btn ghost sm topbar-link">{t("المرضى", "Patients")}</Link>
+            <NavUser name={user.name} email={user.email} admin={!!admin} text={{
+              patients: t("المرضى", "Patients"), account: t("حسابي", "My account"), admin: t("الإدارة", "Admin"), signOut: t("تسجيل الخروج", "Sign out"), menu: t("قائمة الحساب", "Account menu"),
+              langLabel: lang === "ar" ? "English" : "العربية", nextLang: lang === "ar" ? "en" : "ar",
+              themeLabel: dark ? t("المظهر الفاتح", "Light mode") : t("المظهر الداكن", "Dark mode"), nextTheme: dark ? "light" : "dark", dark,
+            }} />
+          </>
+        ) : (
+          <>
+            <form action={setLang}>
+              <input type="hidden" name="lang" value={lang === "ar" ? "en" : "ar"} />
+              <button className="btn ghost sm"><Languages size={16} aria-hidden="true" /><span className="btn-label">{lang === "ar" ? "English" : "العربية"}</span></button>
+            </form>
+            <form action={setTheme}>
+              <input type="hidden" name="theme" value={dark ? "light" : "dark"} />
+              <button className="btn ghost sm" aria-label={t("تبديل المظهر", "Toggle theme")}>{dark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
+            </form>
+          </>
         )}
       </div>
     </header>

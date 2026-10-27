@@ -11,7 +11,7 @@ export function SubmitButton({ children, className = "btn primary", pending: pen
   const { pending } = useFormStatus();
   return (
     <button type="submit" className={className} disabled={pending} aria-busy={pending}>
-      {pending && pendingText ? pendingText : children}
+      {pending && <span className="spinner" aria-hidden="true" />}{pending && pendingText ? pendingText : children}
     </button>
   );
 }

@@ -254,6 +254,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await row.locator('form:has(button:has-text("Save correction")) input[name="reason"]').fill("misread the monitor");
     await row.getByRole("button", { name: "Save correction" }).click();
     await page.locator("tr.superseded").first().waitFor();
+    await page.getByText("Superseded").first().waitFor();   // the server action has committed and the list was re-rendered
     await page.reload();
     await page.getByText("Superseded").first().waitFor();
     await page.getByText("Correction", { exact: true }).first().waitFor();

@@ -18,7 +18,7 @@ export default async function PatientLayout({ children, params }: { children: Re
     .select("substance, severity").eq("patient_id", p.id).eq("status", "active").eq("record_status", "active").neq("certainty", "refuted").limit(6);
 
   const items: NavItem[] = [
-    { href: base, label: t("نظرة عامة", "Overview") },
+    { href: base, label: t("نظرة عامة", "Overview"), short: t("الرئيسية", "Home") },
     { href: `${base}/profile`, label: t("البيانات الشخصية", "Personal details") },
     { href: `${base}/timeline`, label: t("الخط الزمني", "Timeline") },
     { href: `${base}/conditions`, label: t("الأمراض والتشخيصات", "Conditions"), group: t("الملخص الصحي", "Health summary") },
@@ -26,8 +26,8 @@ export default async function PatientLayout({ children, params }: { children: Re
     { href: `${base}/medications`, label: t("الأدوية", "Medications"), group: t("الملخص الصحي", "Health summary") },
     { href: `${base}/family-history`, label: t("التاريخ العائلي", "Family history"), group: t("الملخص الصحي", "Health summary") },
     { href: `${base}/immunizations`, label: t("التطعيمات", "Immunizations"), group: t("الملخص الصحي", "Health summary") },
-    { href: `${base}/vitals`, label: t("القياسات (ضغط، سكر…)", "Vitals (BP, glucose…)"), group: t("التتبع", "Tracking") },
-    { href: `${base}/labs`, label: t("التحاليل المخبرية", "Lab results"), group: t("التتبع", "Tracking") },
+    { href: `${base}/vitals`, label: t("القياسات (ضغط، سكر…)", "Vitals (BP, glucose…)"), short: t("القياسات", "Vitals"), group: t("التتبع", "Tracking") },
+    { href: `${base}/labs`, label: t("التحاليل المخبرية", "Lab results"), short: t("التحاليل", "Labs"), group: t("التتبع", "Tracking") },
     { href: `${base}/test-orders`, label: t("الفحوصات المطلوبة", "Requested tests"), group: t("التتبع", "Tracking") },
     { href: `${base}/visits`, label: t("الزيارات", "Visits"), group: t("الرعاية", "Care") },
     { href: `${base}/procedures`, label: t("العمليات والإجراءات", "Procedures"), group: t("الرعاية", "Care") },
@@ -36,7 +36,7 @@ export default async function PatientLayout({ children, params }: { children: Re
     { href: `${base}/care-plans`, label: t("خطط المتابعة", "Care plans"), group: t("الرعاية", "Care") },
     { href: `${base}/notes`, label: t("الملاحظات", "Notes"), group: t("الرعاية", "Care") },
     { href: `${base}/specialties`, label: t("الأقسام الطبية", "Specialty files"), group: t("الملفات", "Files") },
-    { href: `${base}/documents`, label: t("المستندات والتقارير", "Documents"), group: t("الملفات", "Files") },
+    { href: `${base}/documents`, label: t("المستندات والتقارير", "Documents"), short: t("المستندات", "Files"), group: t("الملفات", "Files") },
     ...(access.canShare ? [
       { href: `${base}/sharing`, label: t("المشاركة مع طبيب", "Share with a doctor"), group: t("الخصوصية", "Privacy") },
       ...(access.canManage ? [{ href: `${base}/audit`, label: t("سجل التغييرات", "Change history"), group: t("الخصوصية", "Privacy") }] : []),
@@ -77,7 +77,7 @@ export default async function PatientLayout({ children, params }: { children: Re
         </div>
       </header>
       <div className="layout">
-        <SideNav items={items} label={t("أقسام الملف", "File sections")} />
+        <SideNav items={items} label={t("أقسام الملف", "File sections")} moreLabel={t("المزيد", "More")} closeLabel={t("إغلاق", "Close")} />
         <div className="stack" style={{ minWidth: 0 }}>{children}</div>
       </div>
     </>

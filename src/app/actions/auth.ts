@@ -35,7 +35,17 @@ export async function signup(_: FormState, fd: FormData): Promise<FormState> {
     email, password,
     options: { data: { full_name: name }, emailRedirectTo: `${siteUrl()}/auth/callback` },
   });
-  if (error) return { error: t("تعذر إنشاء الحساب. قد يكون البريد مستخدماً.", "Could not create the account. The email may already be in use.") };
+  if (error) {
+    const code = (error as { code?: string }).code;
+    if (error.status === 429 || code === "over_email_send_rate_limit") {
+      return { error: t("تجاوز الخادم حد رسائل التأكيد المسموح بها. حاول بعد ساعة، أو اطلب من المسؤول ضبط خدمة بريد (SMTP) للمشروع.", "The confirmation-email limit was reached. Try again in an hour, or ask the administrator to configure SMTP for the project.") };
+    }
+    if (code === "user_already_exists") return { error: t("هذا البريد مسجل مسبقاً. سجّل الدخول.", "This email is already registered. Sign in instead.") };
+    if (code === "weak_password") return { error: t("كلمة المرور ضعيفة. اختر كلمة أطول وأقوى.", "The password is too weak. Choose a longer, stronger one.") };
+    if (code === "email_address_invalid" || code === "validation_failed") return { error: t("عنوان البريد غير مقبول.", "The email address was not accepted.") };
+    console.error("[signup-error]", code ?? "-", error.status ?? "-", error.message.slice(0, 200));
+    return { error: t("تعذر إنشاء الحساب. حاول لاحقاً.", "Could not create the account. Please try again later.") };
+  }
   if (!data.session) {
     return { ok: true, message: t("أرسلنا رسالة تأكيد إلى بريدك. افتحها ثم سجّل الدخول.", "We sent a confirmation email. Open it, then sign in.") };
   }

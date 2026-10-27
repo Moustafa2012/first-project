@@ -1,0 +1,30 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { isConfigured, publicEnv } from "@/lib/env";
+
+export const dynamic = "force-dynamic";
+
+const time = async (fn: () => Promise<unknown>) => {
+  const t0 = Date.now();
+  try { await fn(); return { ms: Date.now() - t0 }; } catch (e) { return { ms: Date.now() - t0, error: String((e as { cause?: { code?: string } })?.cause?.code ?? (e as Error)?.message).slice(0, 80) }; }
+};
+
+/** GET /api/health            -> {ok:true}
+ *  GET /api/health?probe=1    -> latency probes (no data, no secrets): database round trips and a request to this
+ *                                server's own public address (what Next does after a server-action redirect). */
+export async function GET(request: NextRequest) {
+  if (request.nextUrl.searchParams.get("probe") !== "1") return NextResponse.json({ ok: true });
+  const out: Record<string, unknown> = { ok: true, node: process.version, configured: isConfigured() };
+  if (isConfigured()) {
+    const { url, key } = publicEnv();
+    const h = { apikey: key };
+    out.supabase_auth = await Promise.all([1, 2, 3].map(() => time(() => fetch(`${url}/auth/v1/health`, { headers: h }))));
+    const seq: unknown[] = [];
+    for (let i = 0; i < 3; i++) seq.push(await time(() => fetch(`${url}/rest/v1/medical_specialties?select=id&limit=1`, { headers: { ...h, Authorization: `Bearer ${key}` } })));
+    out.supabase_rest_sequential = seq;
+  }
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  out.self_public = { host, ...(await time(() => fetch(`${proto}://${host}/api/health`, { cache: "no-store", signal: AbortSignal.timeout(15000) }))) };
+  out.self_loopback = { port: process.env.PORT ?? null, ...(await time(() => fetch(`http://127.0.0.1:${process.env.PORT ?? 3000}/api/health`, { cache: "no-store", signal: AbortSignal.timeout(5000) }))) };
+  return NextResponse.json(out);
+}

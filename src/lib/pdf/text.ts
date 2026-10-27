@@ -10,10 +10,6 @@ import bidiFactory from "bidi-js";
 const bidi = bidiFactory();
 
 export type FontKey = "ar" | "arb" | "la" | "lab";
-export const FONT_FILES: Record<FontKey, string> = {
-  ar: "Alyamama-arabic-regular.ttf", arb: "Alyamama-arabic-bold.ttf", la: "Alyamama-latin-regular.ttf", lab: "Alyamama-latin-bold.ttf",
-};
-
 const isArabicScript = (cp: number) =>
   (cp >= 0x0600 && cp <= 0x06ff) ||
   (cp >= 0x0750 && cp <= 0x077f) || (cp >= 0xfb50 && cp <= 0xfdff) || (cp >= 0xfe70 && cp <= 0xfeff) || cp === 0x200c || cp === 0x200d;

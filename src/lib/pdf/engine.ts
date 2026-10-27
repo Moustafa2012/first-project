@@ -1,7 +1,7 @@
 import "server-only";
-import path from "node:path";
 import PDFDocument from "pdfkit";
-import { drawLine, FONT_FILES, widthOf, wrap, type FontKey } from "@/lib/pdf/text";
+import { drawLine, widthOf, wrap, type FontKey } from "@/lib/pdf/text";
+import { FONT_B64 } from "@/lib/pdf/fonts-data";
 
 /** Content model shared by every PDF (patient report, shared bundle): the renderer below is the only layout code. */
 export type Tone = "ok" | "warn" | "bad" | "info" | "muted";
@@ -30,16 +30,14 @@ const C = { ink: "#0f2229", muted: "#546a72", line: "#d5dfe0", brand: "#0b6b63",
 const tonePair = (t: Tone) => (t === "muted" ? C.muted_ : C[t]);
 const SERIES = ["#0b6b63", "#b45309", "#1d4ed8", "#9d174d"];
 
-const FONT_DIR = path.join(process.cwd(), "assets", "fonts");
-
 export function renderPdf(meta: ReportMeta, blocks: Block[]): Promise<Buffer> {
   const rtl = meta.lang === "ar";
   const doc = new PDFDocument({
-    size: "A4", margins: { top: 78, bottom: 56, left: 40, right: 40 }, bufferPages: true, autoFirstPage: false,
+    size: "A4", font: false as unknown as string, margins: { top: 78, bottom: 56, left: 40, right: 40 }, bufferPages: true, autoFirstPage: false,
     info: { Title: meta.title, Author: meta.brand, Creator: meta.brand, Producer: meta.brand },
     lang: rtl ? "ar" : "en", pdfVersion: "1.7", displayTitle: true,
   });
-  for (const k of Object.keys(FONT_FILES) as FontKey[]) doc.registerFont(k, path.join(FONT_DIR, FONT_FILES[k]));
+  for (const k of Object.keys(FONT_B64) as FontKey[]) doc.registerFont(k, Buffer.from(FONT_B64[k], "base64"));
 
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));

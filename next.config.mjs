@@ -10,6 +10,22 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: { serverActions: { bodySizeLimit: "2mb" } },
+  // Some static hosts (e.g. shared Node.js hosting) do not decode %5B/%5D in URLs, so browser chunks named after
+  // dynamic routes such as app/.../[pid]/page-<hash>.js answered 404 and the page crashed. Emit them without brackets.
+  webpack(config, { isServer, dev }) {
+    if (!isServer && !dev) {
+      const safe = (name) => String(name).replace(/[\[\]]/g, "_");
+      config.output.filename = (pathData) => {
+        const name = pathData.chunk && pathData.chunk.name;
+        return name ? `static/chunks/${safe(name)}-[chunkhash].js` : "static/chunks/[name]-[chunkhash].js";
+      };
+      config.output.chunkFilename = (pathData) => {
+        const name = pathData.chunk && pathData.chunk.name;
+        return name ? `static/chunks/${safe(name)}.[contenthash].js` : "static/chunks/[name].[contenthash].js";
+      };
+    }
+    return config;
+  },
   async headers() {
     return [
       { source: "/:path*", headers: [...security, { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" }] },

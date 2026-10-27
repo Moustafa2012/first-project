@@ -22,6 +22,11 @@ export async function GET(request: NextRequest) {
     for (let i = 0; i < 3; i++) seq.push(await time(() => fetch(`${url}/rest/v1/medical_specialties?select=id&limit=1`, { headers: { ...h, Authorization: `Bearer ${key}` } })));
     out.supabase_rest_sequential = seq;
   }
+  if (request.nextUrl.searchParams.get("geo") === "1") {
+    // where does this server run? (public IP geolocation of the server itself; no user data involved)
+    try { const g = await (await fetch("https://ipinfo.io/json", { cache: "no-store", signal: AbortSignal.timeout(6000) })).json(); out.server_location = { city: g.city, region: g.region, country: g.country, org: g.org }; }
+    catch (e) { out.server_location = { error: String((e as Error)?.message) }; }
+  }
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
   const proto = request.headers.get("x-forwarded-proto") ?? "https";
   out.self_public = { host, ...(await time(() => fetch(`${proto}://${host}/api/health`, { cache: "no-store", signal: AbortSignal.timeout(15000) }))) };

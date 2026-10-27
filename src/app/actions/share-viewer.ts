@@ -21,7 +21,7 @@ export async function openShare(_: FormState, fd: FormData): Promise<FormState> 
   const r = data as { status: string; session_token?: string; expires_at?: string; attempts_left?: number; retry_after_seconds?: number };
   if (r.status === "ok" && r.session_token && r.expires_at) {
     setShareSession(token, r.session_token, Math.floor((Date.parse(r.expires_at) - Date.now()) / 1000));
-    redirect(`/s/${token}/view`);
+    return { ok: true, redirectTo: `/s/${token}/view` };
   }
   if (r.status === "invalid_pin") return { error: t(`الرمز غير صحيح. المحاولات المتبقية: ${r.attempts_left}`, `Incorrect PIN. Attempts left: ${r.attempts_left}`) };
   if (r.status === "locked") return { error: t(`تم قفل الرابط مؤقتاً. حاول بعد ${Math.ceil((r.retry_after_seconds ?? 900) / 60)} دقيقة.`, `This link is temporarily locked. Try again in ${Math.ceil((r.retry_after_seconds ?? 900) / 60)} minutes.`) };

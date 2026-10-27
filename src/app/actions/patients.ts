@@ -35,7 +35,7 @@ export async function createPatient(_: FormState, fd: FormData): Promise<FormSta
   });
   if (error) return { error: explainError(error, t) };
   revalidatePath("/patients");
-  redirect(`/patients/${data as string}`);
+  return { ok: true, redirectTo: `/patients/${data as string}` };
 }
 
 export async function updatePatient(_: FormState, fd: FormData): Promise<FormState> {

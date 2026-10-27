@@ -31,7 +31,7 @@ export default async function DeletePage({ params }: { params: { pid: string } }
         <div className="grid cols-2" style={{ marginBlockStart: "1rem" }}>
           <Card title={t("استعادة الملف", "Restore the file")}>
             <p className="muted">{t("إن غيّرت رأيك يمكنك إلغاء الحذف الآن، ويعود الملف كما كان. الروابط التي أُلغيت لا تعود؛ أنشئ روابط جديدة عند الحاجة.", "If you changed your mind, cancel the deletion and the file returns as it was. Revoked links do not come back; create new ones when needed.")}</p>
-            <form action={restoreFile}><input type="hidden" name="_pid" value={p.id} /><button className="btn primary"><ArchiveRestore size={16} aria-hidden="true" />{t("استعادة الملف", "Restore this file")}</button></form>
+            <ActionForm action={restoreFile} className="stack" resetOnSuccess={false}><input type="hidden" name="_pid" value={p.id} /><div><SubmitButton pending={t("جارٍ الاستعادة…", "Restoring…")}><ArchiveRestore size={16} aria-hidden="true" />{t("استعادة الملف", "Restore this file")}</SubmitButton></div></ActionForm>
             <hr />
             <p className="small muted">{t("قبل الحذف النهائي يمكنك تنزيل بياناتك:", "Before it is erased you can download your data:")}</p>
             <a className="btn sm" href={`/api/patients/${p.id}/report?scope=full&dl=1`}><Download size={14} aria-hidden="true" />{t("تنزيل التقرير الكامل (PDF)", "Download the complete report (PDF)")}</a>

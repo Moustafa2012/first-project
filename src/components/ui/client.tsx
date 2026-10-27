@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFormState, useFormStatus } from "react-dom";
 
-export type FormState = { ok?: boolean; error?: string; message?: string; data?: Record<string, string> } | undefined;
+export type FormState = { ok?: boolean; error?: string; message?: string; data?: Record<string, string>; redirectTo?: string } | undefined;
 export type FormAction = (prev: FormState, fd: FormData) => Promise<FormState>;
 
 export function SubmitButton({ children, className = "btn primary", pending: pendingText }: { children: React.ReactNode; className?: string; pending?: string }) {
@@ -20,10 +20,17 @@ export function SubmitButton({ children, className = "btn primary", pending: pen
 export function ActionForm({
   action, children, className, resetOnSuccess = true, id,
 }: { action: FormAction; children: React.ReactNode; className?: string; resetOnSuccess?: boolean; id?: string }) {
-  const [state, formAction] = useFormState(action, undefined);
+  // The redirect is performed here, as soon as the server action answers: a revalidation that accompanies the answer can
+  // unmount this form (e.g. a pending-deletion panel that disappears after "restore") before any effect would run.
+  const [state, formAction] = useFormState(async (prev: FormState, fd: FormData) => {
+    const result = await action(prev, fd);
+    const to = result?.redirectTo;
+    if (to && to.startsWith("/") && !to.startsWith("//")) window.location.assign(to);
+    return result;
+  }, undefined);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
-    if (state?.ok && resetOnSuccess) ref.current?.reset();
+    if (state?.ok && resetOnSuccess && !state.redirectTo) ref.current?.reset();
   }, [state, resetOnSuccess]);
   return (
     <form action={formAction} ref={ref} className={className} id={id}>

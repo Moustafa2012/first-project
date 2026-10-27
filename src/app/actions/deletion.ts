@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
@@ -33,16 +32,18 @@ export async function requestDeletion(_: FormState, fd: FormData): Promise<FormS
   const { error } = await createClient().rpc("patient_request_deletion", { p_patient: pid, p_confirm: field(fd, "confirm") });
   if (error) return { error: explainError(error, t) };
   revalidatePath("/patients", "layout");
-  redirect(`/patients/${pid}/delete`);
+  return { ok: true, redirectTo: `/patients/${pid}/delete` };
 }
 
-export async function restoreFile(fd: FormData): Promise<void> {
+export async function restoreFile(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
   await requireUser();
   const pid = field(fd, "_pid");
-  if (!UUID_RE.test(pid)) return;
-  await createClient().rpc("patient_cancel_deletion", { p_patient: pid });
+  if (!UUID_RE.test(pid)) return { error: t("طلب غير صالح.", "Invalid request.") };
+  const { error } = await createClient().rpc("patient_cancel_deletion", { p_patient: pid });
+  if (error) return { error: explainError(error, t) };
   revalidatePath("/patients", "layout");
-  redirect(`/patients/${pid}`);
+  return { ok: true, redirectTo: `/patients/${pid}` };
 }
 
 /** "Delete now": the file is already pending; the owner types the name and the password again. */
@@ -68,6 +69,5 @@ export async function deleteNow(_: FormState, fd: FormData): Promise<FormState> 
   } catch (e) {
     return { error: explainError(e, t) };
   }
-  revalidatePath("/patients", "layout");
-  redirect("/patients?deleted=1");
+  return { ok: true, redirectTo: "/patients?deleted=1" };
 }

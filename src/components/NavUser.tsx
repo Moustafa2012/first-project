@@ -85,7 +85,7 @@ export function NavUser({ name, email, admin, text, avatar }: { name: string; em
             <button role="menuitem" className="menu-item" tabIndex={-1}><span className="mi">{text.dark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</span><span className="mt">{text.themeLabel}</span><span className={`switch${text.dark ? " on" : ""}`} aria-hidden="true" /></button>
           </form>
           <div className="menu-sep" role="separator" />
-          <form action={logout} role="none">
+          <form action={async () => { await logout(); window.location.assign("/login"); }} role="none">
             <button role="menuitem" className="menu-item danger" tabIndex={-1}><span className="mi"><LogOut size={16} aria-hidden="true" /></span><span className="mt">{text.signOut}</span></button>
           </form>
         </div>

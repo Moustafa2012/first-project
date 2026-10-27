@@ -19,7 +19,7 @@ export async function login(_: FormState, fd: FormData): Promise<FormState> {
   if (!email || !password) return { error: t("أدخل البريد وكلمة المرور.", "Enter your email and password.") };
   const { error } = await createClient().auth.signInWithPassword({ email, password });
   if (error) return { error: t("البريد أو كلمة المرور غير صحيحة.", "Incorrect email or password.") };
-  redirect(safeNext(fd.get("next")));
+  return { ok: true, redirectTo: safeNext(fd.get("next")) };
 }
 
 export async function signup(_: FormState, fd: FormData): Promise<FormState> {
@@ -49,7 +49,7 @@ export async function signup(_: FormState, fd: FormData): Promise<FormState> {
   if (!data.session) {
     return { ok: true, message: t("أرسلنا رسالة تأكيد إلى بريدك. افتحها ثم سجّل الدخول.", "We sent a confirmation email. Open it, then sign in.") };
   }
-  redirect("/patients");
+  return { ok: true, redirectTo: "/patients" };
 }
 
 export async function requestReset(_: FormState, fd: FormData): Promise<FormState> {
@@ -73,7 +73,6 @@ export async function updatePassword(_: FormState, fd: FormData): Promise<FormSt
 
 export async function logout() {
   await createClient().auth.signOut();
-  redirect("/login");
 }
 
 export async function currentOrigin(): Promise<string> {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { Download } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -23,7 +24,7 @@ export default async function VitalsPage({ params, searchParams }: { params: { p
   const tz = getTz();
   const p = await getPatient(params.pid);
   const [access, types] = await Promise.all([getAccess(p.id), getObsTypes()]);
-  const vitalTypes = types.filter((x) => x.category !== "lab");
+  const vitalTypes = forSex(types, p.sex).filter((x) => x.category !== "lab");
   const type = vitalTypes.find((x) => x.code === searchParams.type) ?? vitalTypes[0];
   const base = `/patients/${p.id}/vitals`;
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { forSex } from "@/lib/sex";
 import { FileText, Image as ImageIcon, Lock } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -96,7 +97,7 @@ export default async function DocumentsPage({ params, searchParams }: { params: 
                 <div className="field wide"><label htmlFor="file">{t("الملف (PDF / JPG / PNG / WebP، حتى 20 ميغابايت)", "File (PDF / JPG / PNG / WebP, up to 20 MB)")} <span className="req">*</span></label><input id="file" name="file" type="file" required accept="application/pdf,image/jpeg,image/png,image/webp" /></div>
                 <div className="field"><label htmlFor="title">{t("العنوان", "Title")}</label><input id="title" name="title" type="text" maxLength={200} /></div>
                 <div className="field"><label htmlFor="doc_type">{t("النوع", "Type")}</label><select id="doc_type" name="doc_type" defaultValue="other">{DOC_TYPE.map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}</select></div>
-                <div className="field"><label htmlFor="specialty_id">{t("التخصص", "Specialty")}</label><select id="specialty_id" name="specialty_id" defaultValue=""><option value="">—</option>{specs.map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}</select></div>
+                <div className="field"><label htmlFor="specialty_id">{t("التخصص", "Specialty")}</label><select id="specialty_id" name="specialty_id" defaultValue=""><option value="">—</option>{forSex(specs, p.sex).map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}</select></div>
                 <div className="field"><label htmlFor="document_date">{t("تاريخ المستند", "Document date")}</label><input id="document_date" name="document_date" type="date" /></div>
                 <div className="field"><label htmlFor="sensitivity">{t("مستوى الحساسية", "Sensitivity")}</label><select id="sensitivity" name="sensitivity" defaultValue="standard">{SENSITIVITY.map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}</select></div>
                 {(encs ?? []).length > 0 && <div className="field"><label htmlFor="encounter_id">{t("ربط بزيارة", "Link to a visit")}</label><select id="encounter_id" name="encounter_id" defaultValue=""><option value="">—</option>{(encs ?? []).map((e) => <option key={e.id as string} value={e.id as string}>{fmtDate(e.started_at as string, lang, tz)} — {(e.reason as string) ?? (e.kind as string)}</option>)}</select></div>}
@@ -109,7 +110,7 @@ export default async function DocumentsPage({ params, searchParams }: { params: 
         </details>
       )}
       <Card title={t(`المستندات (${live.length})`, `Documents (${live.length})`)} actions={
-        <form method="get" className="row"><select name="specialty" defaultValue={searchParams.specialty ?? ""} aria-label={t("التخصص", "Specialty")} style={{ width: "auto" }}><option value="">{t("كل التخصصات", "All specialties")}</option>{specs.map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}</select>
+        <form method="get" className="row"><select name="specialty" defaultValue={searchParams.specialty ?? ""} aria-label={t("التخصص", "Specialty")} style={{ width: "auto" }}><option value="">{t("كل التخصصات", "All specialties")}</option>{forSex(specs, p.sex).map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}</select>
           <select name="type" defaultValue={searchParams.type ?? ""} aria-label={t("النوع", "Type")} style={{ width: "auto" }}><option value="">{t("كل الأنواع", "All types")}</option>{DOC_TYPE.map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}</select>
           <button className="btn sm">{t("تصفية", "Filter")}</button>{(searchParams.specialty || searchParams.type) && <Link className="btn ghost sm" href={base + qs({}, {})}>{t("مسح", "Clear")}</Link>}</form>
       }>

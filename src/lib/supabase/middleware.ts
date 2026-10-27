@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isConfigured, publicEnv } from "@/lib/env";
 
-const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot", "/auth", "/s/", "/api/health"];
+const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot", "/auth", "/s/", "/api/health", "/api/cron/"];
 
 /** Refreshes the auth cookies and redirects anonymous visitors away from private pages. */
 export async function updateSession(request: NextRequest) {

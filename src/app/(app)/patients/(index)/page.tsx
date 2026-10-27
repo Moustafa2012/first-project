@@ -4,12 +4,13 @@ import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { ageLabel } from "@/lib/format";
 import { lbl, SEX } from "@/lib/labels";
-import { Chip, Empty, PageHead } from "@/components/ui";
+import { Banner, Chip, Empty, PageHead } from "@/components/ui";
+import { Avatar } from "@/components/Avatar";
 import type { PatientRow } from "@/lib/types";
 
 export const metadata = { title: "المرضى" };
 
-export default async function PatientsPage() {
+export default async function PatientsPage({ searchParams }: { searchParams: { deleted?: string } }) {
   const { lang, t } = i18n();
   const supabase = createClient();
   const [{ data: patients }, { data: members }, { data: allergies }] = await Promise.all([
@@ -27,6 +28,7 @@ export default async function PatientsPage() {
         sub={t("لكل مريض ملف صحي مستقل. يمكنك إدارة ملفك وملفات من ترعاهم (الأطفال مثلاً).", "Each patient has an independent health file. Manage your own and those you care for, such as children.")}
         actions={<Link className="btn primary" href="/patients/new"><Plus size={16} aria-hidden="true" />{t("ملف جديد", "New file")}</Link>}
       />
+      {searchParams.deleted && <div style={{ marginBlockEnd: "1rem" }}><Banner tone="ok">{t("حُذف الملف نهائياً.", "The file was permanently deleted.")}</Banner></div>}
       {list.length === 0 ? (
         <Empty>
           <p>{t("لا توجد ملفات بعد. أنشئ ملفك الصحي الأول.", "No files yet. Create your first health file.")}</p>
@@ -37,7 +39,7 @@ export default async function PatientsPage() {
           {list.map((p) => (
             <Link key={p.id} href={`/patients/${p.id}`} className="card" style={{ textDecoration: "none", color: "inherit" }}>
               <div className="row" style={{ flexWrap: "nowrap", gap: ".75rem", marginBlockEnd: ".6rem" }}>
-                <div className="avatar sm" aria-hidden="true">{Array.from((lang === "en" && p.full_name_en ? p.full_name_en : p.full_name).trim()).slice(0, 1).join("").toUpperCase()}</div>
+                <Avatar size="sm" name={lang === "en" && p.full_name_en ? p.full_name_en : p.full_name} src={p.photo_path ? `/api/avatar?p=${p.id}&v=${encodeURIComponent(p.updated_at)}` : null} />
                 <div style={{ minWidth: 0 }}>
                   <h2 style={{ marginBlockEnd: 0 }}>{lang === "en" && p.full_name_en ? p.full_name_en : p.full_name}</h2>
                   <p className="muted small" style={{ margin: 0 }}><span className="ltr">{p.mrn}</span> · {ageLabel(p.date_of_birth, lang)} · {lbl(SEX, p.sex, lang)}</p>
@@ -45,6 +47,7 @@ export default async function PatientsPage() {
               </div>
               <div className="row">
                 <Chip tone="info">{roleOf.get(p.id) === "guardian" ? t("ولي أمر", "Guardian") : roleOf.get(p.id) === "owner" ? t("ملفك", "Your file") : t("رعاية", "Care")}</Chip>
+                {p.deletion_requested_at && <Chip tone="warn">{t("مجدول للحذف", "Scheduled for deletion")}</Chip>}
                 {allergic.has(p.id) && <Chip tone="bad"><TriangleAlert size={13} aria-hidden="true" />{t("حساسية موثقة", "Allergies on file")}</Chip>}
               </div>
             </Link>

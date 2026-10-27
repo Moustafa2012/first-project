@@ -7,7 +7,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const profile = await currentProfile();
   return (
     <>
-      <Topbar signedIn admin={profile?.role === "admin"} user={{ name: profile?.full_name ?? "", email: authed.email ?? "" }} />
+      <Topbar signedIn admin={profile?.role === "admin"} user={{ name: profile?.full_name ?? "", email: authed.email ?? "", avatar: profile?.avatar_path ? `/api/avatar?v=${encodeURIComponent(profile.updated_at)}` : null }} />
       <main id="main" className="container">{children}</main>
       <Footer />
     </>

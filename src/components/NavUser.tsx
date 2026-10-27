@@ -1,21 +1,22 @@
+/* eslint-disable @next/next/no-img-element -- avatars are small private images served by /api/avatar */
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, Languages, LogOut, Moon, Settings, ShieldCheck, Sun, Users } from "lucide-react";
+import { ChevronDown, Languages, Link2, LogOut, Moon, Settings, ShieldCheck, Sun, Users } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { setLang, setTheme } from "@/app/actions/prefs";
 
 export interface NavUserText {
-  patients: string; account: string; admin: string; signOut: string; menu: string;
+  patients: string; shares: string; account: string; admin: string; signOut: string; menu: string;
   langLabel: string; nextLang: "ar" | "en"; themeLabel: string; nextTheme: "light" | "dark"; dark: boolean;
 }
 
 const initials = (n: string) => Array.from(n.trim().split(/\s+/).slice(0, 2).map((w) => Array.from(w)[0] ?? "").join("") || "?").join("").toUpperCase();
 
 /** Account menu in the top bar: profile header, shortcuts, language / theme, sign out. Keyboard and screen-reader friendly. */
-export function NavUser({ name, email, admin, text }: { name: string; email: string; admin: boolean; text: NavUserText }) {
+export function NavUser({ name, email, admin, text, avatar }: { name: string; email: string; admin: boolean; text: NavUserText; avatar?: string | null }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -49,20 +50,21 @@ export function NavUser({ name, email, admin, text }: { name: string; email: str
     <div className="navuser" ref={root} onKeyDown={onKey}>
       <button ref={trigger} type="button" className="navuser-btn" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
         aria-label={`${text.menu}: ${name}`} onClick={() => setOpen((v) => !v)}>
-        <span className="avatar sm" aria-hidden="true">{initials(name || email)}</span>
+        <span className="avatar sm" aria-hidden="true">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials(name || email)}</span>
         <span className="navuser-name">{name || email}</span>
         <ChevronDown size={16} aria-hidden="true" className="navuser-chev" />
       </button>
       {open && (
         <div className="menu" id={menuId} role="menu" aria-label={text.menu}>
           <div className="menu-head" role="presentation">
-            <span className="avatar" aria-hidden="true">{initials(name || email)}</span>
+            <span className="avatar" aria-hidden="true">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials(name || email)}</span>
             <div style={{ minWidth: 0 }}>
               <strong className="menu-name">{name || email}</strong>
               <div className="menu-mail"><span className="ltr">{email}</span></div>
             </div>
           </div>
           <Link role="menuitem" href="/patients" className="menu-item" tabIndex={-1}><Users size={17} aria-hidden="true" />{text.patients}</Link>
+          <Link role="menuitem" href="/shares" className="menu-item" tabIndex={-1}><Link2 size={17} aria-hidden="true" />{text.shares}</Link>
           <Link role="menuitem" href="/account" className="menu-item" tabIndex={-1}><Settings size={17} aria-hidden="true" />{text.account}</Link>
           {admin && <Link role="menuitem" href="/admin/specialties" className="menu-item" tabIndex={-1}><ShieldCheck size={17} aria-hidden="true" />{text.admin}</Link>}
           <div className="menu-sep" role="separator" />

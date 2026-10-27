@@ -26,7 +26,7 @@ export default async function SharingPage({ params }: { params: { pid: string } 
   return (
     <>
       <PageHead title={t("المشاركة الطبية الآمنة", "Secure medical sharing")} sub={t("أعطِ الطبيب رابطاً مع رمز PIN يفتح الجزء الذي تحدده فقط، لمدة محدودة، ويمكنك إلغاؤه فوراً.", "Give a doctor a link plus a PIN that opens only what you choose, for a limited time, revocable instantly.")}
-        actions={<Link className="btn primary" href={`/patients/${p.id}/sharing/new`}><Plus size={16} aria-hidden="true" />{t("مشاركة جديدة", "New share")}</Link>} />
+        actions={<><Link className="btn" href="/shares">{t("سجل كل المشاركات", "All-files register")}</Link><Link className="btn primary" href={`/patients/${p.id}/sharing/new`}><Plus size={16} aria-hidden="true" />{t("مشاركة جديدة", "New share")}</Link></>} />
       <Banner tone="info">{t("الرابط وحده لا يكفي: يحتاج الطبيب الرمز أيضاً. أرسل الرمز بقناة مختلفة عن الرابط.", "The link alone is not enough: the doctor also needs the PIN. Send the PIN through a different channel than the link.")}</Banner>
       <Card title={t(`المشاركات (${list.length})`, `Shares (${list.length})`)}>
         {list.length === 0 ? <Empty>{t("لم تنشئ أي مشاركة بعد.", "You have not created any share yet.")}</Empty> : list.map((s) => {

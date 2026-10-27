@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
@@ -17,7 +18,7 @@ export default async function NewSharePage({ params, searchParams }: { params: {
   const access = await getAccess(p.id);
   if (!access.canShare) notFound();
   const [specs, types] = await Promise.all([getSpecialties(), getObsTypes()]);
-  const preset = specs.find((s) => s.code === searchParams.specialty);
+  const preset = forSex(specs, p.sex).find((s) => s.code === searchParams.specialty);
   const supabase = createClient();
   const act = { patient_id: p.id, record_status: "active" };
   const [enc, obs, docs, proc, img, notes, srec, plans] = await Promise.all([
@@ -43,7 +44,7 @@ export default async function NewSharePage({ params, searchParams }: { params: {
     ["care_plans", t("خطط المتابعة", "Care plans"), (plans.data ?? []).map((r) => ({ id: r.id, label: r.title }))],
   ];
   const defaultInclude = new Set(preset ? ["other_conditions", "encounters", "observations", "procedures", "imaging", "specialty_records", "documents", "notes", "care_plans"] : ["other_conditions", "encounters", "observations", "procedures", "imaging", "documents"]);
-  const labObsTypes = types.filter((x) => x.category !== "other");
+  const labObsTypes = forSex(types, p.sex).filter((x) => x.category !== "other");
 
   return (
     <>
@@ -68,7 +69,7 @@ export default async function NewSharePage({ params, searchParams }: { params: {
             <div className="stack">
               <label className="check"><input type="radio" name="scope_kind" value="specialty" defaultChecked={Boolean(preset)} />{t("تخصص طبي واحد أو أكثر", "One or more specialties")}</label>
               <div className="grid cols-3" style={{ paddingInlineStart: "1.6rem" }}>
-                {specs.map((s) => <label className="check small" key={s.id}><input type="checkbox" name="specialty" value={s.id} defaultChecked={preset?.id === s.id} />{lang === "ar" ? s.name_ar : s.name_en}</label>)}
+                {forSex(specs, p.sex).map((s) => <label className="check small" key={s.id}><input type="checkbox" name="specialty" value={s.id} defaultChecked={preset?.id === s.id} />{lang === "ar" ? s.name_ar : s.name_en}</label>)}
               </div>
               <label className="check"><input type="radio" name="scope_kind" value="full" defaultChecked={!preset} />{t("الملف الصحي كاملاً (بحسب البنود أدناه)", "The whole health file (per the items below)")}</label>
               <label className="check"><input type="radio" name="scope_kind" value="custom" />{t("سجلات أختارها بنفسي (من القائمة في الأسفل)", "Only records I pick (from the list below)")}</label>

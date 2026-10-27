@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { notFound } from "next/navigation";
 import { Share2 } from "lucide-react";
 import { i18n } from "@/lib/i18n";
@@ -28,7 +29,7 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
   const tz = getTz();
   const p = await getPatient(params.pid);
   const specs = await getSpecialties();
-  const spec = specs.find((s) => s.code === params.code);
+  const spec = specs.find((s) => s.code === params.code && appliesToSex(s.applicable_sex, p.sex));
   if (!spec) notFound();
   const [access, types] = await Promise.all([getAccess(p.id), getObsTypes()]);
   const supabase = createClient();

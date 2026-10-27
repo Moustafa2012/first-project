@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { Plus } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -20,7 +21,7 @@ export default async function LabsPage({ params, searchParams }: { params: { pid
   const tz = getTz();
   const p = await getPatient(params.pid);
   const [access, types] = await Promise.all([getAccess(p.id), getObsTypes()]);
-  const labTypes = types.filter((x) => x.category === "lab");
+  const labTypes = forSex(types, p.sex).filter((x) => x.category === "lab");
   const base = `/patients/${p.id}/labs`;
   const supabase = createClient();
   const view = searchParams.view === "trends" ? "trends" : "reports";

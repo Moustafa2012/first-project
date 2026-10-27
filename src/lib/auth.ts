@@ -17,11 +17,17 @@ export async function requireUser() {
   return user;
 }
 
+export interface ProfileRow {
+  id: string; full_name: string; role: string; preferred_lang: string; date_of_birth: string | null; sex: string | null;
+  blood_abo: string | null; blood_rh: string | null; phone: string | null; nationality: string | null; city: string | null;
+  country: string | null; avatar_path: string | null; updated_at: string;
+}
+
 export const currentProfile = cache(async () => {
   const user = await currentUser();
   if (!user) return null;
-  const { data } = await createClient().from("profiles").select("id, full_name, role, preferred_lang").eq("id", user.id).maybeSingle();
-  return data as { id: string; full_name: string; role: string; preferred_lang: string } | null;
+  const { data } = await createClient().from("profiles").select("id, full_name, role, preferred_lang, date_of_birth, sex, blood_abo, blood_rh, phone, nationality, city, country, avatar_path, updated_at").eq("id", user.id).maybeSingle();
+  return data as ProfileRow | null;
 });
 
 export function getTz(): string {
@@ -41,6 +47,12 @@ export function explainError(e: unknown, t: T): string {
   console.error("[db-error]", err?.code ?? "-", m.slice(0, 300));
   const rules: [RegExp, string, string][] = [
     [/possible_duplicate/, "يوجد ملف بنفس الاسم وتاريخ الميلاد في حسابك. أكّد أنه شخص مختلف للمتابعة.", "A file with the same name and birth date already exists in your account. Confirm it is a different person to continue."],
+    [/specialty_not_applicable/, "هذا التخصص لا ينطبق على جنس المريض المسجَّل.", "This specialty does not apply to the sex recorded for this patient."],
+    [/measurement_not_applicable/, "هذا القياس لا ينطبق على جنس المريض المسجَّل.", "This measurement does not apply to the sex recorded for this patient."],
+    [/sex_change_conflict/, "لا يمكن تغيير الجنس: توجد سجلات نشطة في تخصص أو فحص لا ينطبق على الجنس الجديد. أبطِلها أولاً (سُجّلت بالخطأ).", "The sex cannot be changed: active records exist in a specialty or test that does not apply to the new sex. Mark them entered-in-error first."],
+    [/confirmation_mismatch/, "الاسم المُدخل لا يطابق اسم الملف.", "The name you typed does not match the file name."],
+    [/already_pending/, "الملف مجدول للحذف مسبقاً.", "This file is already scheduled for deletion."],
+    [/invalid_date_of_birth/, "تاريخ ميلاد غير صالح.", "Invalid date of birth."],
     [/outside the plausible range/, "القيمة خارج النطاق المعقول. راجع الرقم والوحدة.", "The value is outside the plausible range. Check the number and unit."],
     [/systolic must be greater/, "الضغط الانقباضي يجب أن يكون أكبر من الانبساطي.", "Systolic must be greater than diastolic."],
     [/systolic and diastolic together/, "ضغط الدم يتطلب القيمتين معاً.", "Blood pressure needs both values."],

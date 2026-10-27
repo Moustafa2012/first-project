@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { appliesToSex, forSex } from "@/lib/sex";
 import Link from "next/link";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -46,7 +47,7 @@ export default async function VisitPage({ params }: { params: { pid: string; eid
         ]} />
         <details className="fold" style={{ marginBlockStart: ".8rem" }}>
           <summary>{t("تعديل الزيارة", "Edit visit")}</summary>
-          <div className="fold-body"><EntityForm entity={ENTITIES.visits} pid={p.id} row={row} specialties={specs} returnPath={path} /></div>
+          <div className="fold-body"><EntityForm entity={ENTITIES.visits} pid={p.id} row={row} specialties={forSex(specs, p.sex)} returnPath={path} /></div>
         </details>
       </Card>
       <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={path} filter={link} links={link} defaults={inherit} title={t("التشخيصات في هذه الزيارة", "Diagnoses made at this visit")} compact />

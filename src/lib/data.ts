@@ -27,11 +27,17 @@ export const getPatient = cache(async (pid: string): Promise<PatientRow> => {
 
 export const getAccess = cache(async (pid: string) => {
   const user = await currentUser();
-  const { data } = await createClient().from("patient_members").select("role, can_write, can_share").eq("patient_id", pid).eq("user_id", user?.id ?? "").is("revoked_at", null).maybeSingle();
+  const supabase = createClient();
+  const [{ data }, { data: pending }] = await Promise.all([
+    supabase.from("patient_members").select("role, can_write, can_share").eq("patient_id", pid).eq("user_id", user?.id ?? "").is("revoked_at", null).maybeSingle(),
+    supabase.from("patients").select("deletion_requested_at").eq("id", pid).maybeSingle(),
+  ]);
+  const frozen = Boolean(pending?.deletion_requested_at);   // a file pending deletion is read-only
   return {
     role: (data?.role as string | undefined) ?? "none",
-    canWrite: Boolean(data?.can_write),
-    canShare: Boolean(data?.can_share),
+    canWrite: Boolean(data?.can_write) && !frozen,
+    canShare: Boolean(data?.can_share) && !frozen,
+    pendingDeletion: frozen,
     canManage: data?.role === "owner" || data?.role === "guardian",
     userId: user?.id ?? "",
   };

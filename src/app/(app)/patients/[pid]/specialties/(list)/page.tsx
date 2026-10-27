@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getPatient, getSpecialties } from "@/lib/data";
@@ -26,7 +27,7 @@ export default async function SpecialtiesPage({ params }: { params: { pid: strin
       {groups.map(([title, kind]) => (
         <Card key={kind} title={title}>
           <div className="grid cols-3">
-            {specs.filter((s) => s.kind === kind).map((s) => {
+            {forSex(specs, p.sex).filter((s) => s.kind === kind).map((s) => {
               const n = counts.get(s.id) ?? 0;
               return (
                 <Link key={s.id} href={`/patients/${p.id}/specialties/${s.code}`} className="tile" style={{ textDecoration: "none", color: "inherit" }}>

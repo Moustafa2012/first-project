@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { TriangleAlert, ShieldCheck, CircleHelp } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -6,8 +7,7 @@ import { ageLabel } from "@/lib/format";
 import { ALLERGY_SEVERITY, lbl, SEX } from "@/lib/labels";
 import { SideNav, type NavItem } from "@/components/SideNav";
 import { Chip } from "@/components/ui";
-
-const initials = (n: string) => n.trim().split(/\s+/).slice(0, 2).map((w) => Array.from(w)[0] ?? "").join("").toUpperCase();
+import { Avatar } from "@/components/Avatar";
 
 export default async function PatientLayout({ children, params }: { children: React.ReactNode; params: { pid: string } }) {
   const { lang, t } = i18n();
@@ -49,7 +49,7 @@ export default async function PatientLayout({ children, params }: { children: Re
       <header className="card patient-head" style={{ marginBlockEnd: "1.25rem" }}>
         <div className="row between">
           <div className="row" style={{ flexWrap: "nowrap", gap: ".9rem" }}>
-            <div className="avatar" aria-hidden="true">{initials(lang === "en" && p.full_name_en ? p.full_name_en : p.full_name)}</div>
+            <Avatar name={lang === "en" && p.full_name_en ? p.full_name_en : p.full_name} src={p.photo_path ? `/api/avatar?p=${p.id}&v=${encodeURIComponent(p.updated_at)}` : null} />
           <div>
             <h1 style={{ marginBottom: ".1rem" }}>{lang === "en" && p.full_name_en ? p.full_name_en : p.full_name}</h1>
             <p className="muted" style={{ margin: 0 }}>
@@ -76,6 +76,15 @@ export default async function PatientLayout({ children, params }: { children: Re
           )}
         </div>
       </header>
+      {p.deletion_requested_at && (
+        <div className="banner warn" role="alert" style={{ marginBlockEnd: "1rem" }}>
+          <TriangleAlert size={18} aria-hidden="true" style={{ flex: "none", marginBlockStart: 3 }} />
+          <div>
+            <strong>{t("هذا الملف مجدول للحذف", "This file is scheduled for deletion")}</strong> — {t("للقراءة فقط. ", "read-only. ")}
+            {access.canManage && <Link href={`${base}/delete`}>{t("استعادة أو حذف الآن", "Restore or delete now")}</Link>}
+          </div>
+        </div>
+      )}
       <div className="layout">
         <SideNav items={items} label={t("أقسام الملف", "File sections")} moreLabel={t("المزيد", "More")} closeLabel={t("إغلاق", "Close")} />
         <div className="stack" style={{ minWidth: 0 }}>{children}</div>

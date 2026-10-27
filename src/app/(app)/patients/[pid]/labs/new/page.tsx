@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
@@ -20,7 +21,7 @@ export default async function NewLabReport({ params }: { params: { pid: string }
     getObsTypes(), getSpecialties(),
     createClient().from("encounters").select("id, kind, reason, started_at").eq("patient_id", p.id).eq("record_status", "active").order("started_at", { ascending: false }).limit(20),
   ]);
-  const labTypes = types.filter((x) => x.category === "lab").map((x) => ({
+  const labTypes = forSex(types, p.sex).filter((x) => x.category === "lab").map((x) => ({
     id: x.id, name: lang === "ar" ? x.name_ar : x.name_en, unit: x.default_unit, kind: x.value_kind, group: LAB_GROUP[x.lab_group ?? "other"]?.[lang] ?? "—",
   }));
   return (
@@ -38,7 +39,7 @@ export default async function NewLabReport({ params }: { params: { pid: string }
             <div className="field"><label>{t("وقت اعتماد النتيجة", "Approved")}</label><DateTimeField name="approved_at" blank /></div>
             <div className="field"><label htmlFor="approved_by_name">{t("اعتمدها", "Approved by")}</label><input id="approved_by_name" name="approved_by_name" type="text" maxLength={200} /></div>
             <div className="field"><label htmlFor="status">{t("حالة التقرير", "Report status")}</label><select id="status" name="status" defaultValue="final">{LAB_STATUS.map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}</select></div>
-            <div className="field"><label htmlFor="specialty_id">{t("التخصص", "Specialty")}</label><select id="specialty_id" name="specialty_id" defaultValue=""><option value="">—</option>{specs.map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}</select></div>
+            <div className="field"><label htmlFor="specialty_id">{t("التخصص", "Specialty")}</label><select id="specialty_id" name="specialty_id" defaultValue=""><option value="">—</option>{forSex(specs, p.sex).map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}</select></div>
             {(encs ?? []).length > 0 && <div className="field"><label htmlFor="encounter_id">{t("ربط بزيارة", "Link to a visit")}</label><select id="encounter_id" name="encounter_id" defaultValue=""><option value="">—</option>{(encs ?? []).map((e) => <option key={e.id as string} value={e.id as string}>{fmtDate(e.started_at as string, lang, tz)} — {(e.reason as string) ?? (e.kind as string)}</option>)}</select></div>}
             <div className="field wide"><label htmlFor="lab_notes">{t("ملاحظات المختبر", "Lab notes")}</label><textarea id="lab_notes" name="lab_notes" rows={2} maxLength={2000} /></div>
           </div>

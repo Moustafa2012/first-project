@@ -1,15 +1,17 @@
+import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getPatient } from "@/lib/data";
 import { ALLERGY_ASSERTION, ABO, RH, SEX } from "@/lib/labels";
 import { Card, Chip, Empty, PageHead } from "@/components/ui";
+import { PhotoForm } from "@/components/PhotoForm";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { deleteSimple, saveSimple, updatePatient } from "@/app/actions/patients";
 
 const ID_TYPES: [string, string, string][] = [["national_id", "هوية وطنية", "National ID"], ["residency", "إقامة", "Residency"], ["passport", "جواز سفر", "Passport"], ["other", "أخرى", "Other"]];
 
-export default async function ProfilePage({ params }: { params: { pid: string } }) {
+export default async function ProfilePage({ params, searchParams }: { params: { pid: string }; searchParams: { photo?: string; error?: string } }) {
   const { lang, t } = i18n();
   const p = await getPatient(params.pid);
   const access = await getAccess(p.id);
@@ -24,6 +26,9 @@ export default async function ProfilePage({ params }: { params: { pid: string } 
   return (
     <>
       <PageHead title={t("البيانات الشخصية", "Personal details")} sub={t("العمر يُحسب من تاريخ الميلاد. الهوية الوطنية ورقم الجواز لا تُشارك أبداً.", "Age is calculated from the date of birth. National ID and passport numbers are never shared.")} />
+      <Card title={t("صورة الملف", "File picture")}>
+        <PhotoForm target="patient" pid={p.id} name={p.full_name} src={p.photo_path ? `/api/avatar?p=${p.id}&v=${encodeURIComponent(p.updated_at)}` : null} returnTo={`/patients/${p.id}/profile`} status={searchParams} canEdit={!ro} />
+      </Card>
       <Card title={t("بيانات المريض", "Patient details")}>
         <ActionForm action={updatePatient} className="stack" resetOnSuccess={false}>
           <input type="hidden" name="_pid" value={p.id} />
@@ -97,6 +102,15 @@ export default async function ProfilePage({ params }: { params: { pid: string } 
             </div><div><SubmitButton>{t("حفظ", "Save")}</SubmitButton></div>
           </ActionForm>
         </Card>
+      )}
+      {access.canManage && (
+        <section className="card danger-zone">
+          <div className="card-head"><h2>{t("منطقة الخطر", "Danger zone")}</h2></div>
+          <div className="row between">
+            <p className="muted" style={{ margin: 0, maxWidth: "60ch" }}>{t("حذف هذا الملف الطبي بالكامل. يُجدول الحذف 30 يوماً قبل أن يصبح نهائياً ويمكن التراجع خلالها.", "Delete this entire health file. Deletion is scheduled for 30 days before it becomes permanent, and can be undone until then.")}</p>
+            <Link className="btn danger" href={`/patients/${p.id}/delete`}><Trash2 size={16} aria-hidden="true" />{t("حذف الملف…", "Delete file…")}</Link>
+          </div>
+        </section>
       )}
     </>
   );

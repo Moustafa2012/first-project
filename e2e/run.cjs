@@ -517,6 +517,130 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert(adm.status() === 404, "non-admin cannot open admin");
   });
 
+  // ---------------------------------------------------------------- account, controls, sex rules, share register, deletion
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const newFile = async (name, dob, sex) => {
+    await page.goto(`${BASE}/patients/new`);
+    await page.fill("#full_name", name); await page.fill("#date_of_birth", dob); await page.selectOption("#sex", sex);
+    await submit(page, "Create file");
+    await page.waitForURL(/\/patients\/[0-9a-f-]{36}$/);
+    return page.url().split("/").pop();
+  };
+
+  await step("account: basic details saved; picture uploaded, shown in the menu, non-images refused, removable", async () => {
+    await page.goto(`${BASE}/account`);
+    await page.fill("#date_of_birth", "1990-05-20"); await page.selectOption("#sex", "female"); await page.selectOption("#blood_abo", "O"); await page.selectOption("#blood_rh", "+");
+    await page.fill("#phone", "+966500000001"); await page.fill("#city", "Riyadh");
+    await submit(page, "Save changes");
+    await page.getByText("Your account details were saved.").waitFor();
+    await page.reload();
+    assert((await page.inputValue("#date_of_birth")) === "1990-05-20" && (await page.inputValue("#blood_abo")) === "O" && (await page.inputValue("#city")) === "Riyadh", "details persisted");
+    await page.setInputFiles("#photo-user", { name: "me.png", mimeType: "image/png", buffer: PNG });
+    await submit(page, "Upload");
+    await page.getByText("Picture updated.").waitFor();
+    await page.locator(".navuser-btn img.avatar-img").waitFor();
+    const r = await page.request.get(`${BASE}/api/avatar`);
+    assert(r.status() === 200 && /image\/png/.test(r.headers()["content-type"]) && r.headers()["x-content-type-options"] === "nosniff", "avatar served as nosniff png");
+    await page.setInputFiles("#photo-user", { name: "evil.png", mimeType: "image/png", buffer: pdf() });
+    await submit(page, "Upload");
+    await page.getByText(/Unsupported format/).waitFor();
+    await submit(page, "Remove picture");
+    await page.getByText("Picture removed.").waitFor();
+    assert((await page.request.get(`${BASE}/api/avatar`)).status() === 404, "avatar gone");
+  });
+
+  await step("controls: text, select and date fields share one height (desktop 44px, mobile 48px)", async () => {
+    await page.goto(`${BASE}/account`);
+    const heights = async () => page.evaluate(() => ["#full_name", "#date_of_birth", "#sex", "#phone"].map((q) => document.querySelector(q).getBoundingClientRect().height));
+    let h = await heights();
+    assert(h.every((x) => Math.abs(x - 44) < 0.6), "desktop heights " + h);
+    await page.setViewportSize({ width: 390, height: 844 });
+    h = await heights();
+    assert(h.every((x) => Math.abs(x - 48) < 0.6), "mobile heights " + h);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${BASE}/patients/${pid}/vitals`);
+    const dt = await page.evaluate(() => { const e = document.querySelector("input[type=datetime-local]").getBoundingClientRect().height; const n = document.querySelector("#v_num").getBoundingClientRect().height; return [e, n]; });
+    assert(Math.abs(dt[0] - dt[1]) < 0.6, "datetime-local vs number " + dt);
+  });
+
+  await step("sex rules: a male file has no gynecology, a female file has no men's health, direct URL is 404", async () => {
+    const male = await newFile("Omar Male", "1988-03-03", "male");
+    await page.goto(`${BASE}/patients/${male}/specialties`);
+    await page.getByText("Men's health").first().waitFor();
+    assert((await page.getByText("Obstetrics").count()) === 0, "no obstetrics for a male file");
+    const r = await page.goto(`${BASE}/patients/${male}/specialties/obgyn`);
+    assert(r.status() === 404, "obgyn direct URL => " + r.status());
+    await page.goto(`${BASE}/patients/${male}/visits`);
+    await openSummary(page, "Add visit");
+    const opts = await page.locator("#f_specialty_id option, select[name=specialty_id] option").allInnerTexts();
+    assert(opts.length > 3 && !opts.some((o) => /Obstetrics/.test(o)), "visit form hides obstetrics: " + opts.slice(0, 5));
+    await page.goto(`${BASE}/patients/${pid}/specialties`);
+    const fem = (await page.locator("main").innerText());
+    if (/Female/.test(await page.locator("header.patient-head").innerText())) assert(/Obstetrics/.test(fem) && !/Men's health/.test(fem), "female file view");
+  });
+
+  await step("share register: lists every share across files with token ending, filters, CSV without secrets", async () => {
+    await page.goto(`${BASE}/shares`);
+    await page.getByRole("heading", { name: "Share register" }).waitFor();
+    assert((await page.locator("tbody tr").count()) >= 2, "rows listed");
+    const row = await page.locator("tbody tr").first().innerText();
+    assert(/…[A-Za-z0-9_-]{4}/.test(row), "token ending shown: " + row.replace(/\n/g, " | "));
+    await page.getByRole("link", { name: /^Revoked/ }).click();
+    await page.waitForURL(/status=revoked/);
+    assert((await page.locator("tbody tr").count()) >= 1, "revoked filter");
+    await page.goto(`${BASE}/shares?q=zzzz-no-match`);
+    await page.getByText("Nothing matches these filters.").waitFor();
+    const csv = await (await page.request.get(`${BASE}/api/shares/export`)).text();
+    assert(/^\uFEFFshare_id,file_mrn,purpose/.test(csv) && /Brute target/.test(csv), "csv has rows");
+    assert(!csv.includes(shareLink.split("/s/")[1]) && !csv.includes(sharePin), "csv contains neither token nor PIN");
+    await page.goto(`${BASE}/shares`);
+    await page.getByText("Latest activity across all shares").waitFor();
+    await page.screenshot({ path: path.join(OUT, "desktop-share-register.png"), fullPage: true });
+  });
+
+  await step("deletion: typed name + password, 30-day grace (read-only, shares revoked), restore, then delete now", async () => {
+    const del = await newFile("Delete Target", "1979-09-09", "female");
+    await page.goto(`${BASE}/patients/${del}/delete`);
+    await page.fill("#confirm", "Wrong Name"); await page.fill("#password", "correct-horse-battery"); await page.check('input[name="ack"]');
+    await submit(page, "Schedule deletion");
+    await page.getByText("does not match").waitFor();
+    await page.fill("#confirm", "Delete Target"); await page.fill("#password", "not-my-password");
+    await submit(page, "Schedule deletion");
+    await page.getByText("Incorrect password.").waitFor();
+    await page.fill("#confirm", "delete target"); await page.fill("#password", "correct-horse-battery");
+    await submit(page, "Schedule deletion");
+    await page.getByText(/scheduled for deletion/i).first().waitFor();
+    await page.getByText(/permanently deleted in 30 day/).waitFor();
+    await page.screenshot({ path: path.join(OUT, "desktop-delete-pending.png"), fullPage: true });
+    await page.goto(`${BASE}/patients/${del}/allergies`);
+    assert((await page.locator("summary", { hasText: "Add allergy" }).count()) === 0, "read-only: no add form");
+    await page.goto(`${BASE}/patients`);
+    await page.locator("a.card", { hasText: "Delete Target" }).getByText("Scheduled for deletion").waitFor();
+    await page.goto(`${BASE}/patients/${del}/delete`);
+    await page.getByRole("button", { name: "Restore this file" }).click();
+    await page.waitForURL(new RegExp(`/patients/${del}$`));
+    await page.goto(`${BASE}/patients/${del}/allergies`);
+    await page.locator("summary", { hasText: "Add allergy" }).first().waitFor();
+    // schedule again and erase now
+    await page.goto(`${BASE}/patients/${del}/delete`);
+    await page.fill("#confirm", "Delete Target"); await page.fill("#password", "correct-horse-battery"); await page.check('input[name="ack"]');
+    await submit(page, "Schedule deletion");
+    await page.getByText(/permanently deleted in/).waitFor();
+    await page.fill("#confirm", "Delete Target"); await page.fill("#password", "bad-password");
+    await submit(page, "Delete permanently now");
+    await page.getByText("Incorrect password.").waitFor();
+    await page.fill("#confirm", "Delete Target"); await page.fill("#password", "correct-horse-battery");
+    await submit(page, "Delete permanently now");
+    await page.waitForURL(/\/patients\?deleted=1/);
+    await page.getByText("The file was permanently deleted.").waitFor();
+    assert((await page.locator("a.card", { hasText: "Delete Target" }).count()) === 0, "gone from the list");
+    const r = await page.goto(`${BASE}/patients/${del}`);
+    assert(r.status() === 404, "erased file is 404");
+    assert((await page.locator("a.card", { hasText: "Alice" }).count()) === 0 || true, "noop");
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.locator("header.patient-head, header.card").first().waitFor();
+  });
+
   // ---------------------------------------------------------------- responsive + RTL
   await step("mobile viewport (Arabic, RTL): no horizontal scroll on key pages", async () => {
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });

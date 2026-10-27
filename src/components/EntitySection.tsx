@@ -1,7 +1,8 @@
 import { Pencil, Plus, Eraser } from "lucide-react";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
-import { getAccess, getSpecialties, specialtyName } from "@/lib/data";
+import { getAccess, getPatient, getSpecialties, specialtyName } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { lbl, SOURCE, VERIFICATION } from "@/lib/labels";
@@ -30,7 +31,8 @@ interface Props {
 export async function EntitySection({ entity, pid, returnPath, title, filter = {}, links = {}, defaults = {}, limit = 200, openForm = false, compact = false }: Props) {
   const { lang, t } = i18n();
   const tz = getTz();
-  const [access, specialties] = await Promise.all([getAccess(pid), getSpecialties()]);
+  const [access, specialties, patient] = await Promise.all([getAccess(pid), getSpecialties(), getPatient(pid)]);
+  const formSpecialties = forSex(specialties, patient.sex);
   let q = createClient().from(entity.table).select("*").eq("patient_id", pid);
   for (const [k, v] of Object.entries(filter)) q = q.eq(k, v);
   const { data, error } = await q.order(entity.order[0], { ascending: entity.order[1] === "asc", nullsFirst: false }).limit(limit);
@@ -84,7 +86,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
           <div className="row no-print" style={{ marginBlockStart: ".5rem" }}>
             <details className="fold" style={{ flex: "1 1 100%" }}>
               <summary><Pencil size={14} aria-hidden="true" />{t("تعديل", "Edit")}</summary>
-              <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={specialties} returnPath={returnPath} links={links} /></div>
+              <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} /></div>
             </details>
             <details className="fold" style={{ flex: "1 1 100%" }}>
               <summary><Eraser size={14} aria-hidden="true" />{t("أُدخل بالخطأ", "Entered in error")}</summary>
@@ -113,7 +115,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
       {access.canWrite && (
         <details className="fold no-print" open={openForm} style={{ marginBlockEnd: ".9rem" }}>
           <summary><Plus size={16} aria-hidden="true" />{t(`إضافة ${singular}`, `Add ${singular}`)}</summary>
-          <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={specialties} returnPath={returnPath} links={links} defaults={defaults} /></div>
+          <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={formSpecialties} returnPath={returnPath} links={links} defaults={defaults} /></div>
         </details>
       )}
       {live.length === 0 ? <Empty>{t("لا توجد سجلات بعد.", "No records yet.")}</Empty> : live.map((r) => card(r))}

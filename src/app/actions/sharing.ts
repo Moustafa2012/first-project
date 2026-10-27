@@ -43,6 +43,7 @@ export async function createShare(_: FormState, fd: FormData): Promise<FormState
   const r = data as { share_id: string; token: string; pin: string; expires_at: string };
   const origin = process.env.NEXT_PUBLIC_SITE_URL ? siteUrl() : headers().get("origin") ?? siteUrl();
   revalidatePath(`/patients/${pid}/sharing`);
+  revalidatePath("/shares");
   return { ok: true, data: { link: `${origin}/s/${r.token}`, pin: r.pin, expires: new Date(r.expires_at).toISOString().replace("T", " ").slice(0, 16) + " UTC", manageHref: `/patients/${pid}/sharing/${r.share_id}` } };
 }
 
@@ -54,6 +55,7 @@ export async function revokeShare(_: FormState, fd: FormData): Promise<FormState
   const { error } = await createClient().rpc("share_revoke", { p_share: id, p_reason: String(fd.get("reason") ?? "").slice(0, 300) || null });
   if (error) return { error: explainError(error, t) };
   revalidatePath(`/patients/${pid}/sharing`, "layout");
+  revalidatePath("/shares");
   return { ok: true, message: t("أُلغيت المشاركة فوراً.", "Share revoked immediately.") };
 }
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appliesToSex, forSex } from "@/lib/sex";
 import { CalendarClock, ClipboardList, Link2, Pill } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -113,7 +114,7 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
 
       <Card title={t("الأقسام الطبية", "Specialty files")} actions={<Link href={`${base}/specialties`} className="small">{t("الكل", "All")}</Link>}>
         <div className="grid cols-4">
-          {specs.filter((s) => s.kind === "clinical").slice(0, 12).map((s) => (
+          {forSex(specs, p.sex).filter((s) => s.kind === "clinical").slice(0, 12).map((s) => (
             <Link key={s.id} href={`${base}/specialties/${s.code}`} className="row" style={{ textDecoration: "none", color: "inherit" }}>
               <SpecialtyIcon name={s.icon} /><span>{lang === "ar" ? s.name_ar : s.name_en}</span>
             </Link>))}

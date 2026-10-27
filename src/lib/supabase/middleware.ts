@@ -22,8 +22,9 @@ export async function updateSession(request: NextRequest) {
       },
     },
   });
-  const { data } = await supabase.auth.getUser();
-  if (!data.user && !isPublic) {
+  // verifies the token locally (and refreshes it when it expired) instead of asking the auth server on every request
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims?.sub && !isPublic) {
     const to = request.nextUrl.clone();
     to.pathname = "/login";
     to.search = "";

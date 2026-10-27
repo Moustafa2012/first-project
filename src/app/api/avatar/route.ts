@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { currentUser } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasServiceRole } from "@/lib/supabase/admin";
@@ -24,7 +25,7 @@ const safeReturn = (v: string, fallback: string) => (/^\/(account|patients\/[0-9
  *  GET /api/avatar?p=<pid>    -> a patient's photo, only for members of that file (RLS decides). */
 export async function GET(request: NextRequest) {
   const supabase = createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const auth = { user: await currentUser() };
   if (!auth.user) return new NextResponse("Unauthorized", { status: 401 });
   const pid = request.nextUrl.searchParams.get("p");
   let path: string | null = null;
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
 /** POST multipart: target=user | patient, pid (patient), file (optional when remove=1), returnTo. */
 export async function POST(request: NextRequest) {
   const supabase = createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const auth = { user: await currentUser() };
   if (!auth.user) return new NextResponse("Unauthorized", { status: 401 });
   let form: FormData;
   try { form = await request.formData(); } catch { return back("/account", { error: "bad_form" }); }

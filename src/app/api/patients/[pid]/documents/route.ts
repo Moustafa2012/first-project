@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { currentUser } from "@/lib/auth";
 import { randomUUID, createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasServiceRole } from "@/lib/supabase/admin";
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest, { params }: { params: { pid: st
   const pid = params.pid;
   if (!UUID_RE.test(pid)) return new NextResponse("Not found", { status: 404 });
   const supabase = createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const auth = { user: await currentUser() };
   if (!auth.user) return new NextResponse("Unauthorized", { status: 401 });
   if (!hasServiceRole()) return back(request, pid, { error: "storage_unconfigured" });
 

@@ -11,11 +11,13 @@ import { Avatar } from "@/components/Avatar";
 
 export default async function PatientLayout({ children, params }: { children: React.ReactNode; params: { pid: string } }) {
   const { lang, t } = i18n();
-  const p = await getPatient(params.pid);
-  const access = await getAccess(p.id);
+  // one wave of round trips instead of three in a row
+  const [p, access, { data: allergies }] = await Promise.all([
+    getPatient(params.pid),
+    getAccess(params.pid),
+    createClient().from("allergies").select("substance, severity").eq("patient_id", params.pid).eq("status", "active").eq("record_status", "active").neq("certainty", "refuted").limit(6),
+  ]);
   const base = `/patients/${p.id}`;
-  const { data: allergies } = await createClient().from("allergies")
-    .select("substance, severity").eq("patient_id", p.id).eq("status", "active").eq("record_status", "active").neq("certainty", "refuted").limit(6);
 
   const items: NavItem[] = [
     { href: base, label: t("نظرة عامة", "Overview"), short: t("الرئيسية", "Home") },

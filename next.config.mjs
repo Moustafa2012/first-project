@@ -1,3 +1,10 @@
+// After a server action that redirects, Next fetches the target page from its own origin. Behind the host's reverse proxy
+// the Host / protocol it derives can be unreachable from inside, which logged "failed to get redirect response" and
+// delayed the redirect. Point it at the public site URL when one is configured.
+if (!process.env.__NEXT_PRIVATE_ORIGIN && process.env.NEXT_PUBLIC_SITE_URL) {
+  process.env.__NEXT_PRIVATE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
+}
+
 /** @type {import('next').NextConfig} */
 const security = [
   { key: "X-Content-Type-Options", value: "nosniff" },

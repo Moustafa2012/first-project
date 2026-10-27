@@ -5,10 +5,19 @@ import { createClient } from "@/lib/supabase/server";
 import { safeTz } from "@/lib/format";
 import type { T } from "@/lib/i18n";
 
-export const currentUser = cache(async () => {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getUser();
-  return data.user;
+export interface SessionUser { id: string; email: string | null }
+
+/**
+ * The signed-in user, read from the verified access token (signature checked locally against the project's public
+ * signing keys; no network round trip). Row Level Security still re-checks the same token inside the database.
+ * A revoked session therefore stays valid until its token expires (1 hour at most); sensitive actions (file deletion)
+ * ask for the password again.
+ */
+export const currentUser = cache(async (): Promise<SessionUser | null> => {
+  const { data } = await createClient().auth.getClaims();
+  const c = data?.claims;
+  if (!c?.sub) return null;
+  return { id: c.sub, email: typeof c.email === "string" ? c.email : null };
 });
 
 export async function requireUser() {

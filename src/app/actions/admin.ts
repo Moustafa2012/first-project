@@ -1,4 +1,5 @@
 "use server";
+import { clearCatalogCache } from "@/lib/data";
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -23,6 +24,7 @@ export async function saveSpecialty(_: FormState, fd: FormData): Promise<FormSta
     ? await supabase.from("medical_specialties").update(row).eq("id", id)
     : await supabase.from("medical_specialties").insert({ ...row, code });
   if (error) return { error: /check constraint|code/.test(error.message) ? t("الرمز: حروف إنجليزية صغيرة وأرقام و_ فقط.", "Code: lowercase letters, digits and _ only.") : explainError(error, t) };
+  clearCatalogCache();
   revalidatePath("/admin/specialties");
   return { ok: true, message: t("تم الحفظ.", "Saved.") };
 }

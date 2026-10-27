@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { currentUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getObsTypes } from "@/lib/data";
 import { UUID_RE } from "@/lib/uuid";
@@ -18,7 +19,7 @@ const SCOPES: ReportScope[] = ["summary", "vitals", "labs", "full"];
 export async function GET(request: NextRequest, { params }: { params: { pid: string } }) {
   if (!UUID_RE.test(params.pid)) return new NextResponse("Not found", { status: 404 });
   const supabase = createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const auth = { user: await currentUser() };
   if (!auth.user) return new NextResponse("Unauthorized", { status: 401 });
   const { data: p } = await supabase.from("patients").select("*").eq("id", params.pid).maybeSingle();
   if (!p) return new NextResponse("Not found", { status: 404 });

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { Languages, ShieldCheck } from "lucide-react";
+import { Languages, Lock } from "lucide-react";
+import { LogoMark, Wordmark } from "@/components/Logo";
+import { Footer } from "@/components/Footer";
 import { i18n } from "@/lib/i18n";
 import { setLang } from "@/app/actions/prefs";
 
@@ -14,11 +16,13 @@ export default function ShareLayout({ children }: { children: React.ReactNode })
   return (
     <>
       <header className="topbar no-print"><div className="topbar-in">
-        <span className="brand"><ShieldCheck size={22} aria-hidden="true" />{t("بوابة شفاء — ملف طبي مشارك", "Shifa Portal — shared medical file")}</span>
+        <span className="brand"><LogoMark size={34} /><Wordmark ar="بوابة شفاء" en="Shifa Portal" /></span>
+        <span className="chip info"><Lock size={13} aria-hidden="true" />{t("ملف طبي مشارك", "Shared medical file")}</span>
         <div className="spacer" />
         <form action={setLang}><input type="hidden" name="lang" value={lang === "ar" ? "en" : "ar"} /><button className="btn ghost sm"><Languages size={16} aria-hidden="true" />{lang === "ar" ? "English" : "العربية"}</button></form>
       </div></header>
-      <main className="container">{children}</main>
+      <main id="main" className="container">{children}</main>
+      <Footer />
     </>
   );
 }

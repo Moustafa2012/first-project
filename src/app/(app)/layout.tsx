@@ -1,5 +1,6 @@
 import { currentProfile, requireUser } from "@/lib/auth";
 import { Topbar } from "@/components/Topbar";
+import { Footer } from "@/components/Footer";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   await requireUser();
@@ -7,7 +8,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <Topbar signedIn admin={profile?.role === "admin"} />
-      <main className="container">{children}</main>
+      <main id="main" className="container">{children}</main>
+      <Footer />
     </>
   );
 }

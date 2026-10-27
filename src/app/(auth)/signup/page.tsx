@@ -1,15 +1,13 @@
 import Link from "next/link";
 import { i18n } from "@/lib/i18n";
-import { Topbar } from "@/components/Topbar";
+import { AuthShell } from "@/components/AuthShell";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { signup } from "@/app/actions/auth";
 
 export default function SignupPage() {
   const { t } = i18n();
   return (
-    <>
-      <Topbar signedIn={false} />
-      <main className="container narrow">
+    <AuthShell>
         <div className="card auth-card">
           <h1>{t("إنشاء حساب", "Create your account")}</h1>
           <ActionForm action={signup} className="stack" resetOnSuccess={false}>
@@ -24,7 +22,6 @@ export default function SignupPage() {
           </ActionForm>
           <p className="small" style={{ marginBlockStart: "1rem" }}>{t("لديك حساب؟", "Already registered?")} <Link href="/login">{t("سجّل الدخول", "Sign in")}</Link></p>
         </div>
-      </main>
-    </>
+    </AuthShell>
   );
 }

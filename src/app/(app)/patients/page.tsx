@@ -36,8 +36,13 @@ export default async function PatientsPage() {
         <div className="grid cols-3">
           {list.map((p) => (
             <Link key={p.id} href={`/patients/${p.id}`} className="card" style={{ textDecoration: "none", color: "inherit" }}>
-              <h2 style={{ marginBlockEnd: ".2rem" }}>{lang === "en" && p.full_name_en ? p.full_name_en : p.full_name}</h2>
-              <p className="muted small"><span className="ltr">{p.mrn}</span> · {ageLabel(p.date_of_birth, lang)} · {lbl(SEX, p.sex, lang)}</p>
+              <div className="row" style={{ flexWrap: "nowrap", gap: ".75rem", marginBlockEnd: ".6rem" }}>
+                <div className="avatar sm" aria-hidden="true">{Array.from((lang === "en" && p.full_name_en ? p.full_name_en : p.full_name).trim()).slice(0, 1).join("").toUpperCase()}</div>
+                <div style={{ minWidth: 0 }}>
+                  <h2 style={{ marginBlockEnd: 0 }}>{lang === "en" && p.full_name_en ? p.full_name_en : p.full_name}</h2>
+                  <p className="muted small" style={{ margin: 0 }}><span className="ltr">{p.mrn}</span> · {ageLabel(p.date_of_birth, lang)} · {lbl(SEX, p.sex, lang)}</p>
+                </div>
+              </div>
               <div className="row">
                 <Chip tone="info">{roleOf.get(p.id) === "guardian" ? t("ولي أمر", "Guardian") : roleOf.get(p.id) === "owner" ? t("ملفك", "Your file") : t("رعاية", "Care")}</Chip>
                 {allergic.has(p.id) && <Chip tone="bad"><TriangleAlert size={13} aria-hidden="true" />{t("حساسية موثقة", "Allergies on file")}</Chip>}

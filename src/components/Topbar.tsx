@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Languages, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { Languages, LogOut, Moon, Sun } from "lucide-react";
+import { LogoMark, Wordmark } from "@/components/Logo";
 import { i18n } from "@/lib/i18n";
 import { getTheme } from "@/lib/auth";
 import { logout } from "@/app/actions/auth";
@@ -11,14 +12,14 @@ export function Topbar({ signedIn, admin }: { signedIn: boolean; admin?: boolean
   return (
     <header className="topbar no-print">
       <div className="topbar-in">
-        <Link href={signedIn ? "/patients" : "/"} className="brand"><ShieldCheck size={24} aria-hidden="true" />{t("بوابة شفاء", "Shifa Portal")}</Link>
+        <Link href={signedIn ? "/patients" : "/"} className="brand"><LogoMark size={36} /><Wordmark ar="بوابة شفاء" en="Shifa Portal" /></Link>
         <div className="spacer" />
         {signedIn && <Link href="/patients" className="btn ghost sm">{t("المرضى", "Patients")}</Link>}
         {signedIn && <Link href="/account" className="btn ghost sm">{t("حسابي", "Account")}</Link>}
         {admin && <Link href="/admin/specialties" className="btn ghost sm">{t("الإدارة", "Admin")}</Link>}
         <form action={setLang}>
           <input type="hidden" name="lang" value={lang === "ar" ? "en" : "ar"} />
-          <button className="btn ghost sm"><Languages size={16} aria-hidden="true" />{lang === "ar" ? "English" : "العربية"}</button>
+          <button className="btn ghost sm"><Languages size={16} aria-hidden="true" /><span className="btn-label">{lang === "ar" ? "English" : "العربية"}</span></button>
         </form>
         <form action={setTheme}>
           <input type="hidden" name="theme" value={dark ? "light" : "dark"} />
@@ -26,7 +27,7 @@ export function Topbar({ signedIn, admin }: { signedIn: boolean; admin?: boolean
         </form>
         {signedIn && (
           <form action={logout}>
-            <button className="btn ghost sm"><LogOut size={16} aria-hidden="true" />{t("خروج", "Sign out")}</button>
+            <button className="btn ghost sm"><LogOut size={16} aria-hidden="true" /><span className="btn-label">{t("خروج", "Sign out")}</span></button>
           </form>
         )}
       </div>

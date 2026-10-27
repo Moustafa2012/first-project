@@ -7,6 +7,8 @@ import { ALLERGY_SEVERITY, lbl, SEX } from "@/lib/labels";
 import { SideNav, type NavItem } from "@/components/SideNav";
 import { Chip } from "@/components/ui";
 
+const initials = (n: string) => n.trim().split(/\s+/).slice(0, 2).map((w) => Array.from(w)[0] ?? "").join("").toUpperCase();
+
 export default async function PatientLayout({ children, params }: { children: React.ReactNode; params: { pid: string } }) {
   const { lang, t } = i18n();
   const p = await getPatient(params.pid);
@@ -44,14 +46,17 @@ export default async function PatientLayout({ children, params }: { children: Re
   const list = allergies ?? [];
   return (
     <>
-      <header className="card" style={{ marginBlockEnd: "1rem" }}>
+      <header className="card patient-head" style={{ marginBlockEnd: "1.25rem" }}>
         <div className="row between">
+          <div className="row" style={{ flexWrap: "nowrap", gap: ".9rem" }}>
+            <div className="avatar" aria-hidden="true">{initials(lang === "en" && p.full_name_en ? p.full_name_en : p.full_name)}</div>
           <div>
             <h1 style={{ marginBottom: ".1rem" }}>{lang === "en" && p.full_name_en ? p.full_name_en : p.full_name}</h1>
             <p className="muted" style={{ margin: 0 }}>
               <span className="ltr">{p.mrn}</span> · {ageLabel(p.date_of_birth, lang)} · {lbl(SEX, p.sex, lang)}
               {p.nationality ? ` · ${p.nationality}` : ""}
             </p>
+          </div>
           </div>
           <div className="row">
             {p.blood_abo ? <Chip tone="info" title={p.blood_group_verified ? t("موثقة", "Verified") : t("غير موثقة", "Unverified")}>{t("الدم", "Blood")}: <span className="ltr">{p.blood_abo}{p.blood_rh ?? ""}</span>{p.blood_group_verified ? "" : " *"}</Chip> : <Chip tone="muted">{t("فصيلة الدم غير مسجلة", "Blood group not recorded")}</Chip>}

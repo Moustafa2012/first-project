@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, CircleAlert, Info, Minus } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, CircleAlert, Inbox, Info, Minus } from "lucide-react";
 import { INTERPRETATION, lbl, type Opt } from "@/lib/labels";
 import type { Lang } from "@/lib/i18n";
 
@@ -36,7 +36,7 @@ export function PageHead({ title, sub, actions }: { title: React.ReactNode; sub?
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="empty">{children}</div>;
+  return <div className="empty"><span className="empty-icon" aria-hidden="true"><Inbox size={22} /></span><div>{children}</div></div>;
 }
 
 export function Card({ title, actions, children, id }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; id?: string }) {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { i18n } from "@/lib/i18n";
 import { isConfigured } from "@/lib/env";
-import { Topbar } from "@/components/Topbar";
+import { AuthShell } from "@/components/AuthShell";
 import { Banner } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { login } from "@/app/actions/auth";
@@ -9,9 +9,7 @@ import { login } from "@/app/actions/auth";
 export default function LoginPage({ searchParams }: { searchParams: { next?: string; error?: string } }) {
   const { t } = i18n();
   return (
-    <>
-      <Topbar signedIn={false} />
-      <main className="container narrow">
+    <AuthShell>
         <div className="card auth-card">
           <h1>{t("تسجيل الدخول", "Sign in")}</h1>
           {!isConfigured() && <Banner tone="warn">{t("الاتصال بقاعدة البيانات غير مضبوط.", "Database connection is not configured.")}</Banner>}
@@ -26,7 +24,6 @@ export default function LoginPage({ searchParams }: { searchParams: { next?: str
             <Link href="/forgot">{t("نسيت كلمة المرور؟", "Forgot your password?")}</Link> · <Link href="/signup">{t("إنشاء حساب جديد", "Create an account")}</Link>
           </p>
         </div>
-      </main>
-    </>
+    </AuthShell>
   );
 }

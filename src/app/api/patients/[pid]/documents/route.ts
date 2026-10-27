@@ -9,10 +9,10 @@ import { DOC_TYPE, SENSITIVITY } from "@/lib/labels";
 
 export const runtime = "nodejs";
 
-function back(request: NextRequest, pid: string, params: Record<string, string>) {
-  const u = new URL(`/patients/${pid}/documents`, request.url);
-  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-  return NextResponse.redirect(u, 303);
+// Relative Location: behind a reverse proxy request.url carries the internal origin (0.0.0.0:3000).
+function back(_request: NextRequest, pid: string, params: Record<string, string>) {
+  const qs = new URLSearchParams(params).toString();
+  return new NextResponse(null, { status: 303, headers: { Location: `/patients/${pid}/documents${qs ? `?${qs}` : ""}` } });
 }
 
 /** Validates the bytes, stores the file in the private bucket, then registers it as the signed-in user. */

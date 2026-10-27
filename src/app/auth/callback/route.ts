@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+// Relative Location: behind a reverse proxy the request origin is the internal one.
+const go = (to: string) => new NextResponse(null, { status: 303, headers: { Location: to } });
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -8,7 +11,7 @@ export async function GET(request: NextRequest) {
   const dest = next.startsWith("/") && !next.startsWith("//") ? next : "/patients";
   if (code) {
     const { error } = await createClient().auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(new URL(dest, url.origin));
+    if (!error) return go(dest);
   }
-  return NextResponse.redirect(new URL("/login?error=callback", url.origin));
+  return go("/login?error=callback");
 }

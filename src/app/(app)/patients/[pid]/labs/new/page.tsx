@@ -3,7 +3,7 @@ import { appliesToSex, forSex } from "@/lib/sex";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
-import { LAB_FLAG, LAB_GROUP, LAB_STATUS } from "@/lib/labels";
+import { LAB_FLAG, LAB_GROUP, LAB_STATUS, lbl, ORDER_STATUS } from "@/lib/labels";
 import { fmtDate } from "@/lib/format";
 import { getTz } from "@/lib/auth";
 import { ActionForm, DateTimeField, SubmitButton } from "@/components/ui/client";
@@ -17,12 +17,15 @@ export default async function NewLabReport({ params }: { params: { pid: string }
   const p = await getPatient(params.pid);
   const access = await getAccess(p.id);
   if (!access.canWrite) redirect(`/patients/${p.id}/labs`);
-  const [types, specs, { data: encs }] = await Promise.all([
+  const [types, specs, { data: encs }, { data: openOrders }] = await Promise.all([
     getObsTypes(), getSpecialties(),
     createClient().from("encounters").select("id, kind, reason, started_at").eq("patient_id", p.id).eq("record_status", "active").order("started_at", { ascending: false }).limit(20),
+    createClient().from("test_orders").select("id, name, status, requested_on").eq("patient_id", p.id).eq("record_status", "active").eq("kind", "lab")
+      .in("status", ["suggested", "requested"]).order("requested_on", { ascending: false }).limit(100),
   ]);
   const labTypes = forSex(types, p.sex).filter((x) => x.category === "lab").map((x) => ({
     id: x.id, name: lang === "ar" ? x.name_ar : x.name_en, unit: x.default_unit, kind: x.value_kind, group: LAB_GROUP[x.lab_group ?? "other"]?.[lang] ?? "—",
+    units: x.default_unit ? [x.default_unit, ...Object.keys(x.unit_conversions ?? {})] : [], other: x.code.startsWith("other_"),
   }));
   return (
     <>
@@ -48,7 +51,20 @@ export default async function NewLabReport({ params }: { params: { pid: string }
             test: t("التحليل", "Test"), result: t("النتيجة", "Result"), unit: t("الوحدة", "Unit"), refLow: t("المرجع الأدنى", "Ref. low"), refHigh: t("المرجع الأعلى", "Ref. high"),
             flag: t("علامة المختبر", "Lab flag"), add: t("إضافة تحليل", "Add a test"), remove: t("حذف الصف", "Remove row"), choose: t("اختر…", "Choose…"), row: t("نتيجة", "Result"),
             flags: LAB_FLAG.map((f) => ({ value: f.value, label: f[lang] })),
+            customName: t("اسم التحليل كما في التقرير", "Test name as printed"), customHint: t("مثال: RDW-SD", "e.g. RDW-SD"),
           }} />
+          {(openOrders ?? []).length > 0 && (
+            <fieldset>
+              <legend>{t("هل يجيب هذا التقرير عن فحوصات مطلوبة؟", "Does this report answer requested tests?")}</legend>
+              <p className="small muted" style={{ marginBlockStart: 0 }}>{t("ما تحدده يُعلَّم «تم» ويُربط بهذا التقرير.", "Ticked requests are marked done and linked to this report.")}</p>
+              <div className="check-grid">
+                {(openOrders ?? []).map((o) => (
+                  <label key={o.id as string} className="check"><input type="checkbox" name="fulfils" value={o.id as string} />
+                    {o.name as string} <span className="muted small">({lbl(ORDER_STATUS, o.status as string, lang).split(" (")[0]})</span></label>
+                ))}
+              </div>
+            </fieldset>
+          )}
           <p className="small muted">{t("اترك الوحدة فارغة لاستخدام الوحدة الافتراضية للتحليل. اكتب المرجع كما ورد في التقرير؛ إن لم تدخله فلن يُصنَّف التحليل.", "Leave unit empty to use the test’s default unit. Enter the reference range as printed; without it the result is not classified.")}</p>
           <div><SubmitButton pending={t("جارٍ الحفظ…", "Saving…")}>{t("حفظ التقرير", "Save report")}</SubmitButton></div>
         </ActionForm>

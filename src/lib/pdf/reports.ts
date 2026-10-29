@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ageLabel, fmtDate, fmtDateTime } from "@/lib/format";
+import { ageLabel, fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import {
   ALLERGY_ASSERTION, ALLERGY_SEVERITY, CARE_PLAN_STATUS, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, ENCOUNTER_KIND, FAMILY_RELATION,
   IMAGING_MODALITY, IMMUNIZATION_STATUS, INTERPRETATION, lbl, LAB_GROUP, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, type Opt,
@@ -69,7 +69,7 @@ export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow
 }): Promise<{ meta: ReportMeta; blocks: Block[]; filename: string }> {
   const { lang, tz } = o;
   const t = tx(lang);
-  const d = (v: unknown) => fmtDate(s(v), lang, tz);
+  const d = (v: unknown, prec?: unknown) => (prec ? fmtPartialDate(s(v), prec, lang, tz) : fmtDate(s(v), lang, tz));
   const dt = (v: unknown) => fmtDateTime(s(v), lang, tz);
   const types = forSex(o.types, p.sex);
   const byId = new Map(types.map((x) => [x.id, x]));
@@ -82,7 +82,7 @@ export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow
   const needObs = wantVitals || wantLabs || wantSummary;
   const [allergies, conditions, meds, contacts, obsRes, encs] = await Promise.all([
     wantSummary ? supabase.from("allergies").select("substance, severity, reaction, certainty").eq("patient_id", p.id).eq("status", "active").eq("record_status", "active").neq("certainty", "refuted") : { data: [] },
-    wantSummary ? supabase.from("conditions").select("name, category, certainty, clinical_status, onset_date").eq("patient_id", p.id).eq("record_status", "active").order("onset_date", { ascending: false, nullsFirst: false }).limit(60) : { data: [] },
+    wantSummary ? supabase.from("conditions").select("name, category, certainty, clinical_status, onset_date, date_precision").eq("patient_id", p.id).eq("record_status", "active").order("onset_date", { ascending: false, nullsFirst: false }).limit(60) : { data: [] },
     wantSummary ? supabase.from("medications").select("name_generic, name_brand, strength, dose, frequency, route, origin, indication, status").eq("patient_id", p.id).eq("record_status", "active").eq("status", "active") : { data: [] },
     wantSummary ? supabase.from("emergency_contacts").select("full_name, relation, phone, is_legal_representative").eq("patient_id", p.id) : { data: [] },
     needObs ? supabase.from("observations").select("*").eq("patient_id", p.id).in("status", ["final", "preliminary"]).order("effective_at", { ascending: false }).limit(5000) : { data: [] },
@@ -102,7 +102,7 @@ export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow
     const cs = (conditions.data ?? []) as R[];
     blocks.push({ t: "h", text: t("الأمراض والتشخيصات", "Conditions") });
     blocks.push(cs.length ? { t: "table", cols: [{ label: t("الحالة", "Condition"), w: 4 }, { label: t("التصنيف", "Category"), w: 2 }, { label: t("اليقين", "Certainty"), w: 2 }, { label: t("الوضع", "Status"), w: 2 }, { label: t("البداية", "Onset"), w: 2 }],
-      rows: cs.map((c) => [{ text: s(c.name), bold: true }, lbl(CONDITION_CATEGORY, s(c.category), lang), lbl(CERTAINTY, s(c.certainty), lang), lbl(CLINICAL_STATUS, s(c.clinical_status), lang), d(c.onset_date)]) }
+      rows: cs.map((c) => [{ text: s(c.name), bold: true }, lbl(CONDITION_CATEGORY, s(c.category), lang), lbl(CERTAINTY, s(c.certainty), lang), lbl(CLINICAL_STATUS, s(c.clinical_status), lang), d(c.onset_date, c.date_precision)]) }
       : { t: "p", muted: true, text: t("لا شيء مسجل (لا يعني عدم وجود).", "None recorded (not proof of none).") });
 
     const ms = (meds.data ?? []) as R[];
@@ -193,7 +193,7 @@ export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow
 export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string }): { meta: ReportMeta; blocks: Block[]; filename: string } {
   const { lang, tz } = o;
   const t = tx(lang);
-  const d = (v: unknown) => fmtDate(s(v), lang, tz);
+  const d = (v: unknown, prec?: unknown) => (prec ? fmtPartialDate(s(v), prec, lang, tz) : fmtDate(s(v), lang, tz));
   const dt = (v: unknown) => fmtDateTime(s(v), lang, tz);
   const inc = new Set(b.meta.include);
   const spec = (id: unknown) => { const x = b.specialties.find((y) => y.id === id); return x ? (lang === "ar" ? x.name_ar : x.name_en) : ""; };
@@ -210,7 +210,7 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string }): { me
   else blocks.push({ t: "alert", tone: "warn", title: t("حالة الحساسية غير معروفة", "Allergy status unknown"), text: t("لم يُسجَّل شيء؛ لا يعني ذلك غياب الحساسية.", "nothing recorded; this does not mean none exist.") });
   blocks.push({ t: "h", text: t("الأمراض المزمنة والعيوب الخلقية", "Chronic & congenital conditions") });
   blocks.push(b.chronic_conditions.length ? { t: "table", cols: [{ label: t("الحالة", "Condition"), w: 4 }, { label: t("اليقين", "Certainty"), w: 2 }, { label: t("الوضع", "Status"), w: 2 }, { label: t("البداية", "Onset"), w: 2 }],
-    rows: b.chronic_conditions.map((c) => [{ text: s(c.name), bold: true }, lbl(CERTAINTY, s(c.certainty), lang), lbl(CLINICAL_STATUS, s(c.clinical_status), lang), d(c.onset_date)]) } : { t: "p", muted: true, text: t("لا شيء مسجل (لا يعني عدم وجود).", "None recorded (not proof of none).") });
+    rows: b.chronic_conditions.map((c) => [{ text: s(c.name), bold: true }, lbl(CERTAINTY, s(c.certainty), lang), lbl(CLINICAL_STATUS, s(c.clinical_status), lang), d(c.onset_date, c.date_precision)]) } : { t: "p", muted: true, text: t("لا شيء مسجل (لا يعني عدم وجود).", "None recorded (not proof of none).") });
   blocks.push({ t: "h", text: t("الأدوية الحالية", "Current medications") });
   blocks.push(b.medications.length ? { t: "table", cols: [{ label: t("الدواء", "Medication"), w: 4 }, { label: t("الجرعة", "Dose"), w: 3 }, { label: t("المصدر", "Origin"), w: 2 }, { label: t("الدافع", "Indication"), w: 3 }],
     rows: b.medications.map((m) => [{ text: [s(m.name_generic), m.name_brand && `(${s(m.name_brand)})`, s(m.strength)].filter(Boolean).join(" "), bold: true }, [s(m.dose), s(m.frequency), s(m.route)].filter(Boolean).join(" · "), lbl(MED_ORIGIN, s(m.origin), lang), s(m.indication)]) } : { t: "p", muted: true, text: t("لا شيء مسجل (لا يعني عدم تناول أدوية).", "None recorded (not proof none are taken).") });
@@ -250,15 +250,15 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string }): { me
   if (inc.has("other_conditions") && (b.other_conditions ?? []).length) {
     sec(t("التشخيصات والحالات الأخرى", "Other diagnoses & conditions"));
     blocks.push({ t: "table", cols: [{ label: t("الحالة", "Condition"), w: 4 }, { label: t("اليقين", "Certainty"), w: 2 }, { label: t("الوضع", "Status"), w: 2 }, { label: t("التخصص", "Specialty"), w: 2.5 }, { label: t("البداية", "Onset"), w: 2 }],
-      rows: (b.other_conditions ?? []).map((c) => [{ text: s(c.name), bold: true }, lbl(CERTAINTY, s(c.certainty), lang), lbl(CLINICAL_STATUS, s(c.clinical_status), lang), spec(c.specialty_id), d(c.onset_date)]) });
+      rows: (b.other_conditions ?? []).map((c) => [{ text: s(c.name), bold: true }, lbl(CERTAINTY, s(c.certainty), lang), lbl(CLINICAL_STATUS, s(c.clinical_status), lang), spec(c.specialty_id), d(c.onset_date, c.date_precision)]) });
   }
   if (inc.has("procedures") && (b.procedures ?? []).length) {
     sec(t("العمليات والإجراءات", "Procedures & surgeries"));
-    for (const x of b.procedures ?? []) { blocks.push({ t: "p", text: `${d(x.performed_on)} — ${s(x.name)} (${lbl(PROCEDURE_KIND, s(x.kind), lang)}${x.body_site ? `, ${s(x.body_site)}` : ""})` }); kvs([[t("المنفّذ", "Operator"), s(x.operator_name)], [t("الدافع", "Indication"), s(x.indication)], [t("النتيجة", "Outcome"), s(x.outcome)], [t("المضاعفات", "Complications"), s(x.complications)], [t("ملاحظات", "Notes"), s(x.notes)]]); }
+    for (const x of b.procedures ?? []) { blocks.push({ t: "p", text: `${d(x.performed_on, x.date_precision)} — ${s(x.name)} (${lbl(PROCEDURE_KIND, s(x.kind), lang)}${x.body_site ? `, ${s(x.body_site)}` : ""})` }); kvs([[t("المنفّذ", "Operator"), s(x.operator_name)], [t("الدافع", "Indication"), s(x.indication)], [t("النتيجة", "Outcome"), s(x.outcome)], [t("المضاعفات", "Complications"), s(x.complications)], [t("ملاحظات", "Notes"), s(x.notes)]]); }
   }
   if (inc.has("imaging") && (b.imaging ?? []).length) {
     sec(t("الأشعة والتصوير", "Imaging"));
-    for (const x of b.imaging ?? []) { blocks.push({ t: "p", text: `${d(x.performed_on)} — ${lbl(IMAGING_MODALITY, s(x.modality), lang)} ${s(x.body_site)}` }); kvs([[t("الموجودات", "Findings"), s(x.findings)], [t("الخلاصة", "Impression"), s(x.impression)]]); }
+    for (const x of b.imaging ?? []) { blocks.push({ t: "p", text: `${d(x.performed_on, x.date_precision)} — ${lbl(IMAGING_MODALITY, s(x.modality), lang)} ${s(x.body_site)}` }); kvs([[t("الموجودات", "Findings"), s(x.findings)], [t("الخلاصة", "Impression"), s(x.impression)]]); }
   }
   if (inc.has("specialty_records") && (b.specialty_records ?? []).length) {
     sec(t("سجلات التخصص", "Specialty records"));
@@ -280,7 +280,7 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string }): { me
   }
   if (inc.has("immunizations") && (b.immunizations ?? []).length) {
     sec(t("التطعيمات", "Immunizations"));
-    blocks.push({ t: "table", cols: [{ label: t("اللقاح", "Vaccine"), w: 5 }, { label: t("الحالة", "Status"), w: 2 }, { label: t("التاريخ", "Date"), w: 2 }], rows: (b.immunizations ?? []).map((x) => [{ text: `${s(x.vaccine_name)}${x.dose_number ? ` #${s(x.dose_number)}` : ""}`, bold: true }, lbl(IMMUNIZATION_STATUS, s(x.status), lang), d(x.administered_on)]) });
+    blocks.push({ t: "table", cols: [{ label: t("اللقاح", "Vaccine"), w: 5 }, { label: t("الحالة", "Status"), w: 2 }, { label: t("التاريخ", "Date"), w: 2 }], rows: (b.immunizations ?? []).map((x) => [{ text: `${s(x.vaccine_name)}${x.dose_number ? ` #${s(x.dose_number)}` : ""}`, bold: true }, lbl(IMMUNIZATION_STATUS, s(x.status), lang), d(x.administered_on, x.date_precision)]) });
   }
   if (inc.has("family_history") && (b.family_history ?? []).length) {
     sec(t("التاريخ العائلي", "Family history"));

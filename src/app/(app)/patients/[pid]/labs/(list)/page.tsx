@@ -13,6 +13,7 @@ import type { LabReportRow, ObservationRow } from "@/lib/types";
 import { Banner, Card, Chip, Empty, PageHead } from "@/components/ui";
 import { TrendChart } from "@/components/observations/TrendChart";
 import { ObservationTable } from "@/components/observations/ObservationTable";
+import { DerivedCard } from "@/components/observations/DerivedCard";
 
 type SP = Record<string, string | undefined>;
 
@@ -54,6 +55,7 @@ export default async function LabsPage({ params, searchParams }: { params: { pid
     return (
       <>
         {head}{tabs}
+        <DerivedCard pid={p.id} />
         {reports.length === 0 ? <Empty>{t("لا توجد تقارير تحاليل بعد.", "No lab reports yet.")}</Empty> : reports.map((r) => {
           const list = (byReport.get(r.id) ?? []).sort((a, b) => a.effective_at.localeCompare(b.effective_at));
           const flagged = list.filter((o) => plottable(o) && !["normal", "not_assessed"].includes(o.interpretation)).length;

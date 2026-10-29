@@ -2,6 +2,7 @@ import * as L from "@/lib/labels";
 import type { Opt } from "@/lib/labels";
 import type { Lang } from "@/lib/i18n";
 import type { Row } from "@/lib/types";
+import { normText } from "@/lib/dedupe";
 
 export type FieldKind = "text" | "textarea" | "date" | "datetime" | "number" | "select" | "checkbox" | "specialty";
 
@@ -23,6 +24,8 @@ export interface FieldDef {
   dflt?: string | boolean;
   /** shown on the card as a labelled line */
   show?: boolean;
+  /** date fields: name of the column that says how much of the date is known (day / month / year / approx) */
+  precision?: string;
 }
 
 export interface Chip { tone: "ok" | "warn" | "bad" | "info" | "muted"; text: string }
@@ -44,9 +47,23 @@ export interface EntityDef {
   hasSpecialty: boolean;
   /** columns allowed for filtering by encounter / condition links */
   links?: string[];
+  /** column holding the precision of the date returned by dateOf */
+  datePrecision?: string;
+  /**
+   * Key used to warn about a probable duplicate before inserting: two live rows with the same key are "the same
+   * thing entered twice". Returning null means the row is never compared (e.g. a closed test request).
+   */
+  dupKey?: (r: Row) => string | null;
 }
 
 const s = (r: Row, k: string) => (r[k] == null ? "" : String(r[k]));
+/** minute-level instant, so a value read back from the database matches the one just submitted */
+const minute = (v: unknown) => { if (v == null || v === "") return ""; const d = new Date(String(v)); return Number.isNaN(+d) ? String(v) : d.toISOString().slice(0, 16); };
+const day = (v: unknown) => (v == null ? "" : String(v).slice(0, 10));
+const n = (r: Row, k: string) => normText(r[k]);
+const PREC = "date_precision";
+const unknownDate: [string, string] = ["اتركه فارغاً إن كان التاريخ غير معروف، أو اختر الدقة المعروفة (الشهر أو السنة فقط).", "Leave empty if the date is unknown, or choose how much of it is known (month or year only)."];
+const partialDate: [string, string] = ["إن لم يُعرف اليوم اختر «الشهر فقط» أو «السنة فقط» أو «سنة تقريبية»، ثم أي يوم من تلك الفترة.", "If the exact day is unknown choose “Month only”, “Year only” or “Approximate year”, then any day in that period."];
 const f = (name: string, ar: string, en: string, kind: FieldKind, extra: Partial<FieldDef> = {}): FieldDef => ({ name, ar, en, kind, ...extra });
 const spec = f("specialty_id", "التخصص", "Specialty", "specialty", { hint: ["اربط السجل بقسم طبي ليظهر في ملفه وتشمله مشاركته.", "Link to a specialty so it appears in that file and in its shares."] });
 
@@ -55,8 +72,8 @@ const tone = (v: string, map: Record<string, Chip["tone"]>): Chip["tone"] => map
 export const ENTITIES: Record<string, EntityDef> = {
   conditions: {
     slug: "conditions", table: "conditions", ar: "الأمراض والتشخيصات", en: "Conditions & diagnoses", singular: { ar: "حالة", en: "condition" },
-    order: ["onset_date", "desc"], hasSpecialty: true, bodyField: "notes", dateOf: (r) => (r.onset_date as string) ?? null, links: ["encounter_id"],
-    titleOf: (r) => s(r, "name"),
+    order: ["onset_date", "desc"], hasSpecialty: true, bodyField: "notes", dateOf: (r) => (r.onset_date as string) ?? null, datePrecision: PREC, links: ["encounter_id"],
+    titleOf: (r) => s(r, "name"), dupKey: (r) => n(r, "name"),
     chipsOf: (r, lang) => [
       { tone: r.category === "chronic" || r.category === "congenital" ? "info" : "muted", text: L.lbl(L.CONDITION_CATEGORY, s(r, "category"), lang) },
       { tone: tone(s(r, "clinical_status"), { active: "warn", recurrence: "warn", resolved: "ok", remission: "ok" }), text: L.lbl(L.CLINICAL_STATUS, s(r, "clinical_status"), lang) },
@@ -70,7 +87,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("clinical_status", "الحالة الآن", "Current status", "select", { options: L.CLINICAL_STATUS, dflt: "active" }),
       f("certainty", "درجة التأكد", "Certainty", "select", { options: L.CERTAINTY, dflt: "unknown", hint: ["«مؤكد» فقط إن أكده مقدم رعاية. اتركه «غير معروف» عند الشك.", "Use “Confirmed” only when a care provider confirmed it."] }),
       f("severity", "الشدة", "Severity", "select", { options: L.SEVERITY3 }),
-      f("onset_date", "تاريخ البداية", "Onset date", "date"),
+      f("onset_date", "تاريخ البداية", "Onset date", "date", { precision: PREC, hint: partialDate }),
       f("resolved_date", "تاريخ الشفاء / الانتهاء", "Resolved date", "date"),
       f("icd10_code", "رمز ICD-10 (اختياري)", "ICD-10 code (optional)", "text", { maxLength: 12 }),
       spec,
@@ -81,7 +98,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   allergies: {
     slug: "allergies", table: "allergies", ar: "الحساسية", en: "Allergies", singular: { ar: "حساسية", en: "allergy" },
     order: ["recorded_at", "desc"], hasSpecialty: true, bodyField: "notes", dateOf: (r) => (r.onset_date as string) ?? null,
-    titleOf: (r) => s(r, "substance"),
+    titleOf: (r) => s(r, "substance"), dupKey: (r) => n(r, "substance"),
     chipsOf: (r, lang) => [
       { tone: "info", text: L.lbl(L.ALLERGY_CATEGORY, s(r, "category"), lang) },
       { tone: tone(s(r, "severity"), { life_threatening: "bad", severe: "bad", moderate: "warn", mild: "muted" }), text: L.lbl(L.ALLERGY_SEVERITY, s(r, "severity"), lang) },
@@ -102,7 +119,8 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   medications: {
     slug: "medications", table: "medications", ar: "الأدوية", en: "Medications", singular: { ar: "دواء", en: "medication" },
-    order: ["start_date", "desc"], hasSpecialty: true, bodyField: "instructions", dateOf: (r) => (r.start_date as string) ?? null, links: ["encounter_id", "condition_id"],
+    order: ["start_date", "desc"], hasSpecialty: true, bodyField: "instructions", dateOf: (r) => (r.start_date as string) ?? null, datePrecision: PREC, links: ["encounter_id", "condition_id"],
+    dupKey: (r) => `${n(r, "name_generic")}|${n(r, "name_brand")}|${day(r.start_date)}`,
     titleOf: (r) => [s(r, "name_generic"), s(r, "name_brand") && `(${s(r, "name_brand")})`, s(r, "strength")].filter(Boolean).join(" "),
     chipsOf: (r, lang) => [
       { tone: tone(s(r, "status"), { active: "ok", on_hold: "warn" }), text: L.lbl(L.MED_STATUS, s(r, "status"), lang) },
@@ -121,7 +139,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("as_needed", "عند الحاجة فقط", "Only when needed", "checkbox"),
       f("origin", "مصدر المعلومة", "How we know", "select", { options: L.MED_ORIGIN, dflt: "patient_reported" }),
       f("status", "الحالة", "Status", "select", { options: L.MED_STATUS, dflt: "active", hint: ["لا تُعد الأدوية القديمة فعّالة: غيّر الحالة عند إيقافها.", "Old medications are not assumed active — change the status when stopped."] }),
-      f("start_date", "تاريخ البدء", "Start date", "date"),
+      f("start_date", "تاريخ البدء", "Start date", "date", { precision: PREC, hint: partialDate }),
       f("end_date", "تاريخ الإيقاف", "Stop date", "date"),
       f("stopped_by", "أُوقف بواسطة", "Stopped by", "select", { options: L.MED_STOPPED_BY }),
       f("stop_reason", "سبب الإيقاف", "Reason stopped", "text", { wide: true }),
@@ -138,6 +156,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     slug: "visits", table: "encounters", ar: "الزيارات الطبية", en: "Visits & encounters", singular: { ar: "زيارة", en: "visit" },
     order: ["started_at", "desc"], hasSpecialty: true, dateOf: (r) => (r.started_at as string) ?? null, dateKind: "datetime", bodyField: "summary",
     titleOf: (r, lang) => [L.lbl(L.ENCOUNTER_KIND, s(r, "kind"), lang), s(r, "reason")].filter(Boolean).join(" — "),
+    dupKey: (r) => `${s(r, "kind")}|${minute(r.started_at)}`,
     chipsOf: (r, lang) => [{ tone: tone(s(r, "status"), { completed: "ok", planned: "info", in_progress: "warn" }), text: L.lbl(L.ENCOUNTER_STATUS, s(r, "status"), lang) }],
     fields: [
       f("kind", "نوع الزيارة", "Visit type", "select", { options: L.ENCOUNTER_KIND, dflt: "clinic" }),
@@ -160,13 +179,13 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   procedures: {
     slug: "procedures", table: "procedures", ar: "العمليات والإجراءات", en: "Surgeries & procedures", singular: { ar: "إجراء", en: "procedure" },
-    order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, bodyField: "notes", links: ["encounter_id"],
-    titleOf: (r) => s(r, "name"),
+    order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, datePrecision: PREC, bodyField: "notes", links: ["encounter_id"],
+    titleOf: (r) => s(r, "name"), dupKey: (r) => `${n(r, "name")}|${day(r.performed_on)}`,
     chipsOf: (r, lang) => [{ tone: "info", text: L.lbl(L.PROCEDURE_KIND, s(r, "kind"), lang) }, ...(r.body_site ? [{ tone: "muted" as const, text: s(r, "body_site") }] : [])],
     fields: [
       f("kind", "النوع", "Type", "select", { options: L.PROCEDURE_KIND, dflt: "procedure" }),
       f("name", "اسم الإجراء", "Procedure", "text", { required: true, wide: true }),
-      f("performed_on", "تاريخ الإجراء", "Date", "date", { required: true }),
+      f("performed_on", "تاريخ الإجراء", "Date", "date", { precision: PREC, hint: unknownDate }),
       f("body_site", "الموضع (عضو / رقم السن)", "Site (organ / tooth no.)", "text"),
       spec,
       f("facility_name", "المنشأة", "Facility", "text"),
@@ -180,12 +199,13 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   imaging: {
     slug: "imaging", table: "imaging_studies", ar: "الأشعة والتصوير", en: "Imaging", singular: { ar: "فحص تصوير", en: "imaging study" },
-    order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, bodyField: "impression",
+    order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, datePrecision: PREC, bodyField: "impression",
+    dupKey: (r) => `${s(r, "modality")}|${n(r, "body_site")}|${day(r.performed_on)}`,
     titleOf: (r, lang) => [L.lbl(L.IMAGING_MODALITY, s(r, "modality"), lang), s(r, "body_site")].filter(Boolean).join(" — "),
     fields: [
       f("modality", "نوع الفحص", "Modality", "select", { options: L.IMAGING_MODALITY, dflt: "xray" }),
       f("body_site", "المنطقة", "Body site", "text"),
-      f("performed_on", "تاريخ الفحص", "Date", "date", { required: true }),
+      f("performed_on", "تاريخ الفحص", "Date", "date", { precision: PREC, hint: unknownDate }),
       spec,
       f("facility_name", "المنشأة", "Facility", "text"),
       f("radiologist_name", "طبيب الأشعة", "Radiologist", "text"),
@@ -195,14 +215,15 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   immunizations: {
     slug: "immunizations", table: "immunizations", ar: "التطعيمات", en: "Immunizations", singular: { ar: "تطعيم", en: "immunization" },
-    order: ["administered_on", "desc"], hasSpecialty: false, dateOf: (r) => (r.administered_on as string) ?? null, bodyField: "notes",
+    order: ["administered_on", "desc"], hasSpecialty: false, dateOf: (r) => (r.administered_on as string) ?? null, datePrecision: PREC, bodyField: "notes",
+    dupKey: (r) => `${n(r, "vaccine_name")}|${s(r, "dose_number")}|${day(r.administered_on)}`,
     titleOf: (r) => s(r, "vaccine_name") + (r.dose_number ? ` #${s(r, "dose_number")}` : ""),
     chipsOf: (r, lang) => [{ tone: tone(s(r, "status"), { completed: "ok", scheduled: "info", contraindicated: "warn" }), text: L.lbl(L.IMMUNIZATION_STATUS, s(r, "status"), lang) }],
     fields: [
       f("vaccine_name", "اسم اللقاح", "Vaccine", "text", { required: true, wide: true }),
       f("dose_number", "رقم الجرعة", "Dose number", "number", { min: 1, max: 20, step: "1" }),
       f("status", "الحالة", "Status", "select", { options: L.IMMUNIZATION_STATUS, dflt: "completed" }),
-      f("administered_on", "تاريخ التطعيم", "Date given", "date"),
+      f("administered_on", "تاريخ التطعيم", "Date given", "date", { precision: PREC, hint: partialDate }),
       f("next_due_on", "موعد الجرعة القادمة", "Next dose due", "date"),
       f("lot_number", "رقم التشغيلة", "Lot number", "text"),
       f("facility_name", "المنشأة", "Facility", "text"),
@@ -214,6 +235,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     slug: "family-history", table: "family_history", ar: "التاريخ العائلي", en: "Family history", singular: { ar: "بند عائلي", en: "family entry" },
     order: ["recorded_at", "desc"], hasSpecialty: true, bodyField: "notes",
     titleOf: (r, lang) => `${L.lbl(L.FAMILY_RELATION, s(r, "relation"), lang)}: ${s(r, "condition_name")}`,
+    dupKey: (r) => `${s(r, "relation")}|${n(r, "condition_name")}`,
     chipsOf: (r, lang) => [{ tone: "muted", text: L.lbl(L.FAMILY_CERTAINTY, s(r, "certainty"), lang) }, ...(r.age_at_onset != null ? [{ tone: "muted" as const, text: `${lang === "ar" ? "بدأ بعمر" : "onset at"} ${s(r, "age_at_onset")}` }] : [])],
     fields: [
       f("relation", "القرابة", "Relative", "select", { options: L.FAMILY_RELATION, required: true }),
@@ -229,6 +251,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     slug: "appointments", table: "appointments", ar: "المواعيد", en: "Appointments", singular: { ar: "موعد", en: "appointment" },
     order: ["scheduled_at", "desc"], hasSpecialty: true, dateOf: (r) => (r.scheduled_at as string) ?? null, dateKind: "datetime", bodyField: "notes",
     titleOf: (r) => [s(r, "reason"), s(r, "practitioner_name")].filter(Boolean).join(" — ") || "—",
+    dupKey: (r) => `${minute(r.scheduled_at)}|${n(r, "practitioner_name")}`,
     chipsOf: (r, lang) => [{ tone: tone(s(r, "status"), { scheduled: "info", completed: "ok", no_show: "warn" }), text: L.lbl(L.APPOINTMENT_STATUS, s(r, "status"), lang) }],
     fields: [
       f("scheduled_at", "موعد الحضور", "Scheduled for", "datetime", { required: true }),
@@ -243,7 +266,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   "care-plans": {
     slug: "care-plans", table: "care_plans", ar: "خطط العلاج والمتابعة", en: "Care & follow-up plans", singular: { ar: "خطة", en: "plan" },
     order: ["start_date", "desc"], hasSpecialty: true, dateOf: (r) => (r.start_date as string) ?? null, bodyField: "goals", links: ["encounter_id", "condition_id"],
-    titleOf: (r) => s(r, "title"),
+    titleOf: (r) => s(r, "title"), dupKey: (r) => n(r, "title"),
     chipsOf: (r, lang) => [{ tone: tone(s(r, "status"), { active: "ok", draft: "muted" }), text: L.lbl(L.CARE_PLAN_STATUS, s(r, "status"), lang) }],
     fields: [
       f("title", "عنوان الخطة", "Plan title", "text", { required: true, wide: true }),
@@ -259,6 +282,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     slug: "notes", table: "clinical_notes", ar: "الملاحظات السريرية", en: "Clinical notes", singular: { ar: "ملاحظة", en: "note" },
     order: ["noted_at", "desc"], hasSpecialty: true, dateOf: (r) => (r.noted_at as string) ?? null, dateKind: "datetime", bodyField: "body",
     titleOf: (r, lang) => s(r, "title") || L.lbl(L.NOTE_KIND, s(r, "kind"), lang),
+    dupKey: (r) => `${n(r, "title")}|${normText(r.body).slice(0, 200)}`,
     chipsOf: (r, lang) => [{ tone: "muted", text: L.lbl(L.NOTE_KIND, s(r, "kind"), lang) }],
     fields: [
       f("kind", "النوع", "Type", "select", { options: L.NOTE_KIND, dflt: "patient_note" }),
@@ -273,8 +297,10 @@ export const ENTITIES: Record<string, EntityDef> = {
     slug: "test-orders", table: "test_orders", ar: "الفحوصات المطلوبة", en: "Requested tests", singular: { ar: "فحص مطلوب", en: "test request" },
     order: ["requested_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.requested_on as string) ?? null, bodyField: "reason",
     titleOf: (r) => s(r, "name"),
+    // only open requests are compared: asking for the same test again after it was done is normal
+    dupKey: (r) => (r.status === "suggested" || r.status === "requested" ? n(r, "name") : null),
     chipsOf: (r, lang) => [
-      { tone: tone(s(r, "status"), { done: "ok", requested: "info" }), text: L.lbl(L.ORDER_STATUS, s(r, "status"), lang) },
+      { tone: tone(s(r, "status"), { done: "ok", requested: "info", suggested: "muted" }), text: L.lbl(L.ORDER_STATUS, s(r, "status"), lang) },
       { tone: tone(s(r, "priority"), { urgent: "bad", soon: "warn" }), text: L.lbl(L.ORDER_PRIORITY, s(r, "priority"), lang) },
       { tone: "muted", text: L.lbl(L.ORDER_KIND, s(r, "kind"), lang) },
     ],
@@ -282,8 +308,9 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("name", "اسم الفحص", "Test", "text", { required: true, wide: true }),
       f("kind", "النوع", "Type", "select", { options: L.ORDER_KIND, dflt: "lab" }),
       f("priority", "الأولوية", "Priority", "select", { options: L.ORDER_PRIORITY, dflt: "routine" }),
-      f("status", "الحالة", "Status", "select", { options: L.ORDER_STATUS, dflt: "requested" }),
-      f("requested_on", "تاريخ الطلب", "Requested on", "date"),
+      f("status", "الحالة", "Status", "select", { options: L.ORDER_STATUS, dflt: "requested", hint: ["«مقترح» إن اقترحه تقرير أو المريض ولم يطلبه طبيب بعد.", "“Suggested” when a report or the patient proposed it and no clinician has ordered it yet."] }),
+      f("ordered_by", "الطبيب الطالب", "Ordered by", "text", { maxLength: 200 }),
+      f("requested_on", "تاريخ الطلب / الاقتراح", "Requested / suggested on", "date", { required: true, dflt: "today" }),
       f("done_on", "تاريخ الإنجاز", "Done on", "date"),
       spec,
       f("reason", "سبب الطلب", "Reason", "textarea", { wide: true }),

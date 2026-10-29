@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 
-export interface LabTypeOpt { id: string; name: string; unit: string | null; kind: string; group: string }
+/** units: the default unit first, then units the database accepts as equivalent; other: a free-named test */
+export interface LabTypeOpt { id: string; name: string; unit: string | null; units: string[]; kind: string; group: string; other: boolean }
 export interface LabRowsText {
   test: string; result: string; unit: string; refLow: string; refHigh: string; flag: string; add: string; remove: string; choose: string;
-  flags: { value: string; label: string }[]; row: string;
+  flags: { value: string; label: string }[]; row: string; customName: string; customHint: string;
 }
 
 /** Repeating result rows for a lab report; field names r<N>_* are read by the addLabReport action. */
@@ -33,8 +34,13 @@ export function LabRows({ types, text }: { types: LabTypeOpt[]; text: LabRowsTex
                   ))}
                 </select>
               </div>
+              {t?.other && (
+                <div className="field wide"><label htmlFor={`r${k}_custom_name`}>{text.customName} <span className="req">*</span></label>
+                  <input id={`r${k}_custom_name`} name={`r${k}_custom_name`} type="text" maxLength={120} required placeholder={text.customHint} /></div>
+              )}
               <div className="field"><label htmlFor={`r${k}_value`}>{text.result}</label><input id={`r${k}_value`} name={`r${k}_value`} type="text" inputMode={t?.kind === "text" ? "text" : "decimal"} dir="ltr" autoComplete="off" /></div>
-              <div className="field"><label htmlFor={`r${k}_unit`}>{text.unit}</label><input id={`r${k}_unit`} name={`r${k}_unit`} type="text" dir="ltr" placeholder={t?.unit ?? ""} /></div>
+              <div className="field"><label htmlFor={`r${k}_unit`}>{text.unit}</label><input id={`r${k}_unit`} name={`r${k}_unit`} type="text" dir="ltr" placeholder={t?.unit ?? ""} list={t && t.units.length > 1 ? `units_${k}` : undefined} />
+                {t && t.units.length > 1 && <datalist id={`units_${k}`}>{t.units.map((u) => <option key={u} value={u} />)}</datalist>}</div>
               <div className="field"><label htmlFor={`r${k}_ref_low`}>{text.refLow}</label><input id={`r${k}_ref_low`} name={`r${k}_ref_low`} type="text" inputMode="decimal" dir="ltr" /></div>
               <div className="field"><label htmlFor={`r${k}_ref_high`}>{text.refHigh}</label><input id={`r${k}_ref_high`} name={`r${k}_ref_high`} type="text" inputMode="decimal" dir="ltr" /></div>
               <div className="field"><label htmlFor={`r${k}_flag`}>{text.flag}</label>

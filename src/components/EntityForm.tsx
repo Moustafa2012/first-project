@@ -1,14 +1,15 @@
 import { i18n, type Lang } from "@/lib/i18n";
-import { SOURCE } from "@/lib/labels";
+import { DATE_PRECISION, SOURCE } from "@/lib/labels";
 import type { EntityDef, FieldDef } from "@/lib/entities";
 import type { Row, Specialty } from "@/lib/types";
 import { ActionForm, DateTimeField, SubmitButton } from "@/components/ui/client";
 import { saveEntity } from "@/app/actions/entities";
 
-export function FieldInput({ def, value, lang, specialties, prefix }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string }) {
+export function FieldInput({ def, value, lang, specialties, prefix, precision }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string; precision?: unknown }) {
   const id = `${prefix}_${def.name}`;
   const label = lang === "ar" ? def.ar : def.en;
-  const v = value == null ? "" : String(value);
+  // a NOT NULL date with a database default ("today") is prefilled, never sent empty
+  const v = value == null ? (def.kind === "date" && def.dflt === "today" ? new Date().toISOString().slice(0, 10) : "") : String(value);
   const wrap = (input: React.ReactNode) => (
     <div className={`field${def.wide ? " wide" : ""}`}>
       <label htmlFor={id}>{label}{def.required && <span className="req" aria-hidden="true"> *</span>}</label>
@@ -44,6 +45,16 @@ export function FieldInput({ def, value, lang, specialties, prefix }: { def: Fie
     case "number":
       return wrap(<input id={id} name={def.name} type="number" step={def.step ?? "any"} min={def.min} max={def.max} defaultValue={v} required={def.required} inputMode="decimal" />);
     case "date":
+      if (def.precision) {
+        return wrap(
+          <div className="date-prec">
+            <input id={id} name={def.name} type="date" defaultValue={v} required={def.required} />
+            <select name={def.precision} defaultValue={typeof precision === "string" ? precision : "day"} aria-label={lang === "ar" ? `دقة ${label}` : `${label} precision`}>
+              {DATE_PRECISION.map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}
+            </select>
+          </div>,
+        );
+      }
       return wrap(<input id={id} name={def.name} type="date" defaultValue={v} required={def.required} />);
     default:
       return wrap(<input id={id} name={def.name} type="text" defaultValue={v} required={def.required} maxLength={def.maxLength ?? 300} />);
@@ -68,7 +79,7 @@ export function EntityForm({
       <div className="form-grid">
         {entity.fields.map((fd) => (
           <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix}
-            value={row ? row[fd.name] : defaults[fd.name]} />
+            value={row ? row[fd.name] : defaults[fd.name]} precision={fd.precision && row ? row[fd.precision] : undefined} />
         ))}
       </div>
       <details className="fold">

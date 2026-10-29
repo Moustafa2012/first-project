@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFormState, useFormStatus } from "react-dom";
 
-export type FormState = { ok?: boolean; error?: string; message?: string; data?: Record<string, string>; redirectTo?: string } | undefined;
+export type FormState = {
+  ok?: boolean; error?: string; message?: string; data?: Record<string, string>; redirectTo?: string;
+  /** asks the user to confirm and resubmit (e.g. a probable duplicate): a checkbox `name` is added to the form */
+  confirm?: { name: string; label: string };
+} | undefined;
 export type FormAction = (prev: FormState, fd: FormData) => Promise<FormState>;
 
 export function SubmitButton({ children, className = "btn primary", pending: pendingText }: { children: React.ReactNode; className?: string; pending?: string }) {
@@ -36,7 +40,10 @@ export function ActionForm({
     <form action={formAction} ref={ref} className={className} id={id}>
       {children}
       <div aria-live="polite">
-        {state?.error && <p className="form-msg err" role="alert">{state.error}</p>}
+        {state?.error && <p className={`form-msg ${state.confirm ? "warn" : "err"}`} role="alert">{state.error}</p>}
+        {state?.confirm && (
+          <label className="form-confirm"><input type="checkbox" name={state.confirm.name} />{state.confirm.label}</label>
+        )}
         {state?.ok && state.message && <p className="form-msg ok">{state.message}</p>}
       </div>
     </form>

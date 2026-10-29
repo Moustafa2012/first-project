@@ -1,7 +1,7 @@
 import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut, Printer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { getTz } from "@/lib/auth";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import { ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_TYPE, ENCOUNTER_KIND, IMAGING_MODALITY, lbl, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, FAMILY_RELATION, CARE_PLAN_STATUS, LAB_GROUP, IMMUNIZATION_STATUS } from "@/lib/labels";
 import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
@@ -20,7 +20,7 @@ export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
   const tz = getTz();
   const inc = new Set(b.meta.include);
   const spec = (id: unknown) => { const x = b.specialties.find((y) => y.id === id); return x ? (lang === "ar" ? x.name_ar : x.name_en) : ""; };
-  const d = (v: unknown) => fmtDate(s(v), lang, tz);
+  const d = (v: unknown, prec?: unknown) => (prec ? fmtPartialDate(s(v), prec, lang, tz) : fmtDate(s(v), lang, tz));
   const dt = (v: unknown) => fmtDateTime(s(v), lang, tz);
   const p = b.patient;
   const obs = (b.observations ?? []) as R[];
@@ -71,7 +71,7 @@ export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
         <div className="grid cols-2" style={{ marginBlockStart: ".9rem" }}>
           <div><h3>{t("الأمراض المزمنة والعيوب الخلقية", "Chronic & congenital conditions")}</h3>
             {b.chronic_conditions.length === 0 ? <p className="muted small">{t("لا شيء مسجل (لا يعني عدم وجود).", "None recorded (not proof of none).")}</p> : b.chronic_conditions.map((c, i) => (
-              <div key={i}><strong>{s(c.name)}</strong> <Chip tone={c.certainty === "confirmed" ? "ok" : "muted"}>{lbl(CERTAINTY, s(c.certainty), lang)}</Chip> <span className="muted small">{lbl(CONDITION_CATEGORY, s(c.category), lang)} · {lbl(CLINICAL_STATUS, s(c.clinical_status), lang)}{c.onset_date ? ` · ${d(c.onset_date)}` : ""}</span></div>))}</div>
+              <div key={i}><strong>{s(c.name)}</strong> <Chip tone={c.certainty === "confirmed" ? "ok" : "muted"}>{lbl(CERTAINTY, s(c.certainty), lang)}</Chip> <span className="muted small">{lbl(CONDITION_CATEGORY, s(c.category), lang)} · {lbl(CLINICAL_STATUS, s(c.clinical_status), lang)}{c.onset_date ? ` · ${d(c.onset_date, c.date_precision)}` : ""}</span></div>))}</div>
           <div><h3>{t("الأدوية الحالية", "Current medications")}</h3>
             {b.medications.length === 0 ? <p className="muted small">{t("لا شيء مسجل (لا يعني عدم تناول أدوية).", "None recorded (not proof none are taken).")}</p> : b.medications.map((m, i) => (
               <div key={i}><strong>{[s(m.name_generic), m.name_brand && `(${s(m.name_brand)})`, s(m.strength)].filter(Boolean).join(" ")}</strong> <span className="muted small">{[s(m.dose), s(m.frequency), s(m.route)].filter(Boolean).join(" · ")} · {lbl(MED_ORIGIN, s(m.origin), lang)}{m.indication ? ` · ${s(m.indication)}` : ""}</span></div>))}</div>
@@ -129,21 +129,21 @@ export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
       {inc.has("other_conditions") && (
         <Card title={t("التشخيصات والحالات الأخرى", "Other diagnoses & conditions")}>
           {(b.other_conditions ?? []).length === 0 ? <Empty>{t("لا شيء ضمن النطاق.", "Nothing in scope.")}</Empty> : (b.other_conditions ?? []).map((c, i) => (
-            <div key={i} className="rec row between"><span><strong>{s(c.name)}</strong> <Chip tone={c.certainty === "confirmed" ? "ok" : "muted"}>{lbl(CERTAINTY, s(c.certainty), lang)}</Chip> <span className="muted small">{lbl(CLINICAL_STATUS, s(c.clinical_status), lang)}{spec(c.specialty_id) ? ` · ${spec(c.specialty_id)}` : ""}</span></span><span className="muted small">{d(c.onset_date)}</span></div>))}
+            <div key={i} className="rec row between"><span><strong>{s(c.name)}</strong> <Chip tone={c.certainty === "confirmed" ? "ok" : "muted"}>{lbl(CERTAINTY, s(c.certainty), lang)}</Chip> <span className="muted small">{lbl(CLINICAL_STATUS, s(c.clinical_status), lang)}{spec(c.specialty_id) ? ` · ${spec(c.specialty_id)}` : ""}</span></span><span className="muted small">{d(c.onset_date, c.date_precision)}</span></div>))}
         </Card>
       )}
 
       {inc.has("procedures") && (
         <Card title={t("العمليات والإجراءات", "Procedures & surgeries")}>
           {(b.procedures ?? []).length === 0 ? <Empty>{t("لا شيء ضمن النطاق.", "Nothing in scope.")}</Empty> : (b.procedures ?? []).map((x, i) => (
-            <article className="rec" key={i}><div className="row between"><span className="rec-title">{s(x.name)} <Chip tone="muted">{lbl(PROCEDURE_KIND, s(x.kind), lang)}</Chip>{x.body_site ? <Chip tone="muted">{s(x.body_site)}</Chip> : null}</span><span className="muted small">{d(x.performed_on)}</span></div>
+            <article className="rec" key={i}><div className="row between"><span className="rec-title">{s(x.name)} <Chip tone="muted">{lbl(PROCEDURE_KIND, s(x.kind), lang)}</Chip>{x.body_site ? <Chip tone="muted">{s(x.body_site)}</Chip> : null}</span><span className="muted small">{d(x.performed_on, x.date_precision)}</span></div>
               <KV items={[[t("المنفّذ", "Operator"), s(x.operator_name)], [t("الدافع", "Indication"), s(x.indication)], [t("النتيجة", "Outcome"), s(x.outcome)], [t("المضاعفات", "Complications"), s(x.complications)], [t("ملاحظات", "Notes"), s(x.notes)]]} /></article>))}
         </Card>
       )}
 
       {inc.has("imaging") && (b.imaging ?? []).length > 0 && (
         <Card title={t("الأشعة والتصوير", "Imaging")}>{(b.imaging ?? []).map((x, i) => (
-          <article className="rec" key={i}><div className="row between"><span className="rec-title">{lbl(IMAGING_MODALITY, s(x.modality), lang)} {s(x.body_site)}</span><span className="muted small">{d(x.performed_on)}</span></div>
+          <article className="rec" key={i}><div className="row between"><span className="rec-title">{lbl(IMAGING_MODALITY, s(x.modality), lang)} {s(x.body_site)}</span><span className="muted small">{d(x.performed_on, x.date_precision)}</span></div>
             <KV items={[[t("الموجودات", "Findings"), s(x.findings)], [t("الخلاصة", "Impression"), s(x.impression)]]} /></article>))}</Card>
       )}
 
@@ -169,7 +169,7 @@ export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
 
       {inc.has("immunizations") && (b.immunizations ?? []).length > 0 && (
         <Card title={t("التطعيمات", "Immunizations")}>{(b.immunizations ?? []).map((x, i) => (
-          <div className="row between" key={i}><span>{s(x.vaccine_name)}{x.dose_number ? ` #${s(x.dose_number)}` : ""} <Chip tone="muted">{lbl(IMMUNIZATION_STATUS, s(x.status), lang)}</Chip></span><span className="muted small">{d(x.administered_on)}</span></div>))}</Card>
+          <div className="row between" key={i}><span>{s(x.vaccine_name)}{x.dose_number ? ` #${s(x.dose_number)}` : ""} <Chip tone="muted">{lbl(IMMUNIZATION_STATUS, s(x.status), lang)}</Chip></span><span className="muted small">{d(x.administered_on, x.date_precision)}</span></div>))}</Card>
       )}
 
       {inc.has("family_history") && (b.family_history ?? []).length > 0 && (

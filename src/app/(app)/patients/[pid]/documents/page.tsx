@@ -19,6 +19,7 @@ const ERR: Record<string, [string, string]> = {
   bad_type: ["نوع الملف غير مسموح. المسموح: PDF أو JPG أو PNG أو WebP (يُفحص المحتوى لا الامتداد).", "File type not allowed. Allowed: PDF, JPG, PNG, WebP (content is checked, not the extension)."],
   active_content: ["رُفض ملف PDF لاحتوائه على محتوى نشط (جافاسكربت أو تشغيل تلقائي).", "This PDF was rejected because it contains active content (JavaScript or auto-launch)."],
   no_file: ["اختر ملفاً.", "Choose a file."], bad_form: ["بيانات غير صالحة.", "Invalid data."],
+  duplicate: ["هذا الملف نفسه مرفوع من قبل في هذا الملف الطبي. إن أردت رفعه مرة أخرى فاختره من جديد وحدد «ارفعه رغم ذلك».", "This exact file is already in this record. To upload it again, choose it once more and tick “Upload anyway”."],
   upload_failed: ["تعذر رفع الملف.", "The upload failed."], register_failed: ["تعذر تسجيل المستند. تحقق من صلاحياتك.", "Could not register the document. Check your permissions."],
 };
 
@@ -87,9 +88,9 @@ export default async function DocumentsPage({ params, searchParams }: { params: 
     <>
       <PageHead title={t("المستندات والتقارير الطبية", "Medical documents & reports")} sub={t("ملفات خاصة لا تُفتح إلا بصلاحية، ولا توجد روابط عامة دائمة لها.", "Private files, opened only with permission. There are no permanent public links.")} />
       {searchParams.uploaded && <Banner tone="ok">{t("تم رفع المستند.", "Document uploaded.")}</Banner>}
-      {err && <Banner tone="bad">{t(...err)}</Banner>}
+      {err && <Banner tone={searchParams.error === "duplicate" ? "warn" : "bad"}>{t(...err)}{searchParams.error === "duplicate" && searchParams.dup && /^[0-9a-f-]{36}$/.test(searchParams.dup) ? <> <a href={`/api/documents/${searchParams.dup}`} target="_blank" rel="noopener noreferrer">{t("فتح النسخة الموجودة", "Open the existing copy")}</a></> : null}</Banner>}
       {access.canWrite && (
-        <details className="fold" open={live.length === 0}>
+        <details className="fold" open={live.length === 0 || searchParams.error === "duplicate"}>
           <summary>{t("+ رفع مستند", "+ Upload a document")}</summary>
           <div className="fold-body">
             <form method="post" action={`/api/patients/${p.id}/documents`} encType="multipart/form-data" className="stack">
@@ -104,6 +105,7 @@ export default async function DocumentsPage({ params, searchParams }: { params: 
                 {(reps ?? []).length > 0 && <div className="field"><label htmlFor="lab_report_id">{t("ربط بتقرير تحاليل", "Link to a lab report")}</label><select id="lab_report_id" name="lab_report_id" defaultValue=""><option value="">—</option>{(reps ?? []).map((r) => <option key={r.id as string} value={r.id as string}>{r.title as string}</option>)}</select></div>}
                 <div className="field wide"><label htmlFor="description">{t("وصف", "Description")}</label><textarea id="description" name="description" rows={2} maxLength={1000} /></div>
               </div>
+              {searchParams.error === "duplicate" && <label className="form-confirm"><input type="checkbox" name="allow_duplicate" />{t("ارفعه رغم ذلك (نسخة ثانية مقصودة)", "Upload anyway (an intended second copy)")}</label>}
               <div><button className="btn primary">{t("رفع", "Upload")}</button></div>
             </form>
           </div>

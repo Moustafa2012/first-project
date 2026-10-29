@@ -47,6 +47,13 @@ export async function POST(request: NextRequest, { params }: { params: { pid: st
   const opt = (k: string) => { const v = String(form.get(k) ?? ""); return UUID_RE.test(v) ? v : null; };
   const date = String(form.get("document_date") ?? "");
 
+  // the very same file already in this patient's record: say so once, unless the user confirmed
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (form.get("allow_duplicate") !== "on") {
+    const { data: same } = await supabase.from("medical_documents").select("id").eq("patient_id", pid).eq("sha256", sha256).eq("record_status", "active").limit(1);
+    if (same?.length) return back(request, pid, { error: "duplicate", dup: String(same[0].id) });
+  }
+
   const path = `${pid}/${randomUUID()}.${EXT[mime]}`;
   const admin = createAdminClient();
   const up = await admin.storage.from(BUCKET).upload(path, bytes, { contentType: mime, upsert: false, cacheControl: "0" });
@@ -54,7 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: { pid: st
 
   const { error } = await supabase.rpc("register_document", {
     p_patient: pid, p_title: title, p_doc_type: docType, p_storage_path: path, p_filename: safeFilename(file.name), p_mime: mime,
-    p_size: file.size, p_sha256: createHash("sha256").update(bytes).digest("hex"),
+    p_size: file.size, p_sha256: sha256,
     p_specialty: opt("specialty_id"), p_description: String(form.get("description") ?? "").slice(0, 1000) || null,
     p_document_date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null, p_sensitivity: sens,
     p_encounter: opt("encounter_id"), p_lab_report: opt("lab_report_id"), p_imaging: null,

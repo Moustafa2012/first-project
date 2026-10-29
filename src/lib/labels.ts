@@ -85,15 +85,33 @@ export const SENSITIVITY: Opt[] = [
   o("standard", "عادي", "Standard"), o("sensitive", "حساس", "Sensitive"), o("restricted", "مقيَّد (لا يُشارك إلا باختيار مباشر)", "Restricted (shared only when picked individually)"),
 ];
 export const IMMUNIZATION_STATUS: Opt[] = [o("completed", "تم", "Given"), o("scheduled", "مجدول", "Scheduled"), o("declined", "رفض", "Declined"), o("contraindicated", "ممنوع طبياً", "Contraindicated")];
-export const FAMILY_RELATION: Opt[] = ["father:الأب:Father", "mother:الأم:Mother", "brother:أخ:Brother", "sister:أخت:Sister", "son:ابن:Son", "daughter:ابنة:Daughter", "paternal_grandfather:الجد لأب:Paternal grandfather", "paternal_grandmother:الجدة لأب:Paternal grandmother", "maternal_grandfather:الجد لأم:Maternal grandfather", "maternal_grandmother:الجدة لأم:Maternal grandmother", "uncle:عم / خال:Uncle", "aunt:عمة / خالة:Aunt", "cousin:ابن / ابنة عم أو خال:Cousin", "other:قريب آخر:Other relative"]
-  .map((s) => { const [v, a, e] = s.split(":"); return o(v, a, e); });
+// "uncle" / "aunt" / "cousin" stay for older entries where the side of the family is unknown.
+export const FAMILY_RELATION: Opt[] = [
+  "father:الأب:Father", "mother:الأم:Mother", "brother:أخ:Brother", "sister:أخت:Sister", "half_sibling:أخ / أخت غير شقيق:Half-sibling",
+  "son:ابن:Son", "daughter:ابنة:Daughter",
+  "paternal_grandfather:الجد لأب:Paternal grandfather", "paternal_grandmother:الجدة لأب:Paternal grandmother",
+  "maternal_grandfather:الجد لأم:Maternal grandfather", "maternal_grandmother:الجدة لأم:Maternal grandmother",
+  "grandfather:الجد (الجهة غير معروفة):Grandfather (side unknown)", "grandmother:الجدة (الجهة غير معروفة):Grandmother (side unknown)",
+  "paternal_uncle:العم (أخو الأب):Paternal uncle", "paternal_aunt:العمة (أخت الأب):Paternal aunt",
+  "maternal_uncle:الخال (أخو الأم):Maternal uncle", "maternal_aunt:الخالة (أخت الأم):Maternal aunt",
+  "uncle:عم أو خال (غير محدد):Uncle (side unknown)", "aunt:عمة أو خالة (غير محددة):Aunt (side unknown)",
+  "paternal_cousin:ابن / ابنة العم أو العمة:Paternal cousin", "maternal_cousin:ابن / ابنة الخال أو الخالة:Maternal cousin",
+  "cousin:ابن / ابنة عم أو خال (غير محدد):Cousin (side unknown)",
+  "nephew_niece:ابن / ابنة الأخ أو الأخت:Nephew / niece", "grandchild:حفيد / حفيدة:Grandchild",
+  "male_relatives:عدة أقارب ذكور:Several male relatives", "female_relatives:عدة أقارب إناث:Several female relatives",
+  "other:قريب آخر:Other relative",
+].map((s) => { const [v, a, e] = s.split(":"); return o(v, a, e); });
+// How much of a date is known. Month / year dates are stored as the first day of that month / year.
+export const DATE_PRECISION: Opt[] = [
+  o("day", "اليوم معروف", "Exact day"), o("month", "الشهر فقط", "Month only"), o("year", "السنة فقط", "Year only"), o("approx", "سنة تقريبية", "Approximate year"),
+];
 export const FAMILY_CERTAINTY: Opt[] = [o("reported", "أفاد به المريض", "Reported"), o("confirmed", "مؤكد", "Confirmed"), o("unknown", "غير معروف", "Unknown")];
 export const APPOINTMENT_STATUS: Opt[] = [o("scheduled", "مجدول", "Scheduled"), o("completed", "تم", "Attended"), o("cancelled", "ملغى", "Cancelled"), o("no_show", "لم يحضر", "No-show")];
 export const CARE_PLAN_STATUS: Opt[] = [o("draft", "مسودة", "Draft"), o("active", "نشطة", "Active"), o("on_hold", "موقوفة", "On hold"), o("completed", "مكتملة", "Completed"), o("cancelled", "ملغاة", "Cancelled")];
 export const NOTE_KIND: Opt[] = [o("progress", "ملاحظة متابعة", "Progress note"), o("consult", "استشارة", "Consultation"), o("nursing", "تمريض", "Nursing"), o("patient_note", "ملاحظة المريض", "Patient note"), o("other", "أخرى", "Other")];
 export const ORDER_KIND: Opt[] = [o("lab", "تحليل مخبري", "Lab test"), o("imaging", "تصوير", "Imaging"), o("clinical", "فحص سريري", "Clinical exam"), o("other", "أخرى", "Other")];
 export const ORDER_PRIORITY: Opt[] = [o("routine", "عادي", "Routine"), o("soon", "قريباً", "Soon"), o("urgent", "عاجل", "Urgent")];
-export const ORDER_STATUS: Opt[] = [o("requested", "مطلوب", "Requested"), o("done", "تم", "Done"), o("cancelled", "ملغى", "Cancelled")];
+export const ORDER_STATUS: Opt[] = [o("suggested", "مقترح (لم يطلبه طبيب)", "Suggested (not ordered)"), o("requested", "طلبه طبيب", "Ordered by a clinician"), o("done", "تم", "Done"), o("cancelled", "ملغى", "Cancelled")];
 export const SETTING: Opt[] = [o("home", "المنزل", "Home"), o("clinic", "عيادة", "Clinic"), o("hospital", "مستشفى", "Hospital"), o("lab", "مختبر", "Laboratory"), o("other", "مكان آخر", "Other")];
 export const LAB_STATUS: Opt[] = [o("final", "معتمدة", "Final"), o("preliminary", "أولية", "Preliminary")];
 export const LAB_FLAG: Opt[] = [o("", "بدون علامة", "No flag"), o("normal", "طبيعي", "Normal"), o("low", "منخفض", "Low"), o("high", "مرتفع", "High"), o("critical_low", "منخفض جداً", "Critically low"), o("critical_high", "مرتفع جداً", "Critically high"), o("abnormal", "غير طبيعي", "Abnormal")];
@@ -157,7 +175,7 @@ export const LAB_GROUP: Record<string, { ar: string; en: string }> = {
   hematology: { ar: "أمراض الدم (CBC)", en: "Hematology (CBC)" }, inflammation: { ar: "الالتهاب", en: "Inflammation" },
   chemistry: { ar: "الكيمياء الحيوية والسكر", en: "Chemistry & glucose" }, kidney: { ar: "وظائف الكلى", en: "Kidney function" },
   electrolytes: { ar: "الأملاح والمعادن", en: "Electrolytes & minerals" }, liver: { ar: "وظائف الكبد", en: "Liver function" },
-  lipids: { ar: "الدهون", en: "Lipids" }, thyroid: { ar: "الغدة الدرقية", en: "Thyroid" }, hormones: { ar: "الهرمونات", en: "Hormones" },
+  lipids: { ar: "الدهون", en: "Lipids" }, cardiac: { ar: "مؤشرات القلب", en: "Cardiac markers" }, thyroid: { ar: "الغدة الدرقية", en: "Thyroid" }, hormones: { ar: "الهرمونات", en: "Hormones" },
   vitamins: { ar: "الفيتامينات والحديد", en: "Vitamins & iron" }, coagulation: { ar: "التخثر", en: "Coagulation" },
   urinalysis: { ar: "تحليل البول", en: "Urinalysis" }, stool: { ar: "تحليل البراز", en: "Stool tests" },
   immunology: { ar: "المناعة", en: "Immunology" }, infection: { ar: "العدوى", en: "Infection screening" },

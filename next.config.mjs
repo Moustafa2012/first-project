@@ -5,6 +5,25 @@ if (!process.env.__NEXT_PRIVATE_ORIGIN && process.env.NEXT_PUBLIC_SITE_URL) {
   process.env.__NEXT_PRIVATE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
 }
 
+// Content-Security-Policy for pages. Next.js streams its payload in inline <script> tags, so scripts need
+// 'unsafe-inline' (no nonces without forcing every page to render dynamically); everything else is same-origin
+// except Google Fonts. Files served by the API (PDF, images) are excluded: Chromium's PDF viewer is an <embed> that
+// object-src 'none' would block.
+const supabase = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").origin; } catch { return ""; } })();
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  `connect-src 'self'${supabase ? ` ${supabase} ${supabase.replace(/^http/, "ws")}` : ""}`,
+  "frame-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
 /** @type {import('next').NextConfig} */
 const security = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -36,6 +55,8 @@ const nextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: [...security, { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" }] },
+      // pages only: not API responses nor the shared-file routes that stream PDFs and images
+      { source: "/:path((?!api/|s/[^/]+/doc/|s/[^/]+/pdf).*)", headers: [{ key: "Content-Security-Policy", value: csp }] },
       // shared medical files: never cached, never indexed, never leak the link through the Referer header
       { source: "/s/:path*", headers: [
         { key: "Referrer-Policy", value: "no-referrer" },

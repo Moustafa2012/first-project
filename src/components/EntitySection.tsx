@@ -4,7 +4,7 @@ import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getPatient, getSpecialties, specialtyName } from "@/lib/data";
 import { getTz } from "@/lib/auth";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import { lbl, SOURCE, VERIFICATION } from "@/lib/labels";
 import type { EntityDef } from "@/lib/entities";
 import type { Row } from "@/lib/types";
@@ -41,7 +41,12 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
   const dead = rows.filter((r) => r.record_status === "entered_in_error");
   const singular = lang === "ar" ? entity.singular.ar : entity.singular.en;
 
-  const fmt = (v: string | null | undefined) => (v ? (entity.dateKind === "datetime" ? fmtDateTime(v, lang, tz) : fmtDate(v, lang, tz)) : "");
+  const fmt = (r: Row) => {
+    const v = entity.dateOf?.(r) ?? null;
+    if (!v) return entity.datePrecision ? t("التاريخ غير معروف", "Date unknown") : "";
+    if (entity.dateKind === "datetime") return fmtDateTime(v, lang, tz);
+    return entity.datePrecision ? fmtPartialDate(v, r[entity.datePrecision], lang, tz) : fmtDate(v, lang, tz);
+  };
 
   const card = (r: Row, isDead = false) => {
     const chips = entity.chipsOf?.(r, lang) ?? [];
@@ -54,7 +59,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
         if (raw == null || raw === "") return [lang === "ar" ? fd.ar : fd.en, null];
         let shown: string;
         if (fd.kind === "select") shown = lbl(fd.options!, String(raw), lang);
-        else if (fd.kind === "date") shown = fmtDate(String(raw), lang, tz);
+        else if (fd.kind === "date") shown = fd.precision ? fmtPartialDate(String(raw), r[fd.precision], lang, tz) : fmtDate(String(raw), lang, tz);
         else if (fd.kind === "datetime") shown = fmtDateTime(String(raw), lang, tz);
         else shown = String(raw);
         if (fd.kind === "select" && chipTexts.has(shown)) return [lang === "ar" ? fd.ar : fd.en, null];
@@ -72,7 +77,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
             {spec && <Chip tone="info">{spec}</Chip>}
             {isDead && <Chip tone="bad">{t("أُبطل", "Invalidated")}</Chip>}
           </div>
-          <span className="muted small nowrap">{fmt(entity.dateOf?.(r) ?? null)}</span>
+          <span className="muted small nowrap">{fmt(r)}</span>
         </div>
         {body && <p className="rec-body">{body}</p>}
         {!compact && <KV items={kv} />}

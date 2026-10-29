@@ -55,3 +55,26 @@ export function fmtBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+
+export type DatePrecision = "day" | "month" | "year" | "approx";
+const PRECISIONS: DatePrecision[] = ["day", "month", "year", "approx"];
+export const isPrecision = (v: unknown): v is DatePrecision => typeof v === "string" && (PRECISIONS as string[]).includes(v);
+
+/** Stores only what is known: a month-precision date becomes the 1st of that month, a year (or "around") 1 January. */
+export function normalizePartialDate(iso: string, precision: DatePrecision): string {
+  if (precision === "month") return `${iso.slice(0, 7)}-01`;
+  if (precision === "year" || precision === "approx") return `${iso.slice(0, 4)}-01-01`;
+  return iso;
+}
+
+/** A date shown with no more detail than was recorded: "Mar 2003", "2003" or "around 2003". */
+export function fmtPartialDate(v: string | null | undefined, precision: unknown, lang: Lang, tz = "UTC"): string {
+  if (!v) return "";
+  const p = isPrecision(precision) ? precision : "day";
+  if (p === "day") return fmtDate(v, lang, tz);
+  const year = v.slice(0, 4);
+  if (p === "year") return year;
+  if (p === "approx") return lang === "ar" ? `حوالي ${year}` : `around ${year}`;
+  const d = new Date(`${v.slice(0, 7)}-01T00:00:00Z`);
+  return Number.isNaN(+d) ? "" : new Intl.DateTimeFormat(loc(lang), { year: "numeric", month: "long", timeZone: "UTC" }).format(d);
+}

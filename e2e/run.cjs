@@ -34,7 +34,10 @@ const daysAgo = (n) => new Date(Date.now() - n * 86_400_000);
 // never bleeds into another and repeated runs stay independent
 const randomIp = () => `203.0.113.${1 + Math.floor(Math.random() * 250)}`;
 async function newContext(browser, extra = {}) {
-  const ctx = await browser.newContext({ locale: "en-GB", timezoneId: "Asia/Riyadh", extraHTTPHeaders: { "x-forwarded-for": randomIp() }, ...extra });
+  const ctx = await browser.newContext({ locale: "en-GB", timezoneId: "Asia/Riyadh", ...extra });
+  // only requests to the app carry the address: a custom header on cross-origin requests (Google Fonts) fails CORS
+  const ip = randomIp();
+  await ctx.route(`${BASE}/**`, (route) => route.continue({ headers: { ...route.request().headers(), "x-forwarded-for": ip } }));
   await ctx.addCookies([{ name: "lang", value: "en", url: BASE }]);
   return ctx;
 }
@@ -362,6 +365,115 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const r = await ctx.request.get(BASE + href);
     assert(r.status() === 200 && r.headers()["content-type"] === "application/pdf", "pdf served: " + r.status());
     assert(/nosniff/.test(r.headers()["x-content-type-options"]) && /no-store/.test(r.headers()["cache-control"]), "hardened headers");
+  });
+
+  const addForm = (summary) => page.locator("details", { has: page.locator("summary", { hasText: summary }) }).first();
+
+  await step("partial and unknown dates: an approximate onset year, an imaging study without a date", async () => {
+    await page.goto(`${BASE}/patients/${pid}/conditions`);
+    await openSummary(page, "Add condition");
+    await page.fill("#conditions_new_name", "Congenital aortic narrowing");
+    await page.selectOption("#conditions_new_category", "congenital");
+    await page.fill("#conditions_new_onset_date", "2003-06-15");
+    await addForm("Add condition").locator('select[name="date_precision"]').selectOption("approx");
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    await page.locator("article.rec", { hasText: "Congenital aortic narrowing" }).getByText("around 2003").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/imaging`);
+    await openSummary(page, "Add imaging study");
+    await page.selectOption("#imaging_new_modality", "xray");
+    await page.fill("#imaging_new_body_site", "Chest (undated photo)");
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    await page.locator("article.rec", { hasText: "Chest (undated photo)" }).getByText("Date unknown").first().waitFor();
+  });
+
+  await step("duplicates: a repeated condition, reading, file and lab result are flagged; 'save anyway' still saves", async () => {
+    await page.goto(`${BASE}/patients/${pid}/conditions`);
+    await openSummary(page, "Add condition");
+    await page.fill("#conditions_new_name", "  hypertension ");
+    await submit(page, "Save");
+    await page.getByText(/looks like a record that already exists/).waitFor();
+    await addForm("Add condition").getByLabel("It is not a duplicate — save anyway").check();
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/vitals?type=weight`);
+    const when = localInput(daysAgo(1));
+    for (const expectDup of [false, true]) {
+      await page.locator("input[type=datetime-local]").first().fill(when);
+      await page.fill("#v_num", "70");
+      await submit(page, "Save reading");
+      if (expectDup) await page.getByText(/already recorded with the same value and time/).waitFor();
+      else { await page.getByText("Reading saved.").waitFor(); await page.reload(); }
+    }
+
+    await page.goto(`${BASE}/patients/${pid}/documents`);
+    if (!(await page.locator("#file").isVisible())) await openSummary(page, "Upload a document");
+    await page.setInputFiles("#file", { name: "xray-again.pdf", mimeType: "application/pdf", buffer: pdf() });
+    await page.getByRole("button", { name: "Upload", exact: true }).click();
+    await page.getByText(/This exact file is already in this record/).waitFor();
+    await page.getByText("Upload anyway (an intended second copy)").waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/labs/new`);
+    await page.fill("#title", "CBC panel (again)");
+    await page.selectOption("#r0_type", { label: "Hemoglobin (Hb) (g/dL)" });
+    await page.fill("#r0_value", "10.2");
+    await submit(page, "Save report");
+    await page.getByText(/already recorded around the same date with the same values/).waitFor();
+  });
+
+  await step("test requests: suggested vs ordered; a lab report closes the request; other-test names; family sides", async () => {
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await openSummary(page, "Add test request");
+    await page.fill("#test-orders_new_name", "Kidney function");
+    await page.selectOption("#test-orders_new_status", "suggested");
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    await page.locator("article.rec", { hasText: "Kidney function" }).getByText("Suggested (not ordered)").first().waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/labs/new`);
+    await page.fill("#title", "Kidney panel");
+    await page.selectOption("#r0_type", { label: "Creatinine (mg/dL)" });
+    await page.fill("#r0_value", "1.0"); await page.fill("#r0_ref_low", "0.5"); await page.fill("#r0_ref_high", "1.1");
+    await page.selectOption("#r1_type", { label: "Other lab test (numeric)" });
+    await page.fill("#r1_custom_name", "RDW-SD custom");
+    await page.fill("#r1_value", "47"); await page.fill("#r1_unit", "fL");
+    await page.getByLabel(/Kidney function/).check();
+    await submit(page, "Save report");
+    await page.getByText(/1 requested test\(s\) marked done/).waitFor();
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await page.locator("article.rec", { hasText: "Kidney function" }).getByText("Done", { exact: true }).first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/labs`);
+    await page.getByText("RDW-SD custom").first().waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/family-history`);
+    await openSummary(page, "Add family entry");
+    await page.selectOption("#family-history_new_relation", "paternal_uncle");
+    await page.fill("#family-history_new_condition_name", "Type 1 diabetes");
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    await page.getByText("Paternal uncle: Type 1 diabetes").first().waitFor();
+  });
+
+  await step("calculated values: BMI from the latest weight and height, eGFR per creatinine result", async () => {
+    await page.goto(`${BASE}/patients/${pid}/vitals?type=height`);
+    await page.locator("input[type=datetime-local]").first().fill(localInput(daysAgo(1)));
+    await page.fill("#v_num", "165");
+    await submit(page, "Save reading");
+    await page.getByText("Reading saved.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}`);
+    const card = page.locator("section, .card", { hasText: "Calculated values" }).first();
+    await card.waitFor();
+    await card.getByText("Body-mass index (BMI)").waitFor();
+    await card.getByText("Overweight").waitFor();                       // 70 kg / 1.65 m = 25.7
+    await card.getByText("eGFR (CKD-EPI 2021)").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/labs`);
+    await page.getByText("eGFR (CKD-EPI 2021)").first().waitFor();
   });
 
   await step("timeline and audit pages render the history", async () => {

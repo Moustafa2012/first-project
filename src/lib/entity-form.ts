@@ -1,6 +1,7 @@
 import type { EntityDef, FieldDef } from "@/lib/entities";
 import { SOURCE } from "@/lib/labels";
 import { UUID_RE } from "@/lib/uuid";
+import { isPrecision, normalizePartialDate } from "@/lib/format";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -20,15 +21,22 @@ export function parseEntityForm(def: EntityDef, fd: FormData, t: (ar: string, en
       if (fld.required) return { error: t(`الحقل مطلوب: ${label}`, `Required: ${label}`) };
       if (fld.name === "source") { row.source = "self"; continue; }
       row[fld.name] = null;
+      if (fld.kind === "date" && fld.precision) row[fld.precision] = "day";
       continue;
     }
     switch (fld.kind) {
       case "text": case "textarea":
         if (raw.length > (fld.maxLength ?? 4000)) return { error: t(`النص طويل جداً: ${label}`, `Too long: ${label}`) };
         row[fld.name] = raw; break;
-      case "date":
+      case "date": {
         if (!DATE_RE.test(raw) || Number.isNaN(Date.parse(raw))) return { error: t(`تاريخ غير صالح: ${label}`, `Invalid date: ${label}`) };
-        row[fld.name] = raw; break;
+        if (!fld.precision) { row[fld.name] = raw; break; }
+        const p = String(fd.get(fld.precision) ?? "day");
+        if (!isPrecision(p)) return { error: t(`دقة تاريخ غير صالحة: ${label}`, `Invalid date precision: ${label}`) };
+        row[fld.name] = normalizePartialDate(raw, p);
+        row[fld.precision] = p;
+        break;
+      }
       case "datetime": {
         const d = new Date(raw);
         if (Number.isNaN(+d)) return { error: t(`وقت غير صالح: ${label}`, `Invalid time: ${label}`) };

@@ -8,6 +8,7 @@ import { ENTITIES } from "@/lib/entities";
 import { parseEntityForm } from "@/lib/entity-form";
 import { UUID_RE } from "@/lib/data";
 import type { FormState } from "@/components/ui/client";
+import type { Row } from "@/lib/types";
 
 function safePath(pid: string, p: string): string {
   return p.startsWith(`/patients/${pid}`) ? p : `/patients/${pid}`;
@@ -36,6 +37,25 @@ export async function saveEntity(_: FormState, fd: FormData): Promise<FormState>
   }
 
   const supabase = createClient();
+
+  // a probable duplicate is reported once; ticking "save anyway" and resubmitting saves it
+  if (!id && def.dupKey && fd.get("_dup_ok") !== "on") {
+    const key = def.dupKey({ ...row, id: "" } as Row);
+    if (key) {
+      const { data: existing } = await supabase.from(def.table).select("*").eq("patient_id", pid).eq("record_status", "active")
+        .order("recorded_at", { ascending: false }).limit(1000);
+      const same = ((existing ?? []) as Row[]).filter((r) => def.dupKey!(r) === key);
+      if (same.length) {
+        const { lang } = i18n();
+        const names = same.slice(0, 3).map((r) => `• ${def.titleOf(r, lang) || "—"}`).join("\n");
+        return {
+          error: t(`يبدو أن هذا السجل مسجل من قبل:\n${names}`, `This looks like a record that already exists:\n${names}`),
+          confirm: { name: "_dup_ok", label: t("ليس تكراراً، احفظه رغم ذلك", "It is not a duplicate — save anyway") },
+        };
+      }
+    }
+  }
+
   const q = id
     ? supabase.from(def.table).update(row).eq("id", id).eq("patient_id", pid).select("id")
     : supabase.from(def.table).insert({ ...row, patient_id: pid }).select("id");

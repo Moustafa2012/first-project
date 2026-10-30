@@ -105,6 +105,23 @@ export const FAMILY_RELATION: Opt[] = [
 export const DATE_PRECISION: Opt[] = [
   o("day", "اليوم معروف", "Exact day"), o("month", "الشهر فقط", "Month only"), o("year", "السنة فقط", "Year only"), o("approx", "سنة تقريبية", "Approximate year"),
 ];
+// what a clinician may add through a share link (table names, as accepted by public.share_contribute)
+export const CONTRIB_MODULES: Opt[] = [
+  o("encounters", "زيارة (سبب، فحص، تقييم، خطة)", "Visit (reason, exam, assessment, plan)"),
+  o("conditions", "تشخيص / حالة", "Diagnosis / condition"),
+  o("procedures", "إجراء منجز", "Procedure performed"),
+  o("clinical_notes", "ملاحظة سريرية", "Clinical note"),
+  o("medications", "دواء / وصفة", "Medication / prescription"),
+  o("appointments", "موعد متابعة", "Follow-up appointment"),
+  o("test_orders", "طلب فحص أو أشعة", "Test or imaging request"),
+  o("imaging_studies", "دراسة تصوير (أشعة)", "Imaging study"),
+  o("medical_documents", "رفع مستند أو صورة", "Upload a document or image"),
+];
+/** the entity definition (src/lib/entities.ts) that describes each contributable table's fields */
+export const CONTRIB_ENTITY: Record<string, string> = {
+  encounters: "visits", conditions: "conditions", procedures: "procedures", clinical_notes: "notes", medications: "medications",
+  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging",
+};
 export const FAMILY_CERTAINTY: Opt[] = [o("reported", "أفاد به المريض", "Reported"), o("confirmed", "مؤكد", "Confirmed"), o("unknown", "غير معروف", "Unknown")];
 export const APPOINTMENT_STATUS: Opt[] = [o("scheduled", "مجدول", "Scheduled"), o("completed", "تم", "Attended"), o("cancelled", "ملغى", "Cancelled"), o("no_show", "لم يحضر", "No-show")];
 export const CARE_PLAN_STATUS: Opt[] = [o("draft", "مسودة", "Draft"), o("active", "نشطة", "Active"), o("on_hold", "موقوفة", "On hold"), o("completed", "مكتملة", "Completed"), o("cancelled", "ملغاة", "Cancelled")];
@@ -163,6 +180,9 @@ export const SHARE_EVENT: Record<string, { ar: string; en: string }> = {
   blocked: { ar: "محاولة على رابط منتهٍ أو ملغى", en: "Attempt on an expired / revoked link" }, viewed: { ar: "عُرض الملف", en: "File viewed" },
   document_opened: { ar: "فُتح مستند", en: "Document opened" }, note_added: { ar: "أضاف الطبيب ملاحظة", en: "Doctor added a note" },
   session_ended: { ar: "أنهى الطبيب الجلسة", en: "Doctor ended the session" },
+  contributor_identified: { ar: "عرّف الطبيب بنفسه ووقّع", en: "Doctor identified and signed" },
+  contribution_added: { ar: "أضاف الطبيب سجلاً", en: "Doctor added a record" },
+  contribution_retracted: { ar: "سحب الطبيب سجلاً أضافه", en: "Doctor withdrew a record" },
 };
 
 export function lbl(list: Opt[], value: string | null | undefined, lang: Lang): string {

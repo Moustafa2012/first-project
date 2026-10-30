@@ -11,11 +11,13 @@ import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
 import { endShare, addShareNote } from "@/app/actions/share-viewer";
+import type { ContribState } from "@/lib/share-contrib";
+import { ContributePanel } from "@/components/share/ContributePanel";
 
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
+export function ShareViewer({ b, token, contrib, uploaded, uploadError }: { b: Bundle; token: string; contrib?: ContribState | null; uploaded?: boolean; uploadError?: string }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const inc = new Set(b.meta.include);
@@ -185,6 +187,8 @@ export function ShareViewer({ b, token }: { b: Bundle; token: string }) {
               <span className="row"><span className="muted small">{d(x.document_date)}</span>{b.meta.allow_download && <a className="small" href={`/s/${token}/doc/${s(x.id)}?dl=1`}>{t("تنزيل", "Download")}</a>}</span></div>))}
         </Card>
       )}
+
+      {contrib && <ContributePanel token={token} st={contrib} uploaded={uploaded} uploadError={uploadError} />}
 
       {b.meta.allow_notes && (
         <Card title={t("ملاحظة للمريض", "Leave a note for the patient")}>

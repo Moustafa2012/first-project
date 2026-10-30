@@ -19,6 +19,10 @@ export async function purgePatient(patientId: string, force: boolean): Promise<v
     const { error } = await admin.storage.from(BUCKET).remove(paths.slice(i, i + 100));
     if (error) throw new Error("storage_cleanup_failed");
   }
+  // clinicians' on-screen signatures (share links that allowed additions)
+  const { data: sigs } = await admin.storage.from(BUCKET).list(`${patientId}/signatures`, { limit: 1000 });
+  const sigPaths = (Array.isArray(sigs) ? sigs : []).map((f) => `${patientId}/signatures/${f.name}`);
+  if (sigPaths.length) { const { error } = await admin.storage.from(BUCKET).remove(sigPaths); if (error) throw new Error("storage_cleanup_failed"); }
   if (p.photo_path) await admin.storage.from(AVATAR_BUCKET).remove([p.photo_path as string]);
   const { error } = await admin.rpc("patient_purge", { p_patient: patientId, p_force: force });
   if (error) throw error;

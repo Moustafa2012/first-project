@@ -7,7 +7,7 @@ import { explainError, requireUser } from "@/lib/auth";
 import { i18n } from "@/lib/i18n";
 import { siteUrl } from "@/lib/env";
 import { UUID_RE } from "@/lib/data";
-import { SHARE_MODULES } from "@/lib/labels";
+import { CONTRIB_MODULES, SHARE_MODULES } from "@/lib/labels";
 import type { FormState } from "@/components/ui/client";
 
 const ITEM_TABLES = ["encounters", "observations", "medical_documents", "procedures", "imaging_studies", "clinical_notes", "specialty_records", "conditions", "care_plans"];
@@ -31,6 +31,9 @@ export async function createShare(_: FormState, fd: FormData): Promise<FormState
   const ms = EXPIRY[String(fd.get("expiry") ?? "24h")] ?? EXPIRY["24h"];
   const expiresAt = new Date(Date.now() + ms).toISOString();
   const attempts = Math.min(10, Math.max(3, Number(fd.get("max_attempts") ?? 5) || 5));
+  const allowContribute = fd.get("allow_contribute") === "on";
+  const contribute = fd.getAll("contribute").map(String).filter((x) => CONTRIB_MODULES.some((m) => m.value === x));
+  if (allowContribute && contribute.length === 0) return { error: t("اختر ما يمكن للطبيب إضافته.", "Choose what the doctor may add.") };
 
   const { data, error } = await createClient().rpc("share_create", {
     p_patient: pid, p_title: title, p_scope_kind: scope, p_specialty_ids: scope === "specialty" ? specialties : [], p_include: include,
@@ -38,6 +41,7 @@ export async function createShare(_: FormState, fd: FormData): Promise<FormState
     p_expires_at: expiresAt, p_max_attempts: attempts, p_allow_download: fd.get("allow_download") === "on", p_allow_print: fd.get("allow_print") === "on",
     p_allow_notes: fd.get("allow_notes") === "on", p_include_sensitive: fd.get("include_sensitive") === "on",
     p_recipient_label: String(fd.get("recipient_label") ?? "").trim().slice(0, 200) || null, p_items: scope === "custom" ? items : [],
+    p_allow_contribute: allowContribute, p_contribute_modules: allowContribute ? contribute : [],
   });
   if (error) return { error: explainError(error, t) };
   const r = data as { share_id: string; token: string; pin: string; expires_at: string };
@@ -65,4 +69,26 @@ export async function markNoteReviewed(fd: FormData) {
   if (!UUID_RE.test(pid) || !UUID_RE.test(id)) return;
   await createClient().rpc("share_mark_note_reviewed", { p_note: id });
   revalidatePath(`/patients/${pid}`, "layout");
+}
+
+/** The owner has looked at what a clinician added through a share. */
+export async function markContributorReviewed(fd: FormData) {
+  await requireUser();
+  const pid = String(fd.get("_pid") ?? ""), id = String(fd.get("_id") ?? "");
+  if (!UUID_RE.test(pid) || !UUID_RE.test(id)) return;
+  await createClient().rpc("share_mark_contributor_reviewed", { p_contributor: id });
+  revalidatePath(`/patients/${pid}`, "layout");
+}
+
+/** Marks everything one clinician added as entered in error (kept in the history with the reason). */
+export async function invalidateContributions(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  await requireUser();
+  const pid = String(fd.get("_pid") ?? ""), id = String(fd.get("_id") ?? ""), reason = String(fd.get("reason") ?? "").trim();
+  if (!UUID_RE.test(pid) || !UUID_RE.test(id)) return { error: t("طلب غير صالح.", "Invalid request.") };
+  if (reason.length < 3) return { error: t("اكتب السبب.", "Enter a reason.") };
+  const { data, error } = await createClient().rpc("share_invalidate_contributions", { p_contributor: id, p_reason: reason.slice(0, 500) });
+  if (error) return { error: explainError(error, t) };
+  revalidatePath(`/patients/${pid}`, "layout");
+  return { ok: true, message: t(`أُبطل ${data} سجلاً وبقيت في التاريخ.`, `${data} record(s) invalidated and kept in the history.`) };
 }

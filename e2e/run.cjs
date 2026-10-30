@@ -59,7 +59,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
   const ctx = await newContext(browser);
   const page = await ctx.newPage();
   watch(page, "alice");
-  let pid = "", shareLink = "", sharePin = "", cardioDocId = "";
+  let pid = "", shareLink = "", sharePin = "", cardioDocId = "", contribShareHref = "";
 
   await step("landing page renders and language toggles to Arabic/RTL", async () => {
     await page.goto(BASE);
@@ -540,6 +540,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert(!html.includes("Entered by mistake"), "invalidated records absent");
     assert(html.includes("Dental X-ray"), "in-scope document listed");
     assert(!/storage_path|pin_hash|token_hash/.test(html), "no internals leaked");
+    assert(!html.includes("Add to the patient's file"), "a read-only share offers no way to add");
   });
 
   await step("doctor: in-scope document opens; out-of-scope document is forbidden; download is blocked", async () => {
@@ -634,6 +635,101 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert(buf.subarray(0, 5).toString() === "%PDF-", "pdf header");
     fs.writeFileSync(path.join(OUT, "shared-bundle.pdf"), buf);
     await c2.close();
+  });
+
+  await step("doctor adds through a contributing share: identify + on-screen signature, diagnosis, visit + linked note, document, withdrawal", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link3 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin3 = await page.locator('input[aria-label="PIN"]').inputValue();
+    contribShareHref = await page.getByRole("link", { name: "Manage this share" }).getAttribute("href");
+
+    const c3 = await newContext(browser); const d3 = await c3.newPage(); watch(d3, "dentist");
+    await d3.goto(link3); await d3.fill("#pin", pin3); await d3.getByRole("button", { name: "Open file" }).click(); await d3.waitForURL(/\/view$/);
+    await d3.getByRole("heading", { name: /Add to the patient's file/ }).waitFor();
+    // nothing can be added before identifying; an unsigned form does not submit
+    await d3.fill("#c_name", "Dr Sara Molar");
+    await d3.fill("#c_spec", "Dentist");
+    await d3.fill("#c_lic", "DEN-12345");
+    await d3.fill("#c_fac", "Smile Clinic");
+    await d3.check('input[name="attest"]');
+    await d3.getByRole("button", { name: "Continue", exact: true }).click();
+    await d3.waitForTimeout(500);
+    assert(await d3.locator("#c_name").isVisible(), "the identity form stays until a signature is drawn");
+    const pad = await d3.locator("canvas.sig-pad").boundingBox();
+    await d3.mouse.move(pad.x + 20, pad.y + 100); await d3.mouse.down();
+    for (const [dx, dy] of [[60, 40], [120, 120], [180, 50], [240, 110], [300, 70]]) await d3.mouse.move(pad.x + dx, pad.y + dy, { steps: 4 });
+    await d3.mouse.up();
+    await d3.getByRole("button", { name: "Continue", exact: true }).click();
+    await d3.getByText("Adding as").waitFor();
+    await d3.getByText("Dr Sara Molar").first().waitFor();
+
+    const open = async (label) => { await d3.locator("summary", { hasText: `Add: ${label}` }).first().click(); };
+    await open("Diagnosis / condition");
+    await d3.fill("#c_conditions_name", "Deep caries tooth 16 (dentist)");
+    await d3.selectOption("#c_conditions_category", "diagnosis");
+    await d3.selectOption("#c_conditions_certainty", "confirmed");
+    await d3.locator("form", { has: d3.locator("#c_conditions_name") }).getByRole("button", { name: "Add to the file" }).click();
+    await d3.getByText("Added to the patient's file under your name.").first().waitFor();
+    await d3.reload();
+    await open("Visit (reason, exam, assessment, plan)");
+    await d3.fill("#c_encounters_reason", "Dental pain review");
+    await d3.selectOption("#c_encounters_kind", "dental");
+    await d3.locator("form", { has: d3.locator("#c_encounters_reason") }).getByRole("button", { name: "Add to the file" }).click();
+    await d3.getByText("Added to the patient's file under your name.").first().waitFor();
+    await d3.reload();
+    await open("Clinical note");
+    await d3.selectOption("#clinical_notes_enc", { index: 1 });                        // linked to the visit just added
+    await d3.fill("#c_clinical_notes_body", "Note typed in the wrong file by mistake");
+    await d3.locator("form", { has: d3.locator("#c_clinical_notes_body") }).getByRole("button", { name: "Add to the file" }).click();
+    await d3.getByText("Added to the patient's file under your name.").first().waitFor();
+    await d3.reload();
+    await open("Upload a document or image");
+    await d3.setInputFiles("#c_file", { name: "bitewing.pdf", mimeType: "application/pdf", buffer: pdf("% bitewing\n") });
+    await d3.fill("#c_title", "Bitewing (dentist)");
+    await d3.getByRole("button", { name: "Upload", exact: true }).click();
+    await d3.getByText("Document uploaded and added to the file.").waitFor();
+    await d3.screenshot({ path: path.join(OUT, "dentist-contribute.png"), fullPage: true });
+    // the dentist withdraws the misplaced note
+    const noteRec = d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).first();
+    await noteRec.locator("summary", { hasText: "Withdraw this addition" }).click();
+    d3.once("dialog", (dl) => dl.accept());
+    await noteRec.locator('input[name="reason"]').fill("wrong patient");
+    await noteRec.getByRole("button", { name: "Withdraw" }).click();
+    // the form disappears with the active state; the addition now shows as withdrawn
+    await d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).getByText("Withdrawn / invalidated").waitFor();
+    await c3.close();
+
+    // the patient's side: alert, provenance, no editing, signature, review, invalidate all
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.getByText(/Dr Sara Molar added to your file through a share link/).waitFor();
+    await page.goto(`${BASE}/patients/${pid}/conditions`);
+    const rec = page.locator("article.rec", { hasText: "Deep caries tooth 16 (dentist)" }).first();
+    await rec.getByText("Added by a doctor", { exact: true }).waitFor();
+    await rec.locator(".rec-meta").getByText(/by a doctor through a share link/).waitFor();
+    assert((await rec.locator("summary", { hasText: "Edit" }).count()) === 0, "a doctor's addition cannot be edited by the patient");
+    await page.goto(`${BASE}/patients/${pid}/documents`);
+    await page.getByText("Bitewing (dentist)").first().waitFor();
+    await page.goto(`${BASE}${contribShareHref}`);
+    await page.getByText("Doctors who added to your file").waitFor();
+    await page.getByText("DEN-12345").first().waitFor();
+    const sigOk = await page.locator("img.sig-img").first().evaluate((img) => img.complete && img.naturalWidth > 0);
+    assert(sigOk, "the on-screen signature is shown to the patient");
+    await page.getByRole("button", { name: "I reviewed these additions" }).click();
+    await page.getByText("Reviewed", { exact: true }).first().waitFor();
+    await page.locator("summary", { hasText: "Invalidate everything this doctor added" }).click();
+    page.once("dialog", (dl) => dl.accept());
+    await page.locator('input[name="reason"]').last().fill("not my dentist");
+    await page.getByRole("button", { name: "Invalidate all" }).click();
+    // the bulk form disappears once nothing is active; every addition is now shown invalidated
+    await page.locator("summary", { hasText: "Invalidate everything this doctor added" }).waitFor({ state: "detached" });
+    assert((await page.getByText("Invalidated", { exact: true }).count()) >= 4, "all four additions are invalidated");
+    await page.goto(`${BASE}/patients/${pid}/audit`);
+    await page.getByText("Doctor via a share link").first().waitFor();
   });
 
   await step("another user cannot see or reach Alice's file, documents or exports", async () => {

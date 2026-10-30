@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
-import { SHARE_MODULES } from "@/lib/labels";
+import { CONTRIB_MODULES, SHARE_MODULES } from "@/lib/labels";
 import { Banner, PageHead } from "@/components/ui";
 import { SubmitButton } from "@/components/ui/client";
 import { ShareCreateShell } from "@/components/ShareCreateShell";
@@ -108,6 +108,15 @@ export default async function NewSharePage({ params, searchParams }: { params: {
               <label className="check"><input type="checkbox" name="allow_notes" />{t("السماح بترك ملاحظة لي (لا تُضاف لسجلي إلا بعد مراجعتي)", "Allow leaving me a note (never added to my record without my review)")}</label>
             </div>
             <p className="small muted">{t("ملاحظة: لا يمكن منع الطبيب تقنياً من تصوير الشاشة؛ التنزيل والطباعة ضوابط واجهة.", "Note: a doctor cannot be technically prevented from taking a screenshot; download and print are interface controls.")}</p>
+          </fieldset>
+
+          <fieldset><legend>{t("إضافة الطبيب إلى ملفي", "The doctor adds to my file")}</legend>
+            <label className="check"><input type="checkbox" name="allow_contribute" />{t("اسمح للطبيب بإضافة ما يلي إلى ملفي عبر هذا الرابط", "Allow the doctor to add the following to my file through this link")}</label>
+            <div className="grid cols-2" style={{ paddingInlineStart: "1.6rem", marginBlockStart: ".4rem" }}>
+              {CONTRIB_MODULES.map((m) => <label className="check small" key={m.value}><input type="checkbox" name="contribute" value={m.value} defaultChecked={m.value !== "medical_documents" || Boolean(preset)} />{m[lang]}</label>)}
+            </div>
+            <p className="small muted">{t("يعرّف الطبيب بنفسه ويوقّع على الشاشة قبل أي إضافة. تظهر إضافاته باسمه داخل نطاق هذه المشاركة فقط، ولا يستطيع تعديل أو حذف ما سجلتَه أنت. تراجعها وتستطيع إبطالها كلها بخطوة واحدة. من يملك الرابط والرمز معاً يستطيع الإضافة، فاجعل المدة قصيرة.",
+              "The doctor states who they are and signs on screen before adding anything. Additions carry their name, stay inside this share's scope, and cannot change or remove what you recorded. You review them and can invalidate all of them in one step. Anyone holding both the link and the PIN can add, so keep the validity short.")}</p>
           </fieldset>
           <div><SubmitButton pending={t("جارٍ الإنشاء…", "Creating…")}>{t("إنشاء الرابط والرمز", "Create link & PIN")}</SubmitButton></div>
         </ShareCreateShell>

@@ -24,7 +24,7 @@ export default async function AuditPage({ params }: { params: { pid: string } })
             <tbody>{(data ?? []).map((a) => (
               <tr key={a.id}><td className="nowrap">{fmtDateTime(a.at, lang, tz)}</td><td><Chip tone={a.action === "invalidate" ? "bad" : a.action === "insert" ? "ok" : "info"}>{ACTION[a.action]?.[lang === "ar" ? 0 : 1]}</Chip></td>
                 <td><span className="ltr">{a.table_name}</span></td><td className="small muted"><span className="ltr">{(a.changed_fields ?? []).slice(0, 6).join(", ")}</span></td>
-                <td>{a.actor_id === access.userId ? t("أنت", "You") : a.actor_kind === "system" ? t("النظام / استيراد", "System / import") : t("مستخدم آخر", "Another user")}</td></tr>))}</tbody></table></div>)}
+                <td>{a.actor_id === access.userId ? t("أنت", "You") : a.actor_kind === "system" ? t("النظام / استيراد", "System / import") : a.actor_kind === "share_contributor" ? t("طبيب عبر رابط مشاركة", "Doctor via a share link") : t("مستخدم آخر", "Another user")}</td></tr>))}</tbody></table></div>)}
       </Card>
     </>
   );

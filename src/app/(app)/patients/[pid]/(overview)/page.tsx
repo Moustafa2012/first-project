@@ -26,7 +26,7 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const active = { patient_id: p.id, record_status: "active" };
 
-  const [vit, flagged, meds, conds, appts, visits, orders, shares, notes, docsNoDate, suggested] = await Promise.all([
+  const [vit, flagged, meds, conds, appts, visits, orders, shares, notes, docsNoDate, suggested, ctrs] = await Promise.all([
     supabase.from("observations").select("*").eq("patient_id", p.id).in("status", ["final", "preliminary"]).in("type_id", types.filter((x) => HIGHLIGHT.includes(x.code)).map((x) => x.id)).order("effective_at", { ascending: false }).limit(300),
     supabase.from("observations").select("*").eq("patient_id", p.id).eq("status", "final").gte("effective_at", since).not("interpretation", "in", "(normal,not_assessed)").order("effective_at", { ascending: false }).limit(8),
     supabase.from("medications").select("id, name_generic, name_brand, strength, dose, frequency, status").match(active).in("status", ["active", "on_hold"]).order("name_generic").limit(30),
@@ -38,7 +38,10 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
     access.canShare ? supabase.from("share_notes").select("id", { count: "exact", head: true }).eq("patient_id", p.id).is("reviewed_at", null) : Promise.resolve({ count: 0 }),
     supabase.from("medical_documents").select("id", { count: "exact", head: true }).match(active).is("document_date", null),
     supabase.from("test_orders").select("id", { count: "exact", head: true }).match(active).eq("status", "suggested"),
+    supabase.from("share_contributors").select("id, share_id, full_name, contribution_count, last_contribution_at, reviewed_at").eq("patient_id", p.id).gt("contribution_count", 0),
   ]);
+  const unreviewed = ((ctrs.data ?? []) as { share_id: string; full_name: string; last_contribution_at: string | null; reviewed_at: string | null }[])
+    .filter((c) => !c.reviewed_at || (c.last_contribution_at != null && c.last_contribution_at > c.reviewed_at));
 
   const byType = new Map<string, ObservationRow>();
   for (const o of (vit.data ?? []) as ObservationRow[]) if (!byType.has(o.type_id)) byType.set(o.type_id, o);
@@ -49,6 +52,7 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   if ((notes as { count: number | null }).count) alerts.push(t(`${(notes as { count: number }).count} ملاحظة من طبيب بانتظار مراجعتك.`, `${(notes as { count: number }).count} doctor note(s) waiting for your review.`));
   if (docsNoDate.count) alerts.push(t(`${docsNoDate.count} مستند بلا تاريخ.`, `${docsNoDate.count} document(s) without a date.`));
   if (orders.count) alerts.push(t(`${orders.count} فحص طلبه طبيب ولم يُنجز.`, `${orders.count} test(s) ordered by a clinician not done yet.`));
+  for (const c of unreviewed.slice(0, 3)) alerts.push(t(`أضاف ${c.full_name} بيانات إلى ملفك عبر رابط مشاركة — راجعها من صفحة المشاركة.`, `${c.full_name} added to your file through a share link — review it on the share page.`));
   if (suggested.count) alerts.push(t(`${suggested.count} فحص مقترح بانتظار قرار الطبيب.`, `${suggested.count} suggested test(s) awaiting a clinician’s decision.`));
   const activeShares = (shares.data ?? []) as { id: string; title: string; expires_at: string }[];
 

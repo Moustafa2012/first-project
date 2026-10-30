@@ -269,6 +269,11 @@ input:focus, select:focus, textarea:focus { outline: none; box-shadow: var(--foc
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .9rem; }
 .form-grid .wide { grid-column: 1 / -1; }
 /* a date with "how much of it is known" next to it */
+.sig-pad { inline-size: 100%; block-size: 170px; border: 1.5px dashed var(--border-strong, var(--border)); border-radius: var(--radius-sm);
+  background: #fff; touch-action: none; cursor: crosshair; }
+.sig-value { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.label-like { font-weight: 600; font-size: .92rem; }
+.sig-img { max-inline-size: 260px; max-block-size: 110px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .25rem; }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .35rem .9rem; }
 .date-prec { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: .5rem; }
 @media (max-width: 420px) { .date-prec { grid-template-columns: minmax(0, 1fr); } }

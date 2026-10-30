@@ -56,6 +56,8 @@ export function explainError(e: unknown, t: T): string {
   console.error("[db-error]", err?.code ?? "-", m.slice(0, 300));
   const rules: [RegExp, string, string][] = [
     [/possible_duplicate/, "يوجد ملف بنفس الاسم وتاريخ الميلاد في حسابك. أكّد أنه شخص مختلف للمتابعة.", "A file with the same name and birth date already exists in your account. Confirm it is a different person to continue."],
+    [/contributed_record_readonly/, "هذا السجل أضافه طبيب عبر رابط مشاركة: يمكن إبطاله لكن لا يمكن تعديل محتواه.", "A doctor added this record through a share link: it can be invalidated but its content cannot be edited."],
+    [/choose what the clinician may add/, "اختر ما يمكن للطبيب إضافته.", "Choose what the doctor may add."],
     [/specialty_not_applicable/, "هذا التخصص لا ينطبق على جنس المريض المسجَّل.", "This specialty does not apply to the sex recorded for this patient."],
     [/measurement_not_applicable/, "هذا القياس لا ينطبق على جنس المريض المسجَّل.", "This measurement does not apply to the sex recorded for this patient."],
     [/sex_change_conflict/, "لا يمكن تغيير الجنس: توجد سجلات نشطة في تخصص أو فحص لا ينطبق على الجنس الجديد. أبطِلها أولاً (سُجّلت بالخطأ).", "The sex cannot be changed: active records exist in a specialty or test that does not apply to the new sex. Mark them entered-in-error first."],

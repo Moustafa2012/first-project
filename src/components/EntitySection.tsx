@@ -76,23 +76,28 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
             {chips.map((c, i) => <Chip key={i} tone={c.tone}>{c.text}</Chip>)}
             {spec && <Chip tone="info">{spec}</Chip>}
             {isDead && <Chip tone="bad">{t("أُبطل", "Invalidated")}</Chip>}
+            {r.contributed_by ? <Chip tone="info">{t("أضافه طبيب", "Added by a doctor")}</Chip> : null}
           </div>
           <span className="muted small nowrap">{fmt(r)}</span>
         </div>
         {body && <p className="rec-body">{body}</p>}
         {!compact && <KV items={kv} />}
         <div className="rec-meta">
-          <span>{t("سُجّل في", "Entered")} {fmtDate(String(r.recorded_at), lang, tz)} · {r.recorded_by === access.userId ? t("بواسطتك", "by you") : t("بواسطة مستخدم آخر", "by another user")}</span>
+          <span>{t("سُجّل في", "Entered")} {fmtDate(String(r.recorded_at), lang, tz)} · {r.contributed_by ? t("بواسطة طبيب عبر رابط مشاركة", "by a doctor through a share link") : r.recorded_by === access.userId ? t("بواسطتك", "by you") : r.recorded_by ? t("بواسطة مستخدم آخر", "by another user") : t("استيراد / النظام", "import / system")}</span>
           <span>{t("المصدر", "Source")}: {lbl(SOURCE, String(r.source ?? "self"), lang)}{r.source_detail ? ` (${String(r.source_detail)})` : ""}</span>
           <Chip tone={verification === "reported" ? "muted" : "ok"}>{lbl(VERIFICATION, verification, lang)}</Chip>
         </div>
         {isDead && <p className="small muted">{t("سبب الإبطال", "Reason")}: {String(r.invalidated_reason ?? "")}</p>}
         {access.canWrite && !isDead && (
           <div className="row no-print" style={{ marginBlockStart: ".5rem" }}>
-            <details className="fold" style={{ flex: "1 1 100%" }}>
-              <summary><Pencil size={14} aria-hidden="true" />{t("تعديل", "Edit")}</summary>
-              <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} /></div>
-            </details>
+            {r.contributed_by ? (
+              <p className="small muted" style={{ flex: "1 1 100%", margin: 0 }}>{t("أضافه طبيب عبر رابط مشاركة: لا يُعدَّل محتواه، ويمكن إبطاله.", "Added by a doctor through a share link: its content is not edited, but it can be invalidated.")}</p>
+            ) : (
+              <details className="fold" style={{ flex: "1 1 100%" }}>
+                <summary><Pencil size={14} aria-hidden="true" />{t("تعديل", "Edit")}</summary>
+                <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} /></div>
+              </details>
+            )}
             <details className="fold" style={{ flex: "1 1 100%" }}>
               <summary><Eraser size={14} aria-hidden="true" />{t("أُدخل بالخطأ", "Entered in error")}</summary>
               <div className="fold-body">

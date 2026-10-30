@@ -61,7 +61,7 @@ export default async function DocumentsPage({ params, searchParams }: { params: 
         </div>
         {d.description ? <p className="rec-body">{String(d.description)}</p> : null}
         <div className="rec-meta">
-          <span>{t("رُفع", "Uploaded")} {fmtDate(String(d.uploaded_at), lang, tz)} {d.uploaded_by === access.userId ? t("بواسطتك", "by you") : t("بواسطة مستخدم آخر", "by another user")}</span>
+          <span>{t("رُفع", "Uploaded")} {fmtDate(String(d.uploaded_at), lang, tz)} {d.contributed_by ? `${t("بواسطة طبيب عبر رابط مشاركة", "by a doctor through a share link")}${d.source_detail ? ` (${String(d.source_detail)})` : ""}` : d.uploaded_by === access.userId ? t("بواسطتك", "by you") : t("بواسطة مستخدم آخر", "by another user")}</span>
           <span>{String(d.original_filename)} · {fmtBytes(Number(d.size_bytes))}</span>
           <a href={`/api/documents/${d.id}?dl=1`}>{t("تنزيل", "Download")}</a>
         </div>

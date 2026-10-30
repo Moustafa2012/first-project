@@ -4,7 +4,7 @@ import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getPatient, getSpecialties } from "@/lib/data";
 import { getTz } from "@/lib/auth";
-import { localDate } from "@/lib/format";
+import { fmtPartialDate, localDate } from "@/lib/format";
 import { ENTITIES } from "@/lib/entities";
 import { SOURCE, lbl } from "@/lib/labels";
 import {
@@ -46,7 +46,8 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const ea = exams.find((e) => e.id === searchParams.a), eb = exams.find((e) => e.id === searchParams.b);
   const changes = ea && eb && ea.id !== eb.id ? compareExams(ea, eb, findings) : null;
   const base = `/patients/${p.id}/dental`;
-  const examLabel = (e: ExamRow) => `${e.exam_date} — ${lbl(EXAM_KIND, e.kind, lang)}${e.examiner_name ? ` — ${e.examiner_name}` : ""}`;
+  const examLabel = (e: ExamRow) => `${fmtPartialDate(e.exam_date, "day", lang)} — ${lbl(EXAM_KIND, e.kind, lang)}${e.examiner_name ? ` — ${e.examiner_name}` : ""}`;
+  const day = (v: string) => fmtPartialDate(v, "day", lang);
   const yn = (v: unknown) => (v === true ? "yes" : v === false ? "no" : "");
 
   return (
@@ -60,13 +61,13 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         </>}
       />
 
-      <Card id="chart" title={asExam ? t(`المخطط كما كان في ${asExam.exam_date}`, `The chart as of ${asExam.exam_date}`) : t("مخطط الأسنان الحالي", "Current tooth chart")}
+      <Card id="chart" title={asExam ? t(`المخطط كما كان في ${day(asExam.exam_date)}`, `The chart as of ${day(asExam.exam_date)}`) : t("مخطط الأسنان الحالي", "Current tooth chart")}
         actions={exams.length > 0 ? (
           <form method="get" action={`${base}#chart`} className="row">
             <label className="sr-only" htmlFor="asof">{t("عرض المخطط في تاريخ", "Show the chart as of")}</label>
             <select id="asof" name="asof" defaultValue={asExam?.id ?? ""}>
               <option value="">{t("الآن", "Now")}</option>
-              {exams.map((e) => <option key={e.id} value={e.id}>{t("بعد فحص ", "After the exam of ")}{e.exam_date}</option>)}
+              {exams.map((e) => <option key={e.id} value={e.id}>{t("بعد فحص ", "After the exam of ")}{day(e.exam_date)}</option>)}
             </select>
             <button className="btn sm">{t("عرض", "Show")}</button>
           </form>
@@ -110,7 +111,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
               return (
                 <article key={e.id} className="rec" id={`exam-${e.id}`}>
                   <div className="row between">
-                    <span className="row" style={{ gap: ".4rem" }}><strong>{e.exam_date}</strong> {lbl(EXAM_KIND, e.kind, lang)}
+                    <span className="row" style={{ gap: ".4rem" }}><strong>{day(e.exam_date)}</strong> {lbl(EXAM_KIND, e.kind, lang)}
                       {e.contributed_by ? <Chip tone="info">{t(`أضافه ${contributors[e.contributed_by] ?? "طبيب"} عبر رابط`, `Added by ${contributors[e.contributed_by] ?? "a doctor"} via a link`)}</Chip>
                         : e.verification === "reported" ? <Chip tone="muted">{t("إفادة غير موثقة", "Unverified (reported)")}</Chip> : <Chip tone="ok">{t("موثّق", "Confirmed")}</Chip>}
                       <Chip tone="muted">{lbl(SOURCE, e.source, lang)}</Chip></span>

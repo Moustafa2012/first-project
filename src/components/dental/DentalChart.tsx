@@ -34,6 +34,7 @@ export function DentalChart({
     .sort((a, b) => b.date.localeCompare(a.date)) : [];
   const dx = sel ? diagnoses.filter((d) => d.teeth?.includes(sel)) : [];
   const examOf = (id: string | null) => exams.find((e) => e.id === id);
+  const day = (v: string | null | undefined) => fmtPartialDate(v ?? null, "day", lang);
 
   const prov = (r: { contributed_by?: string | null; verification?: string | null; source_detail?: string | null }) =>
     r.contributed_by ? <Chip tone="info">{t(`أضافه ${contributors[r.contributed_by] ?? "طبيب"} عبر رابط`, `Added by ${contributors[r.contributed_by] ?? "a doctor"} via a link`)}</Chip>
@@ -67,11 +68,11 @@ export function DentalChart({
           </div>
           <p>
             {v?.status ? <>{t("الحالة", "State")}: <strong>{lbl(TOOTH_STATUS, v.status, lang)}</strong>
-              <span className="muted small"> — {t("آخر فحص", "last exam")} {v.statusDate}</span></>
+              <span className="muted small"> — {t("آخر فحص", "last exam")} {day(v.statusDate)}</span></>
               : <span className="muted">{t("لا يوجد فحص سجّل حالة هذا السن (لا يعني أنه سليم).", "No exam recorded this tooth's state (not the same as healthy).")}</span>}
           </p>
 
-          <h4>{asOf ? t(`الموجود حتى ${asOf}`, `Present as of ${asOf}`) : t("الموجود حالياً", "Current")}</h4>
+          <h4>{asOf ? t(`الموجود حتى ${day(asOf)}`, `Present as of ${day(asOf)}`) : t("الموجود حالياً", "Current")}</h4>
           {(v?.findings ?? []).length === 0 ? <p className="muted small">{t("لا شيء مسجل.", "Nothing recorded.")}</p> : (
             <ul className="tooth-list">
               {v!.findings.map((f) => (
@@ -114,12 +115,12 @@ export function DentalChart({
           {history.length === 0 && stateHistory.length === 0 ? <p className="muted small">{t("لا تاريخ مسجل.", "No history recorded.")}</p> : (
             <ol className="tooth-hist">
               {[...history.map((f) => ({ key: `f${f.id}`, date: f.observed_on, node: (
-                <>{findingLine(f, sel)}{f.resolved_on && <Chip tone="ok">{t(`عولج ${f.resolved_on}`, `resolved ${f.resolved_on}`)}{f.resolved_note ? ` — ${f.resolved_note}` : ""}</Chip>}
+                <>{findingLine(f, sel)}{f.resolved_on && <Chip tone="ok">{t(`عولج ${day(f.resolved_on)}`, `resolved ${day(f.resolved_on)}`)}{f.resolved_note ? ` — ${f.resolved_note}` : ""}</Chip>}
                   {f.exam_id && examOf(f.exam_id)?.examiner_name && <span className="muted small"> · {examOf(f.exam_id)!.examiner_name}</span>}</>
               ) })),
               ...stateHistory.map((s) => ({ key: `s${s.exam.id}`, date: s.date, node: (
                 <>{t("الحالة", "State")}: <strong>{lbl(TOOTH_STATUS, s.status, lang)}</strong>{s.note && ` — ${s.note}`}
-                  <span className="muted small"> · {s.date}{s.exam.examiner_name ? ` · ${s.exam.examiner_name}` : ""}</span></>
+                  <span className="muted small"> · {day(s.date)}{s.exam.examiner_name ? ` · ${s.exam.examiner_name}` : ""}</span></>
               ) }))].sort((a, b) => b.date.localeCompare(a.date)).map((x) => <li key={x.key}>{x.node}</li>)}
             </ol>
           )}

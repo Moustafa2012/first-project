@@ -752,7 +752,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     // the chart is visible read-only, and an exam can be recorded on it
     await d3.locator("#dental").getByText("Tooth chart").waitFor();
     assert(/Extracted/.test(await d3.locator("#chart-18").getAttribute("aria-label")), "the dentist sees the patient's chart");
-    await d3.locator("summary", { hasText: "Add: dental exam on the chart" }).click();
+    await d3.locator("summary", { hasText: "Add: Dental exam on the chart" }).click();
     await d3.locator("#cx-t-26").click();
     await d3.getByRole("radio", { name: "Present", exact: true }).check();
     await d3.selectOption("#cx_fk", "caries");

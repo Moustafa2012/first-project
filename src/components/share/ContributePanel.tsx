@@ -87,7 +87,7 @@ export function ContributePanel({ token, st, uploaded, uploadError, dentition = 
           })}
           {modules.includes("dental_exams") && st.covers_dentistry && (
             <details className="fold" id="contrib-dental">
-              <summary>{t("إضافة: فحص أسنان على المخطط", "Add: dental exam on the chart")}</summary>
+              <summary>{t("إضافة: فحص أسنان على المخطط", "Add: Dental exam on the chart")}</summary>
               <div className="fold-body">
                 <ExamEditor action={contributeDentalExam} hidden={{ _t: token }} lang={lang} today={localDate(new Date(), tz)} defaultDentition={dentition}
                   conditions={st.conditions ?? []} examiner={who.full_name} idPrefix="cx"

@@ -9,3 +9,12 @@ export interface Bundle {
   emergency_contacts?: R[]; other_conditions?: R[]; encounters?: R[]; procedures?: R[]; imaging?: R[]; family_history?: R[]; immunizations?: R[];
   care_plans?: R[]; notes?: R[]; specialty_records?: R[]; observations?: R[]; documents?: R[]; specialties: { id: string; code: string; name_ar: string; name_en: string }[];
 }
+
+/** The dental chart a dentistry share shows (public.share_dental). */
+export interface ShareDental {
+  status: string;
+  profile: Record<string, unknown> | null;
+  exams: import("@/lib/dental").ExamRow[];
+  findings: import("@/lib/dental").FindingRow[];
+  diagnoses: { id: string; name: string; icd10_code: string | null; teeth: number[] | null; evidence: string | null; certainty: string | null; clinical_status: string | null; onset_date: string | null; date_precision: string | null }[];
+}

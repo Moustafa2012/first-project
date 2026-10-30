@@ -2,6 +2,7 @@ import type { EntityDef, FieldDef } from "@/lib/entities";
 import { SOURCE } from "@/lib/labels";
 import { UUID_RE } from "@/lib/uuid";
 import { isPrecision, normalizePartialDate } from "@/lib/format";
+import { parseTeeth } from "@/lib/dental";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -50,6 +51,11 @@ export function parseEntityForm(def: EntityDef, fd: FormData, t: (ar: string, en
       case "select":
         if (!fld.options?.some((o) => o.value === raw)) return { error: t(`اختيار غير صالح: ${label}`, `Invalid choice: ${label}`) };
         row[fld.name] = raw; break;
+      case "teeth": {
+        const teeth = parseTeeth(raw);
+        if (!teeth) return { error: t(`أرقام أسنان غير صالحة (FDI: 11–48، اللبنية 51–85): ${label}`, `Invalid tooth numbers (FDI: 11–48, primary 51–85): ${label}`) };
+        row[fld.name] = teeth.length ? teeth : null; break;
+      }
       case "specialty":
         if (!UUID_RE.test(raw)) return { error: t(`تخصص غير صالح`, `Invalid specialty`) };
         row[fld.name] = raw; break;

@@ -53,6 +53,7 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
         actions={access.canShare ? <Link className="btn primary" href={`/patients/${p.id}/sharing/new?specialty=${spec.code}`}><Share2 size={16} aria-hidden="true" />{t("شارك هذا الملف مع طبيب", "Share this file with a doctor")}</Link> : undefined}
       />
       {support && <Banner tone="info"><Link href={`/patients/${p.id}/${support[0]}`}>{t(support[1], support[2])}</Link></Banner>}
+      {spec.code === "dentistry" && <Banner tone="info"><Link href={`/patients/${p.id}/dental`}>{t("افتح مخطط الأسنان والفحوص (ملف الأسنان)", "Open the tooth chart and exams (dental file)")}</Link></Banner>}
 
       <Card title={t("السياق الصحي المشترك (من الملف الرئيسي)", "Shared health context (from the master record)")}>
         <div className="grid cols-3">

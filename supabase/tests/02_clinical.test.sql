@@ -143,6 +143,10 @@ select test.ok((select count(*) from public.medications where patient_id = :'pa'
 -- ---------------------------------------------------------------- specialty forms
 select s.id as s_dent from public.medical_specialties s where s.code = 'dentistry' \gset
 select s.id as s_card from public.medical_specialties s where s.code = 'cardiology' \gset
+-- the generic form engine, exercised with the (since retired) free-text dental form
+select test.as_super();
+update public.specialty_record_types set is_active = true where code = 'dental_finding';
+select test.as_user(:'alice'::uuid);
 select t.id as rt_dent from public.specialty_record_types t where t.code = 'dental_finding' \gset
 insert into public.specialty_records (patient_id, specialty_id, record_type_id, occurred_on, data)
   values (:'pa', :'s_dent', :'rt_dent', current_date - 30, '{"tooth":"16","finding":"caries","treatment":"Composite filling"}');
@@ -151,6 +155,9 @@ select test.throws(format($$insert into public.specialty_records (patient_id, sp
 select test.throws(format($$insert into public.specialty_records (patient_id, specialty_id, record_type_id, occurred_on, data) values (%L, %L, %L, current_date, '{"tooth":"16","finding":"caries","bogus":1}')$$, :'pa', :'s_dent', :'rt_dent'), 'unknown field', 'unknown specialty field rejected');
 select test.throws(format($$insert into public.specialty_records (patient_id, specialty_id, record_type_id, occurred_on, data) values (%L, %L, %L, current_date, '{"tooth":"16","finding":"magic"}')$$, :'pa', :'s_dent', :'rt_dent'), 'invalid option', 'invalid select option rejected');
 select test.throws(format($$insert into public.specialty_records (patient_id, specialty_id, record_type_id, occurred_on, data) values (%L, %L, %L, current_date, '{"tooth":"16","finding":"caries"}')$$, :'pa', :'s_card', :'rt_dent'), 'does not belong', 'record type must belong to the specialty');
+select test.as_super();
+update public.specialty_record_types set is_active = false where code = 'dental_finding';
+select test.as_user(:'alice'::uuid);
 
 -- ---------------------------------------------------------------- child file: no adult thresholds
 insert into public.observations (patient_id, type_id, value_num, value_num2, effective_at) values (:'pchild', :'t_bp', 150, 95, now() - interval '1 day') returning id as o_child \gset

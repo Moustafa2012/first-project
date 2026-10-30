@@ -106,6 +106,11 @@ export const DATE_PRECISION: Opt[] = [
   o("day", "اليوم معروف", "Exact day"), o("month", "الشهر فقط", "Month only"), o("year", "السنة فقط", "Year only"), o("approx", "سنة تقريبية", "Approximate year"),
 ];
 // what a clinician may add through a share link (table names, as accepted by public.share_contribute)
+export const DIAGNOSIS_EVIDENCE: Opt[] = [
+  o("patient_reported", "إفادة المريض", "Patient-reported"), o("clinical", "فحص سريري", "Clinical examination"),
+  o("radiographic", "صورة أشعة", "Radiograph"), o("clinical_radiographic", "سريري وشعاعي", "Clinical and radiographic"),
+  o("unknown", "غير محدد", "Not stated"),
+];
 export const CONTRIB_MODULES: Opt[] = [
   o("encounters", "زيارة (سبب، فحص، تقييم، خطة)", "Visit (reason, exam, assessment, plan)"),
   o("conditions", "تشخيص / حالة", "Diagnosis / condition"),
@@ -116,6 +121,7 @@ export const CONTRIB_MODULES: Opt[] = [
   o("test_orders", "طلب فحص أو أشعة", "Test or imaging request"),
   o("imaging_studies", "دراسة تصوير (أشعة)", "Imaging study"),
   o("medical_documents", "رفع مستند أو صورة", "Upload a document or image"),
+  o("dental_exams", "فحص أسنان على المخطط (طب الأسنان فقط)", "Dental exam on the chart (dentistry only)"),
 ];
 /** the entity definition (src/lib/entities.ts) that describes each contributable table's fields */
 export const CONTRIB_ENTITY: Record<string, string> = {

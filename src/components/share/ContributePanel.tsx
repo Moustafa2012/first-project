@@ -9,7 +9,10 @@ import { Banner, Card, Chip, Empty } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { FieldInput } from "@/components/EntityForm";
 import { SignaturePad } from "@/components/SignaturePad";
-import { contributeRecord, identifyContributor, retractContribution } from "@/app/actions/share-viewer";
+import { contributeDentalExam, contributeRecord, identifyContributor, retractContribution } from "@/app/actions/share-viewer";
+import { ExamEditor } from "@/components/dental/ExamEditor";
+import { localDate } from "@/lib/format";
+import type { Dentition } from "@/lib/dental";
 
 const UPLOAD_ERR: Record<string, [string, string]> = {
   too_large: ["الملف أكبر من 20 ميغابايت.", "The file is larger than 20 MB."],
@@ -19,7 +22,7 @@ const UPLOAD_ERR: Record<string, [string, string]> = {
 };
 
 /** The clinician's side of a contributing share: identify + sign once, then add records under their own name. */
-export function ContributePanel({ token, st, uploaded, uploadError }: { token: string; st: ContribState; uploaded?: boolean; uploadError?: string }) {
+export function ContributePanel({ token, st, uploaded, uploadError, dentition = "permanent" }: { token: string; st: ContribState; uploaded?: boolean; uploadError?: string; dentition?: Dentition }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const modules = st.modules ?? [];
@@ -82,6 +85,16 @@ export function ContributePanel({ token, st, uploaded, uploadError }: { token: s
               </details>
             );
           })}
+          {modules.includes("dental_exams") && st.covers_dentistry && (
+            <details className="fold" id="contrib-dental">
+              <summary>{t("إضافة: فحص أسنان على المخطط", "Add: dental exam on the chart")}</summary>
+              <div className="fold-body">
+                <ExamEditor action={contributeDentalExam} hidden={{ _t: token }} lang={lang} today={localDate(new Date(), tz)} defaultDentition={dentition}
+                  conditions={st.conditions ?? []} examiner={who.full_name} idPrefix="cx"
+                  encounters={encounters.map((e) => ({ id: e.id, label: `${fmtDate(e.started_at, lang, tz)} — ${e.reason ?? e.kind}` }))} />
+              </div>
+            </details>
+          )}
           {modules.includes("medical_documents") && (
             <details className="fold" open={Boolean(uploadError)}>
               <summary>{t(`إضافة: ${labelOf("medical_documents")}`, `Add: ${labelOf("medical_documents")}`)}</summary>

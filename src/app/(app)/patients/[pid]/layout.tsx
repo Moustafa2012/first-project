@@ -37,6 +37,7 @@ export default async function PatientLayout({ children, params }: { children: Re
     { href: `${base}/appointments`, label: t("المواعيد", "Appointments"), group: t("الرعاية", "Care") },
     { href: `${base}/care-plans`, label: t("خطط المتابعة", "Care plans"), group: t("الرعاية", "Care") },
     { href: `${base}/notes`, label: t("الملاحظات", "Notes"), group: t("الرعاية", "Care") },
+    { href: `${base}/dental`, label: t("ملف الأسنان", "Dental file"), group: t("الملفات", "Files") },
     { href: `${base}/specialties`, label: t("الأقسام الطبية", "Specialty files"), group: t("الملفات", "Files") },
     { href: `${base}/documents`, label: t("المستندات والتقارير", "Documents"), short: t("المستندات", "Files"), group: t("الملفات", "Files") },
     ...(access.canShare ? [

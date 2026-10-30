@@ -78,3 +78,10 @@ export function fmtPartialDate(v: string | null | undefined, precision: unknown,
   const d = new Date(`${v.slice(0, 7)}-01T00:00:00Z`);
   return Number.isNaN(+d) ? "" : new Intl.DateTimeFormat(loc(lang), { year: "numeric", month: "long", timeZone: "UTC" }).format(d);
 }
+
+/** Calendar date (YYYY-MM-DD) of an instant in a time zone. */
+export function localDate(d: Date, tz: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch { return d.toISOString().slice(0, 10); }
+}

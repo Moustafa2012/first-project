@@ -9,7 +9,8 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision }:
   const id = `${prefix}_${def.name}`;
   const label = lang === "ar" ? def.ar : def.en;
   // a NOT NULL date with a database default ("today") is prefilled, never sent empty
-  const v = value == null ? (def.kind === "date" && def.dflt === "today" ? new Date().toISOString().slice(0, 10) : "") : String(value);
+  const v = value == null ? (def.kind === "date" && def.dflt === "today" ? new Date().toISOString().slice(0, 10) : "")
+    : Array.isArray(value) ? value.join(", ") : String(value);
   const wrap = (input: React.ReactNode) => (
     <div className={`field${def.wide ? " wide" : ""}`}>
       <label htmlFor={id}>{label}{def.required && <span className="req" aria-hidden="true"> *</span>}</label>
@@ -42,6 +43,8 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision }:
       );
     case "datetime":
       return wrap(<DateTimeField name={def.name} defaultValue={v || null} required={def.required} blank={def.blank} />);
+    case "teeth":
+      return wrap(<input id={id} name={def.name} type="text" defaultValue={v} dir="ltr" inputMode="numeric" maxLength={200} placeholder="16, 26" />);
     case "number":
       return wrap(<input id={id} name={def.name} type="number" step={def.step ?? "any"} min={def.min} max={def.max} defaultValue={v} required={def.required} inputMode="decimal" />);
     case "date":

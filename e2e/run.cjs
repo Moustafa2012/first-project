@@ -325,18 +325,74 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     void href;
   });
 
-  await step("specialty page: shared context + dynamic dental form + record shown", async () => {
+  await step("specialty page: shared context; dentistry links to the dental file", async () => {
     await page.goto(`${BASE}/patients/${pid}/specialties/dentistry`);
     await page.getByText("Shared health context").waitFor();
     await page.getByText("Penicillin").first().waitFor();
     await page.getByText("Hypertension").first().waitFor();
-    await openSummary(page, "Dental finding / treatment");
-    await page.fill('input[name="f_tooth"]', "16");
-    await page.selectOption('select[name="f_finding"]', "caries");
-    await page.fill('textarea[name="f_treatment"]', "Composite filling");
-    await page.locator("form:has(input[name=f_tooth])").getByRole("button", { name: "Save" }).click();
-    await page.getByText("Saved.").first().waitFor();
-    await page.getByText("Composite filling").first().waitFor();
+    assert((await page.locator("summary", { hasText: "Dental finding / treatment" }).count()) === 0, "the retired free-text dental form is gone");
+    await page.getByRole("link", { name: /Open the tooth chart and exams/ }).click();
+    await page.waitForURL(/\/dental$/);
+  });
+
+  await step("dental file: two exams on the chart (keyboard surfaces), tooth panel + history, resolve, compare, tooth-linked diagnosis", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.getByRole("heading", { name: "Current tooth chart" }).waitFor();
+    assert(/no exam data/.test(await page.locator("#chart-16").getAttribute("aria-label")), "a tooth without an exam is 'no data', not healthy");
+    await openSummary(page, "New exam on the chart");
+    const exam = async (date, kind, material) => {
+      await page.fill("#px_date", date);
+      await page.locator("#px-t-16").click();
+      await page.getByRole("radio", { name: "Present", exact: true }).check();
+      await page.selectOption("#px_fk", kind);
+      if (material) await page.selectOption("#px_fm", material);
+      await page.locator("#px-t-16").focus(); await page.keyboard.press("m"); await page.keyboard.press("o");
+      await page.getByRole("button", { name: "Add to this tooth" }).click();
+      await page.locator("#px-t-18").click();
+      await page.getByRole("radio", { name: kind === "caries" ? "Present" : "Extracted", exact: true }).check();
+      await page.locator(".exam-summary").getByText("16 MO").waitFor();
+      await page.getByRole("button", { name: "Save the exam" }).click();
+    };
+    await exam(daysAgo(400).toISOString().slice(0, 10), "caries");
+    await page.getByRole("heading", { name: "Exams (1)" }).waitFor();
+    await exam(daysAgo(1).toISOString().slice(0, 10), "filling", "composite");
+    await page.getByRole("heading", { name: "Exams (2)" }).waitFor();
+    await page.reload();
+    assert(/Extracted/.test(await page.locator("#chart-18").getAttribute("aria-label")), "tooth 18 now shows extracted");
+    await page.locator("#chart-16").click();
+    const panel = page.locator(".tooth-panel");
+    await panel.getByText("upper right first molar").waitFor();
+    const caries = panel.locator(".tooth-list li", { hasText: "Caries" }).first();
+    await caries.locator("summary", { hasText: "Treated / resolved" }).click();
+    await caries.locator('input[name="resolved_note"]').fill("filled last year");
+    await caries.getByRole("button", { name: "Save" }).click();
+    // the resolved finding leaves the current list (its form goes with it)
+    await page.locator(".tooth-panel .tooth-list li", { hasText: "Caries" }).waitFor({ state: "detached" });
+    await page.locator(".tooth-panel .tooth-hist").getByText(/resolved .* filled last year/).waitFor();
+    // the chart as it was after the first exam
+    await page.selectOption("#asof", { index: 2 });
+    await page.getByRole("button", { name: "Show", exact: true }).click();
+    await page.getByRole("heading", { name: /The chart as of/ }).waitFor();
+    assert(/Present/.test(await page.locator("#chart-18").getAttribute("aria-label")), "the past chart shows 18 as it was");
+    // compare
+    await page.getByRole("button", { name: "Compare", exact: true }).click();
+    const cmp = page.locator("#compare");
+    await cmp.getByRole("heading", { name: "Comparing two exams" }).waitFor();
+    await cmp.locator("tr", { hasText: "18" }).getByText("Extracted").waitFor();
+    await cmp.locator("tr", { hasText: "16" }).getByText("Filling MO").waitFor();
+    // a diagnosis naming its tooth (invalid numbers refused)
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await openSummary(page, "Add condition");
+    await page.fill("#conditions_new_name", "Irreversible pulpitis");
+    await page.fill("#conditions_new_teeth", "19");
+    await page.locator("form", { has: page.locator("#conditions_new_teeth") }).getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText(/Invalid tooth numbers/).waitFor();
+    await page.fill("#conditions_new_teeth", "36");
+    await page.locator("form", { has: page.locator("#conditions_new_teeth") }).getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Teeth: 36").first().waitFor();
+    await page.locator("#chart-36").click();
+    await page.locator(".tooth-panel").getByText("Irreversible pulpitis").waitFor();
+    await page.screenshot({ path: path.join(OUT, "dental-file.png"), fullPage: true });
   });
 
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
@@ -567,7 +623,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await doc.getByRole("button", { name: "Send" }).click();
     await doc.getByText("Your note was sent to the patient.").waitFor();
     await page.goto(`${BASE}/patients/${pid}/sharing`);
-    await page.getByRole("link", { name: /Dental|Dentistry/ }).first().click();
+    await page.getByRole("link", { name: /Dentistry/ }).first().click();
     await page.getByText("Please bring the latest panoramic film.").waitFor();
     await page.getByRole("button", { name: "Mark reviewed" }).click();
     await page.getByText("Reviewed", { exact: true }).waitFor();
@@ -693,6 +749,19 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.fill("#c_title", "Bitewing (dentist)");
     await d3.getByRole("button", { name: "Upload", exact: true }).click();
     await d3.getByText("Document uploaded and added to the file.").waitFor();
+    // the chart is visible read-only, and an exam can be recorded on it
+    await d3.locator("#dental").getByText("Tooth chart").waitFor();
+    assert(/Extracted/.test(await d3.locator("#chart-18").getAttribute("aria-label")), "the dentist sees the patient's chart");
+    await d3.locator("summary", { hasText: "Add: dental exam on the chart" }).click();
+    await d3.locator("#cx-t-26").click();
+    await d3.getByRole("radio", { name: "Present", exact: true }).check();
+    await d3.selectOption("#cx_fk", "caries");
+    await d3.locator("#cx-t-26").focus(); await d3.keyboard.press("d");
+    await d3.getByRole("button", { name: "Add to this tooth" }).click();
+    await d3.getByRole("button", { name: "Save the exam" }).click();
+    await d3.getByText("The exam was saved to the patient's file under your name.").waitFor();
+    await d3.reload();
+    await d3.locator("#contribute article.rec", { hasText: "Dental exam on the chart" }).first().waitFor();
     await d3.screenshot({ path: path.join(OUT, "dentist-contribute.png"), fullPage: true });
     // the dentist withdraws the misplaced note
     const noteRec = d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).first();
@@ -714,6 +783,10 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert((await rec.locator("summary", { hasText: "Edit" }).count()) === 0, "a doctor's addition cannot be edited by the patient");
     await page.goto(`${BASE}/patients/${pid}/documents`);
     await page.getByText("Bitewing (dentist)").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("#exams article.rec", { hasText: "Added by Dr Sara Molar via a link" }).first().waitFor();
+    await page.locator("#chart-26").click();
+    await page.locator(".tooth-panel .tooth-list li", { hasText: "Caries" }).getByText(/Added by Dr Sara Molar/).waitFor();
     await page.goto(`${BASE}${contribShareHref}`);
     await page.getByText("Doctors who added to your file").waitFor();
     await page.getByText("DEN-12345").first().waitFor();
@@ -874,7 +947,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
     await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
     const mp = await m.newPage(); watch(mp, "mobile");
-    for (const p of ["", "/vitals", "/labs", "/specialties", "/sharing/new", "/documents", "/timeline"]) {
+    for (const p of ["", "/vitals", "/labs", "/specialties", "/dental", "/sharing/new", "/documents", "/timeline"]) {
       const r = await mp.goto(`${BASE}/patients/${pid}${p}`);
       assert(r.status() === 200, `${p} => ${r.status()}`);
       assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
@@ -882,6 +955,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
       assert(over <= 1, `horizontal overflow of ${over}px on ${p || "/"}`);
       if (p === "") await mp.screenshot({ path: path.join(OUT, "mobile-dashboard-ar.png"), fullPage: true });
       if (p === "/vitals") await mp.screenshot({ path: path.join(OUT, "mobile-vitals-ar.png"), fullPage: true });
+      if (p === "/dental") await mp.screenshot({ path: path.join(OUT, "mobile-dental-ar.png"), fullPage: true });
     }
     await m.close();
   });

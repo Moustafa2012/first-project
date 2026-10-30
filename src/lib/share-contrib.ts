@@ -11,6 +11,9 @@ export interface ContribState {
   contributor?: { id: string; full_name: string; specialty: string | null; license_no: string | null; facility: string | null } | null;
   items?: ContribItem[];
   encounters?: { id: string; started_at: string; reason: string | null; kind: string }[];
+  /** diagnoses this clinician added through the share (dental findings can point at them) */
+  conditions?: { id: string; name: string; teeth: number[] | null }[];
+  covers_dentistry?: boolean;
 }
 
 /** What the clinician in this share session may add, who they said they are, and what was added through the share. */

@@ -5,7 +5,10 @@ import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import { ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_TYPE, ENCOUNTER_KIND, IMAGING_MODALITY, lbl, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, FAMILY_RELATION, CARE_PLAN_STATUS, LAB_GROUP, IMMUNIZATION_STATUS } from "@/lib/labels";
 import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
-import type { Bundle } from "@/lib/share-types";
+import type { Bundle, ShareDental } from "@/lib/share-types";
+import { DentalChart } from "@/components/dental/DentalChart";
+import { chartDentition, EXAM_KIND } from "@/lib/dental";
+import { localDate } from "@/lib/format";
 import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
@@ -17,7 +20,7 @@ import { ContributePanel } from "@/components/share/ContributePanel";
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, uploaded, uploadError }: { b: Bundle; token: string; contrib?: ContribState | null; uploaded?: boolean; uploadError?: string }) {
+export function ShareViewer({ b, token, contrib, dental, uploaded, uploadError }: { b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; uploaded?: boolean; uploadError?: string }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const inc = new Set(b.meta.include);
@@ -188,7 +191,23 @@ export function ShareViewer({ b, token, contrib, uploaded, uploadError }: { b: B
         </Card>
       )}
 
-      {contrib && <ContributePanel token={token} st={contrib} uploaded={uploaded} uploadError={uploadError} />}
+      {dental && (
+        <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
+          <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
+            diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)} />
+          {dental.exams.length > 0 && (<>
+            <h3>{t("الفحوص", "Exams")}</h3>
+            {dental.exams.map((e) => (
+              <div className="row between" key={e.id}><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}
+                {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
+                <span className="muted small">{d(e.exam_date)}</span></div>
+            ))}
+          </>)}
+        </Card>
+      )}
+
+      {contrib && <ContributePanel token={token} st={contrib} uploaded={uploaded} uploadError={uploadError}
+        dentition={dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent"} />}
 
       {b.meta.allow_notes && (
         <Card title={t("ملاحظة للمريض", "Leave a note for the patient")}>

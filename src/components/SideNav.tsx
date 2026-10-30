@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, AlertTriangle, CalendarDays, ClipboardList, FileText, FlaskConical, FolderHeart, HeartPulse, History, Home, Layers, NotebookPen, Pill, ScanLine, Scissors, Menu, ShieldCheck, Share2, X, Stethoscope, Syringe, TestTube2, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Activity, AlertTriangle, CalendarDays, ClipboardList, FileText, FlaskConical, FolderHeart, HeartPulse, History, Home, Layers, NotebookPen, Pill, ScanLine, Scissors, Smile, Menu, ShieldCheck, Share2, X, Stethoscope, Syringe, TestTube2, UserRound, Users, type LucideIcon } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
   "": Home, profile: UserRound, timeline: History, conditions: HeartPulse, allergies: AlertTriangle, medications: Pill,
   "family-history": Users, immunizations: Syringe, vitals: Activity, labs: FlaskConical, "test-orders": TestTube2,
   visits: Stethoscope, procedures: Scissors, imaging: ScanLine, appointments: CalendarDays, "care-plans": ClipboardList,
-  notes: NotebookPen, specialties: Layers, documents: FileText, sharing: Share2, audit: ShieldCheck,
+  notes: NotebookPen, dental: Smile, specialties: Layers, documents: FileText, sharing: Share2, audit: ShieldCheck,
 };
 const iconFor = (href: string, root: string): LucideIcon => ICONS[href === root ? "" : href.slice(root.length + 1)] ?? FolderHeart;
 

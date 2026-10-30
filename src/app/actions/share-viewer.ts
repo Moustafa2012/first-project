@@ -12,8 +12,10 @@ import { contribState, signaturePng } from "@/lib/share-contrib";
 import { ENTITIES } from "@/lib/entities";
 import { parseEntityForm } from "@/lib/entity-form";
 import { CONTRIB_ENTITY } from "@/lib/labels";
-import { explainError } from "@/lib/auth";
+import { explainError, getTz } from "@/lib/auth";
 import { UUID_RE } from "@/lib/uuid";
+import { parseExamForm } from "@/lib/dental";
+import { localDate } from "@/lib/format";
 
 /** The doctor's PIN gate. Every failure path returns a generic message; the database enforces limits. */
 export async function openShare(_: FormState, fd: FormData): Promise<FormState> {
@@ -159,4 +161,23 @@ export async function retractContribution(_: FormState, fd: FormData): Promise<F
   if (st !== "ok") return { error: t(...(CONTRIB_STATUS[st] ?? CONTRIB_STATUS.invalid)) };
   revalidatePath(`/s/${token}/view`);
   return { ok: true, message: t("سُحب السجل وبقي في التاريخ مع السبب.", "Withdrawn; it stays in the history with the reason.") };
+}
+
+/** A whole dental exam on the chart (tooth states + findings), saved under the clinician's name in one step. */
+export async function contributeDentalExam(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const token = String(fd.get("_t") ?? "");
+  const session = validToken(token) ? getShareSession(token) : null;
+  if (!session) return { error: t(...CONTRIB_STATUS.expired) };
+  const parsed = parseExamForm(fd, t, localDate(new Date(), getTz()));
+  if ("error" in parsed) return { error: parsed.error };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_contribute_dental_exam", {
+    p_session_token: session, p_exam: parsed.exam, p_states: parsed.states, p_findings: parsed.findings, p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  if (error) return { error: explainError(error, t) };
+  const st = (data as { status?: string } | null)?.status ?? "invalid";
+  if (st !== "ok") return { error: t(...(CONTRIB_STATUS[st] ?? CONTRIB_STATUS.invalid)) };
+  revalidatePath(`/s/${token}/view`);
+  return { ok: true, message: t("حُفظ الفحص في ملف المريض باسمك.", "The exam was saved to the patient's file under your name.") };
 }

@@ -4,7 +4,7 @@ import type { Lang } from "@/lib/i18n";
 import type { Row } from "@/lib/types";
 import { normText } from "@/lib/dedupe";
 
-export type FieldKind = "text" | "textarea" | "date" | "datetime" | "number" | "select" | "checkbox" | "specialty";
+export type FieldKind = "text" | "textarea" | "date" | "datetime" | "number" | "select" | "checkbox" | "specialty" | "teeth";
 
 export interface FieldDef {
   name: string;
@@ -80,6 +80,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       { tone: s(r, "certainty") === "confirmed" ? "ok" : "muted", text: L.lbl(L.CERTAINTY, s(r, "certainty"), lang) },
       ...(r.severity ? [{ tone: "muted" as const, text: L.lbl(L.SEVERITY3, s(r, "severity"), lang) }] : []),
       ...(r.sensitive ? [{ tone: "warn" as const, text: lang === "ar" ? "حساس" : "Sensitive" }] : []),
+      ...(Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info" as const, text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : []),
     ],
     fields: [
       f("name", "اسم المرض / التشخيص", "Condition / diagnosis", "text", { required: true, maxLength: 200, wide: true }),
@@ -91,6 +92,8 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("resolved_date", "تاريخ الشفاء / الانتهاء", "Resolved date", "date"),
       f("icd10_code", "رمز ICD-10 (اختياري)", "ICD-10 code (optional)", "text", { maxLength: 12 }),
       spec,
+      f("teeth", "الأسنان المعنية (للتشخيص السني)", "Teeth concerned (dental diagnosis)", "teeth", { hint: ["أرقام FDI مفصولة بفاصلة، مثل: 16، 26", "FDI numbers separated by commas, e.g. 16, 26"] }),
+      f("evidence", "أساس التشخيص", "Basis of the diagnosis", "select", { options: L.DIAGNOSIS_EVIDENCE }),
       f("sensitive", "حالة حساسة (لا تُشارك إلا بإذن صريح)", "Sensitive (shared only when explicitly allowed)", "checkbox"),
       f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
     ],

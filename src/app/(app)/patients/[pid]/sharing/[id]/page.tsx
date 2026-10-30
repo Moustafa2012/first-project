@@ -17,10 +17,11 @@ const CONTRIB_LABEL: Record<string, string> = {
   medications: "id, name_generic, name_brand, recorded_at, record_status, contributed_by", appointments: "id, reason, scheduled_at, record_status, contributed_by",
   test_orders: "id, name, recorded_at, record_status, contributed_by", imaging_studies: "id, modality, body_site, recorded_at, record_status, contributed_by",
   medical_documents: "id, title, uploaded_at, record_status, contributed_by",
+  dental_exams: "id, exam_date, recorded_at, record_status, contributed_by",
 };
 const CONTRIB_PAGE: Record<string, string> = {
   encounters: "visits", conditions: "conditions", procedures: "procedures", clinical_notes: "notes", medications: "medications",
-  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents",
+  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents", dental_exams: "dental",
 };
 
 export default async function ShareDetail({ params }: { params: { pid: string; id: string } }) {
@@ -47,7 +48,7 @@ export default async function ShareDetail({ params }: { params: { pid: string; i
     const { data } = await supabase.from(table).select(cols).eq("patient_id", p.id).in("contributed_by", contributors.map((c) => c.id));
     return ((data ?? []) as unknown as Record<string, string | null>[]).map((r): Added => ({
       table, id: String(r.id), record_status: String(r.record_status), contributed_by: String(r.contributed_by),
-      label: String(r.name ?? r.title ?? r.reason ?? r.name_generic ?? r.name_brand ?? (r.body ? r.body.slice(0, 80) : null) ?? [r.modality, r.body_site].filter(Boolean).join(" — ") ?? r.kind ?? "—"),
+      label: String(r.name ?? r.title ?? r.exam_date ?? r.reason ?? r.name_generic ?? r.name_brand ?? (r.body ? r.body.slice(0, 80) : null) ?? [r.modality, r.body_site].filter(Boolean).join(" — ") ?? r.kind ?? "—"),
       at: String(r.recorded_at ?? r.started_at ?? r.noted_at ?? r.scheduled_at ?? r.uploaded_at ?? ""),
     }));
   }))).flat().sort((a, b) => b.at.localeCompare(a.at));

@@ -18,10 +18,13 @@ const CONTRIB_LABEL: Record<string, string> = {
   test_orders: "id, name, recorded_at, record_status, contributed_by", imaging_studies: "id, modality, body_site, recorded_at, record_status, contributed_by",
   medical_documents: "id, title, uploaded_at, record_status, contributed_by",
   dental_exams: "id, exam_date, recorded_at, record_status, contributed_by",
+  treatment_plans: "id, title, recorded_at, record_status, contributed_by",
+  treatment_costs: "id, amount, currency, recorded_at, record_status, contributed_by",
 };
 const CONTRIB_PAGE: Record<string, string> = {
   encounters: "visits", conditions: "conditions", procedures: "procedures", clinical_notes: "notes", medications: "medications",
   appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents", dental_exams: "dental",
+  treatment_plans: "dental?tab=treatment", treatment_costs: "dental?tab=treatment",
 };
 
 export default async function ShareDetail({ params }: { params: { pid: string; id: string } }) {
@@ -48,7 +51,7 @@ export default async function ShareDetail({ params }: { params: { pid: string; i
     const { data } = await supabase.from(table).select(cols).eq("patient_id", p.id).in("contributed_by", contributors.map((c) => c.id));
     return ((data ?? []) as unknown as Record<string, string | null>[]).map((r): Added => ({
       table, id: String(r.id), record_status: String(r.record_status), contributed_by: String(r.contributed_by),
-      label: String(r.name ?? r.title ?? r.exam_date ?? r.reason ?? r.name_generic ?? r.name_brand ?? (r.body ? r.body.slice(0, 80) : null) ?? [r.modality, r.body_site].filter(Boolean).join(" — ") ?? r.kind ?? "—"),
+      label: String(r.name ?? r.title ?? r.exam_date ?? (r.amount != null ? `${r.amount} ${r.currency}` : null) ?? r.reason ?? r.name_generic ?? r.name_brand ?? (r.body ? r.body.slice(0, 80) : null) ?? [r.modality, r.body_site].filter(Boolean).join(" — ") ?? r.kind ?? "—"),
       at: String(r.recorded_at ?? r.started_at ?? r.noted_at ?? r.scheduled_at ?? r.uploaded_at ?? ""),
     }));
   }))).flat().sort((a, b) => b.at.localeCompare(a.at));
@@ -99,7 +102,7 @@ export default async function ShareDetail({ params }: { params: { pid: string; i
                 </div>
                 {mine.length > 0 && (
                   <ul style={{ margin: ".5rem 0", paddingInlineStart: "1.1rem" }}>{mine.map((a) => (
-                    <li key={`${a.table}:${a.id}`}><Link href={`/patients/${p.id}/${CONTRIB_PAGE[a.table]}`}>{CONTRIB_MODULES.find((x) => x.value === a.table)?.[lang]}: {a.label}</Link>
+                    <li key={`${a.table}:${a.id}`}><Link href={`/patients/${p.id}/${CONTRIB_PAGE[a.table]}`}>{a.table === "treatment_costs" ? t("تكلفة علاج", "Treatment cost") : CONTRIB_MODULES.find((x) => x.value === a.table)?.[lang]}: {a.label}</Link>
                       {a.record_status !== "active" && <> <Chip tone="bad">{t("مُبطل", "Invalidated")}</Chip></>} <span className="muted small">{a.at ? fmtDateTime(a.at, lang, tz) : ""}</span></li>))}</ul>
                 )}
                 <div className="row">

@@ -6,6 +6,7 @@ import type { Bundle } from "@/lib/share-types";
 import { contribState } from "@/lib/share-contrib";
 import type { ShareDental } from "@/lib/share-types";
 import type { ClinicalContextData } from "@/lib/clinical-context";
+import { getProcedureCatalog } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,10 +21,10 @@ export default async function ShareView({ params, searchParams }: { params: { to
   const b = data as (Bundle | { status: string }) | null;
   if (!b || b.status !== "ok") redirect(`/s/${params.token}?expired=1`);
   const admin = createAdminClient();
-  const [st, { data: dental }, { data: context }] = await Promise.all([contribState(session), admin.rpc("share_dental", { p_session_token: session }),
-    admin.rpc("share_context", { p_session_token: session })]);
+  const [st, { data: dental }, { data: context }, catalog] = await Promise.all([contribState(session), admin.rpc("share_dental", { p_session_token: session }),
+    admin.rpc("share_context", { p_session_token: session }), getProcedureCatalog()]);
   const dent = dental as ShareDental | null;
   const ctx = context as (ClinicalContextData & { status: string; specialties: string[] | null }) | null;
   return <ShareViewer b={b as Bundle} token={params.token} contrib={st.status === "ok" ? st : null} dental={dent?.status === "ok" ? dent : null} ctx={ctx?.status === "ok" ? ctx : null}
-    uploaded={searchParams.uploaded === "1"} uploadError={searchParams.upload_error} />;
+    uploaded={searchParams.uploaded === "1"} uploadError={searchParams.upload_error} catalog={catalog} />;
 }

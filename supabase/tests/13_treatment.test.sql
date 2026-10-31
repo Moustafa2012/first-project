@@ -121,6 +121,10 @@ select (:'dp'::jsonb ->> 'id') as dpid \gset
 select test.ok((select status = 'proposed' and contributed_by = :'ctr'::uuid and presented_by like 'Dr Plan%' from public.treatment_plans where id = :'dpid'),
   'the dentist''s plan arrives as a proposal under their name');
 select id as irc from public.treatment_items where plan_id = :'dpid' and catalog_code = 'root_canal' \gset
+select public.share_add_treatment_item(:'sess', :'dpid', '{"catalog_code":"crown_zirconia","teeth":[46],"phase":2}') ->> 'status' as ai \gset
+select test.ok(:'ai' = 'ok' and (select count(*) = 3 from public.treatment_items where plan_id = :'dpid'),
+  'the dentist adds a treatment to their own proposal');
+select test.ok((public.share_add_treatment_item(:'sess', :'pa', '{"name":"intrusion"}') ->> 'status') = 'not_found', 'but not to the patient''s plans');
 select test.ok(public.share_treatment_item_status(:'sess', :'irc', 'accepted', null, null) ->> 'status' = 'patient_decides', 'only the patient accepts');
 select test.ok((public.share_set_cost(:'sess', :'irc', 900, 'sar', 'quoted', 'incl. X-ray') ->> 'status') = 'ok', 'the dentist notes their cost');
 select test.ok((select jsonb_array_length(public.share_dental(:'sess') -> 'my_costs') = 1), 'and sees only that cost');
@@ -140,7 +144,7 @@ select test.ok(:'rc'::jsonb ->> 'status' = 'ok'
 select test.ok((select contributed_by = :'ctr'::uuid from public.status_history where record_id = :'irc'::uuid and to_value = 'completed'),
   'the history says who completed it');
 select public.share_retract(:'sess', 'treatment_plans', :'dpid', 'wrong patient') ->> 'status' as rt \gset
-select test.ok(:'rt' = 'ok' and (select count(*) = 2 from public.treatment_items where plan_id = :'dpid' and record_status = 'entered_in_error'),
+select test.ok(:'rt' = 'ok' and (select count(*) = 3 from public.treatment_items where plan_id = :'dpid' and record_status = 'entered_in_error'),
   'withdrawing the plan invalidates its treatments');
 
 select test.as_user(:'alice'::uuid);

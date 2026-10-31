@@ -122,6 +122,7 @@ export const CONTRIB_MODULES: Opt[] = [
   o("imaging_studies", "دراسة تصوير (أشعة)", "Imaging study"),
   o("medical_documents", "رفع مستند أو صورة", "Upload a document or image"),
   o("dental_exams", "فحص أسنان على المخطط (طب الأسنان فقط)", "Dental exam on the chart (dentistry only)"),
+  o("treatment_plans", "خطة علاج أسنان: اقتراح العلاج وتسجيل إنجازه (طب الأسنان فقط)", "Dental treatment plan: propose treatment and record it done (dentistry only)"),
 ];
 /** the entity definition (src/lib/entities.ts) that describes each contributable table's fields */
 export const CONTRIB_ENTITY: Record<string, string> = {

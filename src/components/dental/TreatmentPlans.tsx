@@ -14,8 +14,11 @@ import { TreatmentStatusForm } from "./TreatmentStatus";
 /** What the viewer may do: the patient manages everything; a clinician through a share moves treatments along and notes their own cost. */
 export interface TreatmentActions {
   hidden: Record<string, string>;
-  status: FormAction;
+  /** no status action: read only */
+  status?: FormAction;
   clinician?: boolean;
+  /** may a treatment be added to this plan (a clinician adds only to their own proposals) */
+  canAddTo?: (plan: TreatmentPlan) => boolean;
   planStatus?: FormAction;
   newVersion?: FormAction;
   createPlan?: FormAction;
@@ -138,7 +141,7 @@ export function TreatmentPlans({
             <h4>{t(`المرحلة ${phase}`, `Phase ${phase}`)}</h4>
             <ul className="tooth-list">
               {list.map((i) => {
-                const next = open ? itemNext(i.status, actions.clinician) : [];
+                const next = open && actions.status ? itemNext(i.status, actions.clinician) : [];
                 const cost = byItem.get(i.id);
                 return (
                   <li key={i.id} className={`treat-item st-${i.status}`} data-item={i.id}>
@@ -162,7 +165,7 @@ export function TreatmentPlans({
                       <div className="row" style={{ gap: ".4rem" }}>
                         {next.length > 0 && (
                           <details className="fold"><summary>{t("تغيير الحالة", "Change status")}</summary><div className="fold-body">
-                            <TreatmentStatusForm action={actions.status} hidden={{ ...h, _id: i.id }} next={next} labels={itemLabels} surgical={i.surgical}
+                            <TreatmentStatusForm action={actions.status!} hidden={{ ...h, _id: i.id }} next={next} labels={itemLabels} surgical={i.surgical}
                               lang={lang} today={today} idPrefix={`ts-${i.id.slice(0, 8)}`} />
                           </div></details>
                         )}
@@ -197,7 +200,7 @@ export function TreatmentPlans({
 
         {open && (
           <div className="row" style={{ gap: ".4rem", marginBlockStart: ".5rem" }}>
-            {actions.addItem && (
+            {actions.addItem && (actions.canAddTo?.(p) ?? true) && (
               <details className="fold"><summary><Plus size={14} aria-hidden="true" /> {t("إضافة علاج إلى هذه الخطة", "Add a treatment to this plan")}</summary><div className="fold-body">
                 <TreatmentItemForm action={actions.addItem} hidden={{ ...h, _plan: p.id }} catalog={catalog} problems={problems} lang={lang} idPrefix={`ti-${p.id.slice(0, 8)}`} />
               </div></details>

@@ -696,6 +696,56 @@ begin
   return jsonb_build_object('status', 'ok', 'id', v_id);
 end $$;
 
+-- the clinician adds a treatment to a plan proposed through this share that is still a proposal
+create function public.share_add_treatment_item(p_session_token text, p_plan uuid, p_item jsonb, p_ip_hash text default null, p_user_agent text default null)
+returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare c record; v_name text; v_cat public.procedure_catalog; v_id uuid; v_cond uuid; v_teeth smallint[]; v_surf text[]; v_n int;
+begin
+  select * into c from app.share_contributor_context(p_session_token);
+  if c.o_status <> 'ok' then return jsonb_build_object('status', c.o_status); end if;
+  if c.o_contributor is null then return jsonb_build_object('status', 'identify_first'); end if;
+  if not ('treatment_plans' = any ((c.o_share).contribute_modules)) or not app.share_covers_dentistry(c.o_share) then
+    return jsonb_build_object('status', 'forbidden');
+  end if;
+  if not exists (select 1 from public.treatment_plans p join public.share_contributors sc on sc.id = p.contributed_by
+                  where p.id = p_plan and p.patient_id = (c.o_share).patient_id and sc.share_id = (c.o_share).id
+                    and p.record_status = 'active' and p.status in ('draft', 'proposed')) then
+    return jsonb_build_object('status', 'not_found');
+  end if;
+  select count(*) into v_n from public.treatment_items where plan_id = p_plan;
+  if v_n >= 60 then return jsonb_build_object('status', 'limit'); end if;
+  v_cond := nullif(p_item ->> 'condition_id', '')::uuid;
+  if v_cond is not null and not exists (
+       select 1 from public.conditions k where k.id = v_cond and k.patient_id = (c.o_share).patient_id and k.record_status = 'active'
+          and (k.teeth is not null or k.specialty_id = (select id from public.medical_specialties where code = 'dentistry'))
+          and (not k.sensitive or (c.o_share).include_sensitive)) then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+  if nullif(p_item ->> 'catalog_code', '') is not null then
+    select * into v_cat from public.procedure_catalog where code = p_item ->> 'catalog_code' and is_active;
+    if v_cat.code is null then return jsonb_build_object('status', 'invalid'); end if;
+  end if;
+  select left(full_name || coalesce(' — ' || facility, ''), 300) into v_name from public.share_contributors where id = c.o_contributor;
+  perform set_config('app.share_contributor', c.o_contributor::text, true);
+  begin
+    select array_agg(t::smallint order by t::smallint) into v_teeth from jsonb_array_elements_text(coalesce(p_item -> 'teeth', '[]')) t;
+    select coalesce(array_agg(s order by s), '{}') into v_surf from jsonb_array_elements_text(coalesce(p_item -> 'surfaces', '[]')) s;
+    insert into public.treatment_items (patient_id, plan_id, catalog_code, name, teeth, surfaces, condition_id, phase, status, notes, sort,
+                                        source, source_detail, verification, contributed_by)
+    values ((c.o_share).patient_id, p_plan, v_cat.code,
+            coalesce(nullif(btrim(p_item ->> 'name'), ''), case when p_item ->> 'lang' = 'en' then v_cat.name_en else v_cat.name_ar end),
+            v_teeth, v_surf, v_cond, coalesce(nullif(p_item ->> 'phase', '')::smallint, 1), 'proposed', nullif(btrim(p_item ->> 'notes'), ''), v_n + 1,
+            'clinic', v_name, 'confirmed', c.o_contributor)
+    returning id into v_id;
+  exception when check_violation or not_null_violation or invalid_text_representation or numeric_value_out_of_range then
+    return jsonb_build_object('status', 'invalid');
+  end;
+  perform app.share_log((c.o_share).id, 'contribution_added', p_ip_hash, p_user_agent,
+                        jsonb_build_object('contributor', c.o_contributor, 'table', 'treatment_items', 'id', v_id));
+  return jsonb_build_object('status', 'ok', 'id', v_id);
+end $$;
+
 -- the clinician moves a treatment along (schedules it, starts it, completes it, refers it…). Accepting is the patient's.
 create function public.share_treatment_item_status(p_session_token text, p_item uuid, p_status text, p_date date, p_reason text,
                                                    p_confirm boolean default false, p_ip_hash text default null, p_user_agent text default null)
@@ -848,6 +898,8 @@ end $$;
 revoke all on function public.share_contribute_treatment_plan(text, jsonb, jsonb, text, text) from public, anon, authenticated;
 revoke all on function public.share_treatment_item_status(text, uuid, text, date, text, boolean, text, text) from public, anon, authenticated;
 revoke all on function public.share_set_cost(text, uuid, numeric, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.share_add_treatment_item(text, uuid, jsonb, text, text) from public, anon, authenticated;
+grant execute on function public.share_add_treatment_item(text, uuid, jsonb, text, text) to service_role;
 grant execute on function public.share_contribute_treatment_plan(text, jsonb, jsonb, text, text) to service_role;
 grant execute on function public.share_treatment_item_status(text, uuid, text, date, text, boolean, text, text) to service_role;
 grant execute on function public.share_set_cost(text, uuid, numeric, text, text, text, text, text) to service_role;

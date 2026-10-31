@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import "./supabase-tokens.css";
 import "./globals.css";
 import { i18n } from "@/lib/i18n";
 import { getTheme, getTz } from "@/lib/auth";

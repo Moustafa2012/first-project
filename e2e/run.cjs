@@ -468,7 +468,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator(".pano-svg").waitFor();
     await page.locator(".pano-svg .lesion").first().waitFor();                                 // the abscess drawn at the apex of 13
     await page.getByRole("button", { name: "Surfaces", exact: true }).click();
-    await page.locator(".odonto-svg").waitFor();
+    await page.locator("#chart .odonto-svg").waitFor();
     assert(/problem: Dental abscess/.test(await page.locator("#chart-13").getAttribute("aria-label")), "the surfaces view shows the same tooth");
     await page.getByRole("button", { name: "Panoramic", exact: true }).click();
     await page.locator(".pano-svg").waitFor();

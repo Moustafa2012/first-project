@@ -22,6 +22,8 @@ export interface ShareDental {
   /** current treatment plans (never with costs) and the costs this clinician entered themselves */
   plans?: import("@/lib/treatment").TreatmentPlan[];
   my_costs?: import("@/lib/treatment").TreatmentCost[];
+  /** pulp tests per exam id */
+  pulp?: Record<string, import("@/lib/dental-exam").PulpTest[]>;
 }
 
 export interface ShareNoteAmendment { body: string; reason: string; amended_at: string; amended_name: string | null }

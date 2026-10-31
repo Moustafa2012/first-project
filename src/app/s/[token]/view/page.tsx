@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import type { PulpTest, Sections } from "@/lib/dental-exam";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { clientMeta, getShareSession, validToken } from "@/lib/share";
 import { ShareViewer } from "@/components/share/ShareViewer";
@@ -23,16 +24,23 @@ export default async function ShareView({ params, searchParams }: { params: { to
   if (!b || b.status !== "ok") redirect(`/s/${params.token}?expired=1`);
   const admin = createAdminClient();
   const { lang } = i18n();
-  const [st, { data: dental }, { data: context }, catalog, { data: extras }, { data: myNotes }, { data: recalls }, { data: tpls }] = await Promise.all([
+  const [st, { data: dental }, { data: context }, catalog, { data: extras }, { data: myNotes }, { data: recalls }, { data: examExtras }, { data: tpls }] = await Promise.all([
     contribState(session), admin.rpc("share_dental", { p_session_token: session }),
     admin.rpc("share_context", { p_session_token: session }), getProcedureCatalog(),
     admin.rpc("share_visit_note_extras", { p_session_token: session }), admin.rpc("share_my_notes", { p_session_token: session }),
     admin.rpc("share_recalls", { p_session_token: session }),
+    admin.rpc("share_dental_exam_extras", { p_session_token: session }),
     // the shared (non-personal) note templates, in the viewer's language
     admin.from("note_templates").select("id, title, body").is("owner_id", null).eq("is_active", true).eq("lang", lang).order("sort"),
   ]);
   const ex = extras as (ShareExtras & { status: string }) | null;
   const dent = dental as ShareDental | null;
+  // the sections, baseline flag and pulp tests of each exam in scope
+  const xx = examExtras as { status: string; exams?: Record<string, { sections: Sections | null; is_baseline: boolean; pulp_tests: PulpTest[] }> } | null;
+  if (dent?.status === "ok" && xx?.status === "ok" && xx.exams) {
+    dent.exams = dent.exams.map((e) => ({ ...e, sections: xx.exams![e.id]?.sections ?? null, is_baseline: xx.exams![e.id]?.is_baseline ?? false }));
+    dent.pulp = Object.fromEntries(Object.entries(xx.exams).map(([k, v]) => [k, v.pulp_tests ?? []]));
+  }
   const ctx = context as (ClinicalContextData & { status: string; specialties: string[] | null }) | null;
   return <ShareViewer b={b as Bundle} token={params.token} contrib={st.status === "ok" ? st : null} dental={dent?.status === "ok" ? dent : null} ctx={ctx?.status === "ok" ? ctx : null}
     uploaded={searchParams.uploaded === "1"} uploadError={searchParams.upload_error} catalog={catalog}

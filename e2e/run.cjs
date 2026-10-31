@@ -1102,9 +1102,28 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.selectOption("#cx_fk", "caries");
     await d3.locator("#cx-t-26").focus(); await d3.keyboard.press("d");
     await d3.getByRole("button", { name: "Add to this tooth" }).click();
+    // the comprehensive exam: a pulp test on 26, the soft tissues (a suspicious patch), the baseline flag
+    await d3.selectOption("#cx_pt", "cold");
+    await d3.selectOption("#cx_pr", "lingering");
+    await d3.getByRole("button", { name: "Add the test result" }).click();
+    await d3.locator(".exam-summary").getByText("Lingering pain").waitFor();
+    await d3.locator('details[data-section="soft_tissue"] > summary').click();
+    await d3.getByRole("button", { name: "All sites normal, no suspicious lesion" }).click();
+    await d3.selectOption("#cx_soft_tissue_tongue", "abnormal");
+    await d3.selectOption("#cx_soft_tissue_cancer_screening", "suspicious");
+    await d3.fill("#cx_soft_tissue_note", "White patch, left lateral tongue");
+    await d3.locator('details[data-section="extraoral"] > summary').click();
+    await d3.fill("#cx_extraoral_mouth_opening_mm", "42");
+    await d3.check('input[name="is_baseline"]');
     await d3.getByRole("button", { name: "Save the exam" }).click();
     await d3.getByText("The exam was saved to the patient's file under your name.").waitFor();
     await d3.reload();
+    // the next doctor on any link sees it: the alert, the baseline, the sections and the pulp test
+    await d3.locator("#dental").getByText("Suspicious soft-tissue lesion").waitFor();
+    const dx = d3.locator("article.share-exam", { hasText: "Baseline" }).first();
+    await dx.getByText(/Oral cancer screening: Suspicious lesion/).waitFor();
+    await dx.getByText(/Cold: Lingering pain/).waitFor();
+    await dx.getByText(/Maximum mouth opening 42 mm/).waitFor();
     await d3.locator("#contribute article.rec:not(.my-note)", { hasText: "Dental exam on the chart" }).first().waitFor();
     // in place: the dentist chooses a tooth and adds a diagnosis to it, without a separate form list
     await d3.locator("#chart-47").click();
@@ -1163,6 +1182,11 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Bitewing (dentist)").first().waitFor();
     await page.goto(`${BASE}/patients/${pid}/dental`);
     await page.locator("#exams article.rec", { hasText: "Added by Dr Sara Molar via a link" }).first().waitFor();
+    await page.getByText("Suspicious soft-tissue lesion").waitFor();
+    const docExam = page.locator("#exams article.rec", { hasText: "Added by Dr Sara Molar via a link" }).first();
+    await docExam.getByText("Baseline", { exact: true }).waitFor();
+    await docExam.getByText(/White patch, left lateral tongue/).waitFor();
+    await page.locator(".baseline-line").getByText(/comprehensive baseline exam/).waitFor();
     await page.locator("#chart-26").click();
     await page.locator(".tooth-panel .tooth-list li", { hasText: "Caries" }).getByText(/Added by Dr Sara Molar/).waitFor();
     await page.goto(`${BASE}${contribShareHref}`);

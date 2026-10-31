@@ -1,4 +1,5 @@
 import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut, Printer } from "lucide-react";
+import { ExamExtras } from "@/components/dental/ExamExtras";
 import { i18n } from "@/lib/i18n";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
@@ -9,7 +10,7 @@ import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall } from 
 import { DentalChart, type ToothAddForm } from "@/components/dental/DentalChart";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import type { ClinicalContextData } from "@/lib/clinical-context";
-import { chartDentition, DENTAL_DIAGNOSES, EXAM_KIND } from "@/lib/dental";
+import { chartDentition, DENTAL_DIAGNOSES, EXAM_KIND, deriveChart } from "@/lib/dental";
 import { localDate } from "@/lib/format";
 import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
@@ -50,7 +51,9 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   // the clinician adds where the information belongs: each "add" form sits in its section, the tooth forms in the panel of
   // the chosen tooth; what has no section on this page gathers in "other additions"
   const dentition = dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent";
-  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} templates={templates} /> : null);
+  const known = dental ? [...deriveChart(dental.exams, dental.findings).values()].filter((v) => v.status).map((v) => ({ tooth: v.tooth, status: v.status! })) : [];
+  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} templates={templates}
+    knownStates={known} noBaseline={Boolean(dental) && !dental!.exams.some((e) => e.is_baseline)} /> : null);
   const placed = new Set<string>();
   const place = (table: string, shown: boolean) => { if (shown) placed.add(table); return shown; };
   const showEnc = place("encounters", inc.has("encounters"));
@@ -140,6 +143,19 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
       {dental && (
         <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
           <p className="small muted" style={{ marginBlockStart: 0 }}>{canAdd(contrib, "conditions") || canAdd(contrib, "procedures") ? t("اختر سناً لعرض تاريخه وصوره، وللإضافة إليه مباشرة.", "Choose a tooth to see its history and images, and to add to it directly.") : t("اختر سناً لعرض تاريخه وصوره.", "Choose a tooth to see its history and images.")}</p>
+          {(() => {
+            const soft = dental.exams.find((e) => e.sections?.soft_tissue);
+            const base = dental.exams.find((e) => e.is_baseline);
+            return (<>
+              {soft?.sections?.soft_tissue?.cancer_screening === "suspicious" && (
+                <Banner tone="bad" title={t("آفة مشتبهة في الأنسجة الرخوة", "Suspicious soft-tissue lesion")}>
+                  {t(`سُجّلت في فحص ${d(soft.exam_date)}${soft.examiner_name ? ` (${soft.examiner_name})` : ""}.`, `Recorded at the exam of ${d(soft.exam_date)}${soft.examiner_name ? ` (${soft.examiner_name})` : ""}.`)}
+                  {soft.sections.soft_tissue.note ? ` ${s(soft.sections.soft_tissue.note)}` : ""}
+                </Banner>
+              )}
+              {base && <p className="small baseline-line">{t("الحالة الابتدائية: الفحص الأساسي الشامل في", "Baseline: the comprehensive exam of")} {d(base.exam_date)}{base.examiner_name ? ` — ${base.examiner_name}` : ""}</p>}
+            </>);
+          })()}
           <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
             diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
             procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} planned={planned} />
@@ -175,9 +191,15 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           {dental.exams.length > 0 && (<>
             <h3>{t("الفحوص", "Exams")}</h3>
             {dental.exams.map((e) => (
-              <div className="row between" key={e.id}><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}
-                {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
-                <span className="muted small">{d(e.exam_date)}</span></div>
+              <article className="rec share-exam" key={e.id}>
+                <div className="row between"><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}{e.facility_name ? ` · ${e.facility_name}` : ""}
+                  {e.is_baseline && <Chip tone="ok">{t("فحص أساسي", "Baseline")}</Chip>}
+                  {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
+                  <span className="muted small">{d(e.exam_date)}</span></div>
+                {e.chief_complaint && <p className="small" style={{ margin: ".2rem 0" }}>{t("الشكوى", "Complaint")}: {s(e.chief_complaint)}</p>}
+                <ExamExtras sections={e.sections} pulp={dental.pulp?.[e.id]} lang={lang} />
+                {e.notes && <p className="small" style={{ margin: ".2rem 0" }}>{s(e.notes)}</p>}
+              </article>
             ))}
           </>)}
         </Card>

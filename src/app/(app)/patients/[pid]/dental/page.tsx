@@ -11,7 +11,7 @@ import {
   ABSENT_STATUSES, ANXIETY, BRUSHING, DENTITION, EXAM_KIND, FINDING_KIND, FLOSSING, ORAL_HYGIENE, TOOTH_STATUS, chartDentition, compareExams, deriveChart, fmtSurfaces,
   type ExamRow, type FindingRow,
 } from "@/lib/dental";
-import { Card, Chip, Empty, PageHead } from "@/components/ui";
+import { Banner, Card, Chip, Empty, PageHead } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { EntitySection } from "@/components/EntitySection";
 import { EntityForm } from "@/components/EntityForm";
@@ -20,6 +20,8 @@ import { DENTAL_DIAGNOSES, OPEN_PROBLEM, type ToothImage, type ToothProcedure } 
 import { setConditionTeeth } from "@/app/actions/dental";
 import { ExamEditor } from "@/components/dental/ExamEditor";
 import { PerioSection } from "@/components/dental/PerioSection";
+import { ExamExtras } from "@/components/dental/ExamExtras";
+import type { PulpTest, Sections } from "@/lib/dental-exam";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import { getClinicalContext } from "@/lib/clinical-context-server";
 import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actions/dental";
@@ -49,6 +51,8 @@ export default async function DentalPage({ params, searchParams }: { params: { p
     supabase.from("procedures").select("id, name, kind, teeth, performed_on, date_precision, operator_name, contributed_by").eq("patient_id", p.id).eq("record_status", "active"),
     supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression").eq("patient_id", p.id).eq("record_status", "active"),
   ]);
+  const { data: pulpRows } = await supabase.from("dental_pulp_tests").select("exam_id, tooth, test, result, value, note").eq("patient_id", p.id).order("tooth");
+  const pulpOf = (examId: string) => ((pulpRows ?? []) as (PulpTest & { exam_id: string })[]).filter((x) => x.exam_id === examId);
   // treatment plans, their treatments and the private costs
   const [{ data: planRows }, { data: itemRows }, { data: costRows }] = await Promise.all([
     supabase.from("treatment_plans").select("*").eq("patient_id", p.id).eq("record_status", "active").order("recorded_at", { ascending: false }),
@@ -125,6 +129,22 @@ export default async function DentalPage({ params, searchParams }: { params: { p
 
 
       {tab === "chart" && (<>
+      {(() => {
+        const baseline = exams.find((e) => (e as ExamRow & { is_baseline?: boolean }).is_baseline);
+        const latestSoft = exams.find((e) => (e as ExamRow & { sections?: Sections | null }).sections?.soft_tissue);
+        const suspicious = (latestSoft as (ExamRow & { sections?: Sections | null }) | undefined)?.sections?.soft_tissue?.cancer_screening === "suspicious";
+        return (<>
+          {suspicious && latestSoft && (
+            <Banner tone="bad" title={t("آفة مشتبهة في الأنسجة الرخوة", "Suspicious soft-tissue lesion")}>
+              {t(`سُجّلت في فحص ${day(latestSoft.exam_date)} وتحتاج متابعة أو تحويلاً لأخصائي.`, `Recorded at the exam of ${day(latestSoft.exam_date)}; it needs follow-up or a specialist.`)}
+              {" "}<a href={`#exam-${latestSoft.id}`}>{t("عرض الفحص", "See the exam")}</a>
+            </Banner>
+          )}
+          <p className="small baseline-line">{baseline
+            ? <>{t("الحالة الابتدائية:", "Baseline:")} <a href={`#exam-${baseline.id}`}>{t(`الفحص الأساسي الشامل في ${day(baseline.exam_date)}`, `the comprehensive baseline exam of ${day(baseline.exam_date)}`)}</a>{baseline.examiner_name ? ` — ${baseline.examiner_name}` : ""}</>
+            : <span className="muted">{t("لا يوجد فحص أساسي شامل بعد: أول فحص كامل للأسنان والفم يُعلَّم «فحص أساسي» ليُقرأ عليه كل ما بعده.", "No comprehensive baseline exam yet: mark the first full exam of the teeth and mouth as the baseline so later exams are read against it.")}</span>}</p>
+        </>);
+      })()}
 
       <Card id="chart" title={asExam ? t(`المخطط كما كان في ${day(asExam.exam_date)}`, `The chart as of ${day(asExam.exam_date)}`) : t("مخطط الأسنان الحالي", "Current tooth chart")}
         actions={exams.length > 0 ? (
@@ -156,7 +176,9 @@ export default async function DentalPage({ params, searchParams }: { params: { p
               <p className="small muted">{t("ما تسجله أنت يظهر «إفادة غير موثقة» حتى يؤكده طبيب. اختر «إفادة المريض» نوعاً للفحص إن لم يكن فحصاً سريرياً.",
                 "What you record shows as “unverified” until a clinician confirms it. Choose “Patient's own account” as the kind if it was not a clinical exam.")}</p>
               <ExamEditor action={saveDentalExam} hidden={{ _pid: p.id }} lang={lang} today={today} defaultDentition={dentition}
-                conditions={diagnoses.map((d) => ({ id: d.id, name: d.name, teeth: d.teeth }))} idPrefix="px" evidenceDefault="patient_reported" />
+                conditions={diagnoses.map((d) => ({ id: d.id, name: d.name, teeth: d.teeth }))} idPrefix="px" evidenceDefault="patient_reported"
+                knownStates={[...deriveChart(exams, findings).values()].filter((v) => v.status).map((v) => ({ tooth: v.tooth, status: v.status! }))}
+                suggestBaseline={!exams.some((e) => (e as ExamRow & { is_baseline?: boolean }).is_baseline)} />
             </div>
           </details>
         </Card>
@@ -181,6 +203,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
                 <article key={e.id} className="rec" id={`exam-${e.id}`}>
                   <div className="row between">
                     <span className="row" style={{ gap: ".4rem" }}><strong>{day(e.exam_date)}</strong> {lbl(EXAM_KIND, e.kind, lang)}
+                      {(e as ExamRow & { is_baseline?: boolean }).is_baseline && <Chip tone="ok">{t("فحص أساسي", "Baseline")}</Chip>}
                       {e.contributed_by ? <Chip tone="info">{t(`أضافه ${contributors[e.contributed_by] ?? "طبيب"} عبر رابط`, `Added by ${contributors[e.contributed_by] ?? "a doctor"} via a link`)}</Chip>
                         : e.verification === "reported" ? <Chip tone="muted">{t("إفادة غير موثقة", "Unverified (reported)")}</Chip> : <Chip tone="ok">{t("موثّق", "Confirmed")}</Chip>}
                       <Chip tone="muted">{lbl(SOURCE, e.source, lang)}</Chip></span>
@@ -190,6 +213,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
                     {" · "}{t(`${e.states.length} سن · ${fs.length} موجود`, `${e.states.length} teeth · ${fs.length} findings`)}</p>
                   {e.chief_complaint && <p className="small">{t("الشكوى", "Complaint")}: {e.chief_complaint}</p>}
                   {fs.length > 0 && <p className="small">{fs.map((f) => `${f.tooth}${f.surfaces.length ? " " + fmtSurfaces(f.surfaces, f.tooth) : ""} ${lbl(FINDING_KIND, f.kind, lang)}`).join(" · ")}</p>}
+                  <ExamExtras sections={(e as ExamRow & { sections?: Sections | null }).sections} pulp={pulpOf(e.id)} lang={lang} />
                   {e.notes && <p className="small">{e.notes}</p>}
                   {access.canWrite && (
                     <details className="fold"><summary>{t("أُدخل خطأً", "Entered in error")}</summary><div className="fold-body">

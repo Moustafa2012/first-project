@@ -131,7 +131,7 @@ export function ContribForm({ token, st, table, formId, fixed = {}, external = [
 }
 
 /** "Add: …" folded inside the section it belongs to; nothing when this clinician may not add it. */
-export function ContribAdd({ token, st, table, dentition = "permanent", uploadError, templates }: { token: string; st: ContribState | null | undefined; table: string; dentition?: Dentition; uploadError?: string; templates?: { id: string; title: string; body: string }[] }) {
+export function ContribAdd({ token, st, table, dentition = "permanent", uploadError, templates, knownStates, noBaseline }: { token: string; st: ContribState | null | undefined; table: string; dentition?: Dentition; uploadError?: string; templates?: { id: string; title: string; body: string }[]; knownStates?: { tooth: number; status: string }[]; noBaseline?: boolean }) {
   const { lang, t } = i18n();
   const tz = getTz();
   if (!st || !canAdd(st, table)) return null;
@@ -141,7 +141,7 @@ export function ContribAdd({ token, st, table, dentition = "permanent", uploadEr
       <summary>{t(`إضافة: ${label}`, `Add: ${label}`)}</summary>
       <div className="fold-body">
         <ExamEditor action={contributeDentalExam} hidden={{ _t: token }} lang={lang} today={localDate(new Date(), tz)} defaultDentition={dentition}
-          conditions={st.conditions ?? []} examiner={st.contributor!.full_name} idPrefix="cx"
+          conditions={st.conditions ?? []} examiner={st.contributor!.full_name} idPrefix="cx" knownStates={knownStates} suggestBaseline={noBaseline}
           encounters={(st.encounters ?? []).map((e) => ({ id: e.id, label: `${fmtDate(e.started_at, lang, tz)} — ${e.reason ?? e.kind}` }))} />
       </div>
     </details>

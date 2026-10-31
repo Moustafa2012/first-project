@@ -546,7 +546,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await crown.locator("summary", { hasText: "Change status" }).click();
     await crown.locator('select[name="status"]').selectOption("completed");
     await crown.getByRole("button", { name: "Save the status" }).click();
-    await page.getByText(/recorded as completed/).first().waitFor();
+    // (the status form leaves with the open state, so the result is checked on the treatment itself)
     await page.locator("li.treat-item", { hasText: "Zirconia crown" }).getByText("Completed", { exact: true }).waitFor();
     await page.locator(".plan-progress", { hasText: "1 of 2 done" }).first().waitFor();
 

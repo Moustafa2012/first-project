@@ -151,12 +151,15 @@ export function ShellSubnav({ nav }: { nav: Nav }) {
 export function ShellCrumbTail({ nav }: { nav: Nav }) {
   const { path, tab, active } = useNav(nav);
   if (!active) return null;
-  const item = active.menu?.groups.filter((g) => groupVisible(g, path)).flatMap((g) => g.items).find((it) => itemActive(it, path, tab));
-  const last = item && item.label !== active.label ? item : null;
+  // the page, and inside a specialty with its own sections also the specialty: Specialty files / Dentistry / Chart & exams
+  const hits = (active.menu?.groups ?? []).filter((g) => groupVisible(g, path)).flatMap((g) => g.items).filter((it) => itemActive(it, path, tab) && it.label !== active.label);
+  const trail = [...hits.filter((it) => it.tab === undefined).slice(0, 1), ...hits.filter((it) => it.tab !== undefined).slice(0, 1)];
   return (
     <>
-      <li>{last ? <Link href={active.href}>{active.label}</Link> : <span aria-current="page">{active.label}</span>}</li>
-      {last && <li><span aria-current="page">{last.label}</span></li>}
+      <li>{trail.length ? <Link href={active.href}>{active.label}</Link> : <span aria-current="page">{active.label}</span>}</li>
+      {trail.map((it, i) => (
+        <li key={it.href}>{i < trail.length - 1 ? <Link href={it.href}>{it.label}</Link> : <span aria-current="page">{it.label}</span>}</li>
+      ))}
     </>
   );
 }

@@ -2,66 +2,95 @@ import Link from "next/link";
 import { TriangleAlert, ShieldCheck, CircleHelp, Printer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
-import { getAccess, getPatient, getSpecialtyUsage } from "@/lib/data";
+import { getAccess, getPatient, getSpecialties, getSpecialtyUsage } from "@/lib/data";
+import { currentProfile, requireUser } from "@/lib/auth";
+import { AppShell, globalNav } from "@/components/shell/AppShell";
+import type { ShellItem, ShellNav } from "@/components/shell/nav";
 import { ageLabel } from "@/lib/format";
 import { ALLERGY_SEVERITY, lbl, SEX } from "@/lib/labels";
-import { SideNav, type NavItem } from "@/components/SideNav";
 import { Chip } from "@/components/ui";
 import { Avatar } from "@/components/Avatar";
 
 export default async function PatientLayout({ children, params }: { children: React.ReactNode; params: { pid: string } }) {
   const { lang, t } = i18n();
   // one wave of round trips instead of three in a row
-  const [p, access, used, { data: allergies }] = await Promise.all([
+  const dentId = (await getSpecialties()).find((x) => x.code === "dentistry")?.id ?? "00000000-0000-0000-0000-000000000000";
+  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }] = await Promise.all([
     getPatient(params.pid),
     getAccess(params.pid),
     getSpecialtyUsage(params.pid),
     createClient().from("allergies").select("substance, severity").eq("patient_id", params.pid).eq("status", "active").eq("record_status", "active").neq("certainty", "refuted").limit(6),
+    requireUser(),
+    currentProfile(),
+    createClient().from("patients").select("id, full_name, full_name_en, mrn").order("full_name").limit(50),
+    // counts shown in the dental sections of the menu
+    createClient().from("conditions").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active")
+      .eq("specialty_id", dentId).is("teeth", null).in("clinical_status", ["active", "recurrence"]).neq("certainty", "refuted"),
+    createClient().from("treatment_plans").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active")
+      .in("status", ["draft", "proposed", "accepted", "in_progress"]),
   ]);
+  const admin = profile?.role === "admin";
   const base = `/patients/${p.id}`;
 
-  // the menu follows the patient's journey: summary and core file, follow-up, the specialties this file uses (with a way
-  // to open another), the general records, then documents and sharing
-  const follow = t("المتابعة", "Follow-up"), specs = t("الأقسام الطبية", "Specialty files"), recs = t("السجلات", "Records"), docs = t("المستندات والمشاركة", "Documents & sharing");
-  const items: NavItem[] = [
-    { href: base, label: t("الملخص", "Summary"), short: t("الملخص", "Summary") },
-    { href: `${base}/profile`, label: t("الملف الأساسي", "Core file"), short: t("الأساسي", "Core") },
-    { href: `${base}/timeline`, label: t("الخط الزمني", "Timeline") },
-    { href: `${base}/vitals`, label: t("القياسات (ضغط، سكر…)", "Vitals (BP, glucose…)"), short: t("القياسات", "Vitals"), group: follow },
-    { href: `${base}/labs`, label: t("التحاليل المخبرية", "Lab results"), short: t("التحاليل", "Labs"), group: follow },
-    { href: `${base}/test-orders`, label: t("الفحوصات المطلوبة", "Requested tests"), group: follow },
-    { href: `${base}/care-plans`, label: t("خطط المتابعة", "Care plans"), group: follow },
-    ...used.map((u): NavItem => ({
-      href: u.code === "dentistry" ? `${base}/dental` : `${base}/specialties/${u.code}`,
-      label: lang === "ar" ? u.name_ar : u.name_en, icon: u.icon, group: specs,
-    })),
-    { href: `${base}/specialties`, label: used.length ? t("فتح قسم آخر", "Open another specialty") : t("الأقسام الطبية", "Specialty files"), group: specs, exact: true },
-    { href: `${base}/conditions`, label: t("الأمراض والتشخيصات", "Conditions"), group: recs },
-    { href: `${base}/allergies`, label: t("الحساسية", "Allergies"), group: recs },
-    { href: `${base}/medications`, label: t("الأدوية", "Medications"), group: recs },
-    { href: `${base}/visits`, label: t("الزيارات", "Visits"), group: recs },
-    { href: `${base}/procedures`, label: t("العمليات والإجراءات", "Procedures"), group: recs },
-    { href: `${base}/imaging`, label: t("الأشعة والتصوير", "Imaging"), group: recs },
-    { href: `${base}/appointments`, label: t("المواعيد", "Appointments"), group: recs },
-    { href: `${base}/notes`, label: t("الملاحظات", "Notes"), group: recs },
-    { href: `${base}/immunizations`, label: t("التطعيمات", "Immunizations"), group: recs },
-    { href: `${base}/family-history`, label: t("التاريخ العائلي", "Family history"), group: recs },
-    { href: `${base}/documents`, label: t("المستندات والتقارير", "Documents"), short: t("المستندات", "Files"), group: docs },
-    ...(access.canShare ? [
-      { href: `${base}/sharing`, label: t("المشاركة مع طبيب", "Share with a doctor"), group: docs },
-      ...(access.canManage ? [{ href: `${base}/audit`, label: t("سجل التغييرات", "Change history"), group: docs }] : []),
-    ] : []),
-  ];
+  // the shell (Supabase-style): products on the rail, and the active product's pages in the menu next to it
+  const P = (slug: string) => `${base}/${slug}`;
+  const item = (slug: string, label: string, extra: Partial<ShellItem> = {}): ShellItem => ({ href: P(slug), label, icon: slug, ...extra });
+  const usedItems: ShellItem[] = used.map((u) => ({
+    href: u.code === "dentistry" ? P("dental") : P(`specialties/${u.code}`), label: lang === "ar" ? u.name_ar : u.name_en, specialtyIcon: u.icon,
+  }));
+  const follow = [item("vitals", t("القياسات (ضغط، سكر…)", "Vitals (BP, glucose…)")), item("labs", t("التحاليل المخبرية", "Lab results")),
+    item("test-orders", t("الفحوصات المطلوبة", "Requested tests")), item("care-plans", t("خطط المتابعة", "Care plans"))];
+  const records = [item("conditions", t("الأمراض والتشخيصات", "Conditions")), item("allergies", t("الحساسية", "Allergies")), item("medications", t("الأدوية", "Medications")),
+    item("visits", t("الزيارات", "Visits")), item("procedures", t("العمليات والإجراءات", "Procedures")), item("imaging", t("الأشعة والتصوير", "Imaging")),
+    item("appointments", t("المواعيد", "Appointments")), item("notes", t("الملاحظات", "Notes")), item("immunizations", t("التطعيمات", "Immunizations")),
+    item("family-history", t("التاريخ العائلي", "Family history"))];
+  const docs = [item("documents", t("المستندات والتقارير", "Documents")),
+    ...(access.canShare ? [item("sharing", t("المشاركة مع طبيب", "Share with a doctor"))] : []),
+    ...(access.canManage ? [item("audit", t("سجل التغييرات", "Change history"))] : [])];
+  const nav: ShellNav = {
+    home: { href: "/patients", label: t("كل المرضى", "All patients") },
+    products: [
+      { key: "summary", label: t("الملخص", "Summary"), icon: "home", href: base, match: [`=${base}`] },
+      { key: "core", label: t("الملف الأساسي", "Core file"), icon: "core", href: P("profile"), match: [P("profile")] },
+      { key: "timeline", label: t("الخط الزمني", "Timeline"), icon: "timeline", href: P("timeline"), match: [P("timeline")] },
+      { key: "follow", label: t("المتابعة", "Follow-up"), icon: "follow", href: P("vitals"), match: follow.map((x) => x.href),
+        menu: { title: t("المتابعة", "Follow-up"), groups: [{ items: follow }] } },
+      { key: "specialties", label: t("الأقسام الطبية", "Specialty files"), icon: "specialties", href: usedItems[0]?.href ?? P("specialties"),
+        match: [P("specialties"), P("dental")],
+        menu: { title: t("الأقسام الطبية", "Specialty files"), groups: [
+          ...(usedItems.length ? [{ label: t("المستخدمة في هذا الملف", "Used in this file"), items: usedItems }] : []),
+          { items: [{ href: P("specialties"), label: usedItems.length ? t("فتح قسم آخر", "Open another specialty") : t("كل الأقسام", "All specialties"), icon: "other", exact: true }] },
+          // inside the dental file, its own sections
+          { label: t("ملف الأسنان", "Dental file"), onlyOn: P("dental"), items: [
+            { href: `${P("dental")}?tab=chart`, tab: "chart", defaultTab: true, label: t("المخطط والفحوص", "Chart & exams"), icon: "chart" },
+            { href: `${P("dental")}?tab=problems`, tab: "problems", icon: "problems",
+              label: unassigned ? t(`المشكلات والتشخيصات (${unassigned} بلا سن)`, `Problems & diagnoses (${unassigned} without a tooth)`) : t("المشكلات والتشخيصات", "Problems & diagnoses") },
+            { href: `${P("dental")}?tab=treatment`, tab: "treatment", icon: "treatment", label: t("العلاج", "Treatment"), badge: openPlans ? String(openPlans) : undefined },
+            { href: `${P("dental")}?tab=care`, tab: "care", icon: "care", label: t("الزيارات والإجراءات", "Visits & procedures") },
+            { href: `${P("dental")}?tab=imaging`, tab: "imaging", icon: "images", label: t("الصور والأشعة", "Images & X-rays") },
+            { href: `${P("dental")}?tab=profile`, tab: "profile", icon: "profile", label: t("الملف السني", "Dental profile") },
+          ] },
+        ] } },
+      { key: "records", label: t("السجلات", "Records"), icon: "records", href: P("conditions"), match: records.map((x) => x.href),
+        menu: { title: t("السجلات", "Records"), groups: [{ items: records }] } },
+      { key: "docs", label: t("المستندات والمشاركة", "Documents & sharing"), icon: "docs", href: P("documents"), match: [...docs.map((x) => x.href), P("delete")],
+        menu: { title: t("المستندات والمشاركة", "Documents & sharing"), groups: [{ items: docs }] } },
+    ],
+    footer: globalNav(admin, t).footer,
+  };
+  const name = lang === "en" && p.full_name_en ? p.full_name_en : p.full_name;
 
   const list = allergies ?? [];
   return (
-    <>
+    <AppShell nav={nav} crumbs={[{ href: "/patients", label: t("المرضى", "Patients") }]}
+      switcher={{ current: name, addHref: "/patients/new", items: (mine ?? []).map((x) => ({ href: `/patients/${x.id}`, label: lang === "en" && x.full_name_en ? x.full_name_en : x.full_name, sub: x.mrn })) }}
+      user={{ name: profile?.full_name ?? "", email: authed.email ?? "", admin, avatar: profile?.avatar_path ? `/api/avatar?v=${encodeURIComponent(profile.updated_at)}` : null }}>
       <header className="card patient-head" style={{ marginBlockEnd: "1.25rem" }}>
         <div className="row between">
           <div className="row" style={{ flexWrap: "nowrap", gap: ".9rem" }}>
-            <Avatar name={lang === "en" && p.full_name_en ? p.full_name_en : p.full_name} src={p.photo_path ? `/api/avatar?p=${p.id}&v=${encodeURIComponent(p.updated_at)}` : null} />
+            <Avatar name={name} src={p.photo_path ? `/api/avatar?p=${p.id}&v=${encodeURIComponent(p.updated_at)}` : null} />
           <div>
-            <h1 style={{ marginBottom: ".1rem" }}>{lang === "en" && p.full_name_en ? p.full_name_en : p.full_name}</h1>
+            <h1 style={{ marginBottom: ".1rem" }}>{name}</h1>
             <p className="muted" style={{ margin: 0 }}>
               <span className="ltr">{p.mrn}</span> · {ageLabel(p.date_of_birth, lang)} · {lbl(SEX, p.sex, lang)}
               {p.nationality ? ` · ${p.nationality}` : ""}
@@ -96,10 +125,7 @@ export default async function PatientLayout({ children, params }: { children: Re
           </div>
         </div>
       )}
-      <div className="layout">
-        <SideNav items={items} label={t("أقسام الملف", "File sections")} moreLabel={t("المزيد", "More")} closeLabel={t("إغلاق", "Close")} />
-        <div className="stack" style={{ minWidth: 0 }}>{children}</div>
-      </div>
-    </>
+      <div className="stack" style={{ minWidth: 0 }}>{children}</div>
+    </AppShell>
   );
 }

@@ -1,15 +1,7 @@
-import { currentProfile, requireUser } from "@/lib/auth";
-import { Topbar } from "@/components/Topbar";
-import { Footer } from "@/components/Footer";
+import { requireUser } from "@/lib/auth";
 
+/** Every page below needs a signed-in user; each part draws its own shell (general pages, or a patient's file). */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const authed = await requireUser();
-  const profile = await currentProfile();
-  return (
-    <>
-      <Topbar signedIn admin={profile?.role === "admin"} user={{ name: profile?.full_name ?? "", email: authed.email ?? "", avatar: profile?.avatar_path ? `/api/avatar?v=${encodeURIComponent(profile.updated_at)}` : null }} />
-      <main id="main" className="container">{children}</main>
-      <Footer />
-    </>
-  );
+  await requireUser();
+  return <>{children}</>;
 }

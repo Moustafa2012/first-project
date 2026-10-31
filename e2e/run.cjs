@@ -494,10 +494,13 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.reload();
     const label = await page.locator("#chart-46").getAttribute("aria-label");
     assert(/problem: Cracked tooth/.test(label) && /procedures: 1/.test(label), "both are on tooth 46: " + label);
-    // the menu: the specialties this file uses, then "open another"
-    const nav = page.locator("nav.sidenav");
-    await nav.getByText("Specialty files", { exact: true }).waitFor();
+    // the shell: the rail marks "Specialty files"; its menu lists the specialties this file uses, the dental file's own sections, then "open another"
+    assert((await page.locator('nav.rail a[data-product="specialties"]').getAttribute("aria-current")) === "page", "the rail marks the specialties product");
+    const nav = page.locator("nav.product-menu");
+    await nav.locator(".pm-title", { hasText: "Specialty files" }).waitFor();
     await nav.getByRole("link", { name: "Dentistry" }).waitFor();
+    assert((await nav.getByRole("link", { name: "Chart & exams" }).getAttribute("aria-current")) === "page", "the dental file's sections are in the menu");
+    await page.locator("ol.crumbs").getByText("Chart & exams").waitFor();
     assert(/\/dental$/.test(await nav.getByRole("link", { name: "Dentistry" }).getAttribute("href")), "dentistry opens the dental file");
     await nav.getByRole("link", { name: "Open another specialty" }).click();
     await page.locator("#used").getByText("Dentistry").waitFor();
@@ -1211,6 +1214,12 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
       if (p === "/vitals") await mp.screenshot({ path: path.join(OUT, "mobile-vitals-ar.png"), fullPage: true });
       if (p === "/dental") await mp.screenshot({ path: path.join(OUT, "mobile-dental-ar.png"), fullPage: true });
     }
+    // small screens: the products open from the menu button; the active product's pages are a strip under the top bar
+    await mp.goto(`${BASE}/patients/${pid}/vitals`);
+    await mp.locator(".shell-subnav").getByRole("link", { name: "التحاليل المخبرية" }).waitFor();
+    await mp.locator(".shell-burger").click();
+    await mp.locator(".drawer").getByRole("link", { name: "الملف الأساسي" }).click();
+    await mp.waitForURL(/\/profile$/);
     await m.close();
   });
 

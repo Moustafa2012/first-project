@@ -630,7 +630,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await doc.getByText("Health context & safety information").waitFor();
     await doc.getByText(/Prosthetic heart valve: endocarditis prophylaxis/).waitFor();       // the dentistry reminder, from the core file
     assert(html.includes("Penicillin") && html.includes("Hypertension") && html.includes("Metformin"), "safety core present");
-    assert(html.includes("Mechanical aortic valve") && html.includes("165 cm"), "devices and body measurements reach the doctor");
+    assert(html.includes("Mechanical aortic valve"), "devices reach the doctor");
+    await doc.locator("section.ctx").getByText("165 cm").waitFor();                            // and the body measurements
     assert(html.includes("Dental check") && html.includes("Dental caries"), "dentistry data present");
     assert(!html.includes("Cardio follow-up") && !html.includes("Cardio report"), "cardiology data absent");
     assert(!html.includes("1098765432"), "national id never shared");

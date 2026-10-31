@@ -3,6 +3,7 @@ import { DATE_PRECISION, SOURCE } from "@/lib/labels";
 import type { EntityDef, FieldDef, FormContext } from "@/lib/entities";
 import type { Row, Specialty } from "@/lib/types";
 import { ActionForm, DateTimeField, SubmitButton } from "@/components/ui/client";
+import { TemplatePicker } from "@/components/TemplatePicker";
 import { saveEntity } from "@/app/actions/entities";
 
 export function FieldInput({ def, value, lang, specialties, prefix, precision, suggest }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string; precision?: unknown; suggest?: string[] }) {
@@ -91,6 +92,11 @@ export function EntityForm({
       {Object.entries(links).map(([k, v]) => <input key={k} type="hidden" name={`_link_${k}`} value={v} />)}
       <input type="hidden" name="_fields" value={[...fields.map((f) => f.name), ...Object.keys(fixed), ...external].join(",")} />
       {Object.entries(fixed).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+      {context?.templates && entity.bodyField && fields.some((f) => f.name === entity.bodyField) && (
+        <>
+          <TemplatePicker target={`${prefix}_${entity.bodyField}`} templates={context.templates} lang={lang} manageHref="/account#templates" />
+        </>
+      )}
       <div className="form-grid">
         {fields.map((fd) => (
           <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix} suggest={context?.suggest?.[fd.name]}

@@ -584,6 +584,55 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.screenshot({ path: path.join(OUT, "treatment.png"), fullPage: true });
   });
 
+  await step("visits and notes: a dental visit with its anaesthesia, a note from a template signed then amended, a recall that moves forward, pending follow-ups", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=care`);
+    await openSummary(page, "Add a dental visit");
+    await page.fill("#visits_new_reason", "Filling 36 (phase C)");
+    await page.fill("#visits_new_teeth", "36");
+    await page.selectOption("#visits_new_anesthesia_kind", "local_infiltration");
+    await page.fill("#visits_new_anesthetic", "Articaine 4% 1.8 ml");
+    await page.fill("#visits_new_instructions", "No eating for two hours");
+    await page.fill("#visits_new_follow_up_date", new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10));
+    await page.locator("form", { has: page.locator("#visits_new_reason") }).getByRole("button", { name: "Save", exact: true }).click();
+    const visit = page.locator("article.rec", { hasText: "Filling 36 (phase C)" }).first();
+    await visit.getByText("Local infiltration").waitFor();
+
+    // a note from a template: a draft, then signed (fixed), then amended (the original kept)
+    await openSummary(page, "Add note");
+    await page.selectOption("#notes_new_body-tpl", { label: "Filling visit" });
+    assert(/Tooth and surfaces:/.test(await page.locator("#notes_new_body").inputValue()), "the template fills the note");
+    await page.fill("#notes_new_title", "Filling 36 note");
+    await page.locator("form", { has: page.locator("#notes_new_body") }).getByRole("button", { name: "Save", exact: true }).click();
+    const note = page.locator("article.rec", { hasText: "Filling 36 note" }).first();
+    await note.getByText("Draft", { exact: true }).waitFor();
+    page.once("dialog", (dl) => dl.accept());
+    await note.getByRole("button", { name: "Sign the note" }).click();
+    await page.locator("article.rec", { hasText: "Filling 36 note" }).first().getByText("Signed", { exact: true }).waitFor();
+    const signed = page.locator("article.rec", { hasText: "Filling 36 note" }).first();
+    assert((await signed.locator("summary", { hasText: "Edit" }).count()) === 0, "a signed note has no Edit");
+    await signed.locator("summary", { hasText: "Add an amendment" }).click();
+    await signed.locator('textarea[name="body"]').fill("Tooth and surfaces: 36 MO");
+    await signed.locator('input[name="reason"]').fill("surfaces were missing");
+    await signed.getByRole("button", { name: "Add the amendment" }).click();
+    await page.locator("article.rec", { hasText: "Filling 36 note" }).first().getByText("Amendment 1").waitFor();
+
+    // a recall overdue since January: it shows as pending, then moves six months on when done
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=followup`);
+    await page.locator("#rc-due").fill("2026-01-15");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    const rc = page.locator('li.recall[data-recall="dental_checkup"]');
+    await rc.getByText("Overdue").waitFor();
+    await page.locator("#pending").getByText("Dental check-up").waitFor();
+    await page.locator("nav.product-menu .pm-badge").first().waitFor();
+    await rc.locator("summary", { hasText: "Done" }).click();
+    await rc.getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator('li.recall[data-recall="dental_checkup"]').getByText("On track").waitFor();
+    // the summary lists what is still waiting (the follow-up the visit asked for)
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.locator("#pending").getByText("Filling 36 (phase C)").first().waitFor();
+    await page.screenshot({ path: path.join(OUT, "pending.png"), fullPage: true });
+  });
+
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
     await page.goto(`${BASE}/patients/${pid}/documents`);
     const up = async (name, buf, mime, title, spec) => {
@@ -966,11 +1015,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await open("Visit (reason, exam, assessment, plan)");
     await d3.fill("#c_encounters_reason", "Dental pain review");
     await d3.selectOption("#c_encounters_kind", "dental");
+    await d3.selectOption("#c_encounters_anesthesia_kind", "nerve_block");               // the dental visit's details
+    await d3.fill("#c_encounters_materials", "Glass ionomer");
     await d3.locator("form", { has: d3.locator("#c_encounters_reason") }).getByRole("button", { name: "Add to the file" }).click();
     await d3.getByText("Added to the patient's file under your name.").first().waitFor();
     await d3.reload();
     await open("Clinical note");
     await d3.selectOption("#clinical_notes_enc", { index: 1 });                        // linked to the visit just added
+    assert((await d3.locator("#c_clinical_notes_body-tpl option").count()) > 3, "the doctor's note form offers templates");
     await d3.fill("#c_clinical_notes_body", "Note typed in the wrong file by mistake");
     await d3.locator("form", { has: d3.locator("#c_clinical_notes_body") }).getByRole("button", { name: "Add to the file" }).click();
     await d3.getByText("Added to the patient's file under your name.").first().waitFor();
@@ -992,14 +1044,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.getByRole("button", { name: "Save the exam" }).click();
     await d3.getByText("The exam was saved to the patient's file under your name.").waitFor();
     await d3.reload();
-    await d3.locator("#contribute article.rec", { hasText: "Dental exam on the chart" }).first().waitFor();
+    await d3.locator("#contribute article.rec:not(.my-note)", { hasText: "Dental exam on the chart" }).first().waitFor();
     // in place: the dentist chooses a tooth and adds a diagnosis to it, without a separate form list
     await d3.locator("#chart-47").click();
     await d3.locator(".tooth-panel summary", { hasText: "A diagnosis for this tooth" }).click();
     await d3.locator("#ctooth-dx_conditions_name").fill("Fractured cusp 47 (dentist)");
     await d3.locator("form#ctooth-dx").getByRole("button", { name: "Add the diagnosis" }).click();
     await d3.locator(".tooth-panel li", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
-    await d3.locator("#contribute article.rec", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
+    await d3.locator("#contribute article.rec:not(.my-note)", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
     // treatment: the dentist proposes a root canal for 47 from its panel and notes their cost; accepting is not theirs
     if (!(await d3.locator(".tooth-panel").isVisible())) await d3.locator("#chart-47").click();
     await d3.locator(".tooth-panel summary", { hasText: "A treatment for this tooth" }).click();
@@ -1021,13 +1073,21 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert(order[0] < order[1] && order[1] < order[2], "identity, then the dental workspace, then the summary: " + order);
     await d3.screenshot({ path: path.join(OUT, "dentist-contribute.png"), fullPage: true });
     // the dentist withdraws the misplaced note
-    const noteRec = d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).first();
+    // the dentist's note is signed with their name; they amend it (the original stays) before withdrawing it
+    const mine = d3.locator("#contribute article.my-note", { hasText: "Note typed in the wrong file" });
+    await mine.getByText(/Signed — Dr Sara Molar/).waitFor();
+    await mine.locator("summary", { hasText: "Add an amendment" }).click();
+    await mine.locator('textarea[name="body"]').fill("Note typed in the wrong file by mistake (wrong patient)");
+    await mine.locator('input[name="reason"]').fill("clarify");
+    await mine.getByRole("button", { name: "Add the amendment" }).click();
+    await d3.locator("#contribute article.my-note", { hasText: "Note typed in the wrong file" }).getByText("Amendment 1").waitFor();
+    const noteRec = d3.locator("#contribute article.rec:not(.my-note)", { hasText: "Note typed in the wrong file" }).first();
     await noteRec.locator("summary", { hasText: "Withdraw this addition" }).click();
     d3.once("dialog", (dl) => dl.accept());
     await noteRec.locator('input[name="reason"]').fill("wrong patient");
     await noteRec.getByRole("button", { name: "Withdraw" }).click();
     // the form disappears with the active state; the addition now shows as withdrawn
-    await d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).getByText("Withdrawn / invalidated").waitFor();
+    await d3.locator("#contribute article.rec:not(.my-note)", { hasText: "Note typed in the wrong file" }).getByText("Withdrawn / invalidated").waitFor();
     await c3.close();
 
     // the patient's side: alert, provenance, no editing, signature, review, invalidate all

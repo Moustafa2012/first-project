@@ -25,6 +25,9 @@ import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actio
 import { TreatmentItemForm, TreatmentPlans, type TreatmentActions } from "@/components/dental/TreatmentPlans";
 import { addTreatmentCost, addTreatmentItem, createTreatmentPlan, invalidateTreatment, newPlanVersion, setPlanStatus, setTreatmentStatus } from "@/app/actions/treatment";
 import { OPEN_ITEM, OPEN_PLAN, type TreatmentCost, type TreatmentItem, type TreatmentPlan } from "@/lib/treatment";
+import { pendingFollowUps, type Recall } from "@/lib/followups";
+import { PendingList, RecallList } from "@/components/dental/FollowUps";
+import { RECALL_KIND } from "@/lib/labels";
 
 type Profile = Record<string, string | boolean | null>;
 
@@ -69,7 +72,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const diagnoses = allConds.filter((c) => Array.isArray(c.teeth) && c.teeth.length > 0);
   // dental problems that do not name a tooth yet (they cannot be drawn until they do)
   const unassigned = allConds.filter((c) => c.specialty_id === dent?.id && !(c.teeth?.length) && OPEN_PROBLEM.has(c.clinical_status ?? "active") && c.certainty !== "refuted");
-  const tab = ["chart", "problems", "treatment", "care", "imaging", "profile"].includes(searchParams.tab ?? "") ? searchParams.tab! : "chart";
+  const tab = ["chart", "problems", "treatment", "followup", "care", "imaging", "profile"].includes(searchParams.tab ?? "") ? searchParams.tab! : "chart";
   const contributors = Object.fromEntries((ctrRows ?? []).map((c) => [c.id as string, c.full_name as string]));
   const pr = (profile ?? null) as Profile | null;
   const dentition = chartDentition(pr as { dentition?: string } | null, exams);
@@ -255,6 +258,35 @@ export default async function DentalPage({ params, searchParams }: { params: { p
           <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors} />
         </Card>
       )}
+
+      {tab === "followup" && (await (async () => {
+        // recalls, and what is waiting in the dental file (open treatments, follow-ups asked at a visit, appointments)
+        const [{ data: rc }, { data: dv }, { data: ap }] = await Promise.all([
+          supabase.from("recalls").select("id, kind, label, interval_months, due_on, last_done_on, status, notes").eq("patient_id", p.id).eq("record_status", "active").order("due_on"),
+          supabase.from("encounters").select("id, started_at, follow_up_date, reason, specialty_id").eq("patient_id", p.id).eq("record_status", "active")
+            .eq("specialty_id", dent?.id ?? "").order("started_at", { ascending: false }).limit(100),
+          supabase.from("appointments").select("id, scheduled_at, status, reason").eq("patient_id", p.id).eq("record_status", "active").eq("specialty_id", dent?.id ?? "")
+            .eq("status", "scheduled").order("scheduled_at").limit(50),
+        ]);
+        const recalls = (rc ?? []) as Recall[];
+        const pending = pendingFollowUps({
+          today, recalls, base: `/patients/${p.id}`,
+          items: openPlans.flatMap((pl) => pl.items.map((i) => ({ id: i.id, name: i.name, status: i.status, scheduled_for: i.scheduled_for, teeth: i.teeth, plan: pl.title }))),
+          visits: (dv ?? []) as { id: string; started_at: string; follow_up_date: string | null; reason: string | null; specialty_id: string | null }[],
+          appointments: (ap ?? []) as { id: string; scheduled_at: string; status: string; reason: string | null }[],
+          label: { recall: (r) => (r.kind === "other" ? r.label ?? "" : lbl(RECALL_KIND, r.kind, lang)), acceptedNotScheduled: t("موافَق عليه ولم يُجدول", "Accepted, not scheduled"),
+            inProgress: t("قيد التنفيذ", "In progress"), visitFollowUp: t("متابعة طلبتها زيارة", "Follow-up asked at a visit"), appointment: t("موعد", "Appointment"),
+            appointmentPast: t("موعد مضى ولم تُحدَّث حالته", "Past appointment, status not updated") },
+        });
+        return (<>
+          <Card id="pending" title={t("المتابعات المعلّقة", "Pending follow-ups")}>
+            <PendingList items={pending} lang={lang} empty={t("لا شيء معلّق في ملف الأسنان.", "Nothing pending in the dental file.")} />
+          </Card>
+          <Card id="recalls" title={t("الفحص الدوري", "Recalls")}>
+            <RecallList recalls={recalls} pid={p.id} specialtyId={dent?.id ?? null} canWrite={access.canWrite} lang={lang} today={today} />
+          </Card>
+        </>);
+      })())}
 
       {tab === "care" && (<>
         <EntitySection entity={ENTITIES.visits} pid={p.id} returnPath={base} title={t("زيارات الأسنان", "Dental visits")} compact

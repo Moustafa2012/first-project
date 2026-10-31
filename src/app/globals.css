@@ -716,3 +716,13 @@ body.no-print-share .print-only { display: block; }
   .shell-page { padding: 1rem .75rem 2.5rem; }
 }
 @media print { .rail, .product-menu, .shell-top, .shell-subnav, .drawer-wrap { display: none !important; } .shell { display: block; } .shell-page { padding: 0; max-width: none; } }
+
+/* signed notes, amendments, follow-ups */
+.note-sign { display: flex; align-items: center; gap: .3rem; color: var(--ok); margin: .3rem 0 0; }
+.amendment { border-inline-start: 3px solid var(--info); background: var(--info-bg); padding: .4rem .65rem; border-radius: var(--radius-sm); margin-block-start: .45rem; }
+.amendment .rec-body { margin: .25rem 0 0; }
+.template-pick label { display: inline-flex; align-items: center; gap: .3rem; }
+.tooth-list li.fu-overdue { border-inline-start-color: var(--bad); }
+.tooth-list li.fu-due_soon { border-inline-start-color: var(--warn); }
+.tooth-list li.fu-undated { border-inline-start-color: var(--info); }
+.tooth-list li.recall .row { flex-wrap: wrap; }

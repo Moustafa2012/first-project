@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPatient, getSpecialties, specialtyName, UUID_RE } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
-import { ENCOUNTER_KIND, lbl } from "@/lib/labels";
+import { ENCOUNTER_KIND, lbl, ANESTHESIA_KIND } from "@/lib/labels";
 import { ENTITIES } from "@/lib/entities";
 import { EntitySection } from "@/components/EntitySection";
 import { EntityForm } from "@/components/EntityForm";
@@ -43,11 +43,14 @@ export default async function VisitPage({ params }: { params: { pid: string; eid
         <KV items={[
           [t("الأعراض", "Symptoms"), e.symptoms], [t("التاريخ المرضي", "History"), e.history_of_present_illness], [t("الفحص السريري", "Examination"), e.examination],
           [t("التقييم", "Assessment"), e.assessment], [t("الخطة", "Plan"), e.plan], [t("ملخص الزيارة", "Summary"), e.summary], [t("ملخص الخروج", "Discharge summary"), e.discharge_summary],
+          [t("الأسنان", "Teeth"), Array.isArray(e.teeth) && e.teeth.length ? (e.teeth as number[]).join("، ") : null],
+          [t("التخدير", "Anaesthesia"), e.anesthesia_kind ? lbl(ANESTHESIA_KIND, e.anesthesia_kind as string, lang) : null], [t("المادة المخدرة والكمية", "Anaesthetic"), e.anesthetic],
+          [t("المواد المستخدمة", "Materials"), e.materials], [t("المضاعفات", "Complications"), e.complications], [t("التعليمات المعطاة", "Instructions given"), e.instructions],
           [t("موعد المتابعة", "Follow-up"), e.follow_up_date],
         ]} />
         <details className="fold" style={{ marginBlockStart: ".8rem" }}>
           <summary>{t("تعديل الزيارة", "Edit visit")}</summary>
-          <div className="fold-body"><EntityForm entity={ENTITIES.visits} pid={p.id} row={row} specialties={forSex(specs, p.sex)} returnPath={path} /></div>
+          <div className="fold-body"><EntityForm entity={ENTITIES.visits} pid={p.id} row={row} specialties={forSex(specs, p.sex)} returnPath={path} context={{ dental: e.kind === "dental" }} /></div>
         </details>
       </Card>
       <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={path} filter={link} links={link} defaults={inherit} title={t("التشخيصات في هذه الزيارة", "Diagnoses made at this visit")} compact

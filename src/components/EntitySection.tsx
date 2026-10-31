@@ -14,6 +14,8 @@ import { Chip, Empty, KV } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { EntityForm } from "@/components/EntityForm";
 import { invalidateEntity, setRecordStatus } from "@/app/actions/entities";
+import { amendNote, signNote } from "@/app/actions/notes";
+import { PenLine } from "lucide-react";
 
 interface Props {
   entity: EntityDef;
@@ -54,6 +56,22 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
     const { data: hs } = await createClient().from("status_history").select("record_id, field, from_value, to_value, effective_date, reason, changed_at")
       .eq("patient_id", pid).eq("table_name", entity.table).in("record_id", rows.map((r) => r.id)).order("changed_at");
     for (const h of (hs ?? []) as Hist[]) history.set(h.record_id, [...(history.get(h.record_id) ?? []), h]);
+  }
+  // notes: their amendments, and the templates offered in the form
+  const isNotes = entity.table === "clinical_notes";
+  type Amend = { note_id: string; body: string; reason: string; amended_at: string; amended_name: string | null; contributed_by: string | null };
+  const amendments = new Map<string, Amend[]>();
+  let ctx = context;
+  if (isNotes) {
+    const [{ data: am }, { data: tpls }] = await Promise.all([
+      rows.length ? createClient().from("note_amendments").select("note_id, body, reason, amended_at, amended_name, contributed_by").eq("patient_id", pid)
+        .in("note_id", rows.map((r) => r.id)).order("amended_at") : Promise.resolve({ data: [] as Amend[] }),
+      createClient().from("note_templates").select("id, title, body, owner_id, lang, specialty_code").eq("is_active", true).order("sort").order("title"),
+    ]);
+    for (const a of (am ?? []) as Amend[]) amendments.set(a.note_id, [...(amendments.get(a.note_id) ?? []), a]);
+    const list = ((tpls ?? []) as { id: string; title: string; body: string; owner_id: string | null; lang: string }[])
+      .filter((x) => x.owner_id || x.lang === lang).map((x) => ({ id: x.id, title: x.title, body: x.body, mine: Boolean(x.owner_id) }));
+    ctx = { ...(context ?? {}), templates: list };
   }
   const today = localDate(new Date(), tz);
   const live = rows.filter((r) => r.record_status !== "entered_in_error");
@@ -100,6 +118,16 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
           <span className="muted small nowrap">{fmt(r)}</span>
         </div>
         {body && <p className="rec-body">{body}</p>}
+        {isNotes && r.status === "signed" && (
+          <p className="small note-sign"><PenLine size={13} aria-hidden="true" /> {t("وُقّعت", "Signed")}{r.signed_name ? ` — ${String(r.signed_name)}` : ""} · {fmtDateTime(String(r.signed_at), lang, tz)}</p>
+        )}
+        {isNotes && (amendments.get(r.id) ?? []).map((a, i) => (
+          <div key={i} className="amendment">
+            <div className="small"><strong>{t(`تعديل موثّق ${i + 1}`, `Amendment ${i + 1}`)}</strong> · {fmtDateTime(a.amended_at, lang, tz)}{a.amended_name ? ` · ${a.amended_name}` : ""}
+              {" — "}{t("السبب", "Reason")}: {a.reason}</div>
+            <p className="rec-body">{a.body}</p>
+          </div>
+        ))}
         {!compact && <KV items={kv} />}
         <div className="rec-meta">
           <span>{t("سُجّل في", "Entered")} {fmtDate(String(r.recorded_at), lang, tz)} · {r.contributed_by ? t("بواسطة طبيب عبر رابط مشاركة", "by a doctor through a share link") : r.recorded_by === access.userId ? t("بواسطتك", "by you") : r.recorded_by ? t("بواسطة مستخدم آخر", "by another user") : t("استيراد / النظام", "import / system")}</span>
@@ -150,11 +178,31 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
           <div className="row no-print" style={{ marginBlockStart: ".5rem" }}>
             {r.contributed_by ? (
               <p className="small muted" style={{ flex: "1 1 100%", margin: 0 }}>{t("أضافه طبيب عبر رابط مشاركة: لا يُعدَّل محتواه، ويمكن إبطاله.", "Added by a doctor through a share link: its content is not edited, but it can be invalidated.")}</p>
+            ) : isNotes && r.status === "signed" ? (
+              <details className="fold" style={{ flex: "1 1 100%" }}>
+                <summary><PenLine size={14} aria-hidden="true" />{t("تعديل موثّق", "Add an amendment")}</summary>
+                <div className="fold-body">
+                  <p className="small muted">{t("الملاحظة موقّعة فلا يُغيَّر نصها؛ يُضاف التعديل بجانبها مع سببه ووقته، ويبقى الأصل كما هو.", "The note is signed, so its text is not changed; the amendment is added next to it with its reason and time, and the original stays as it is.")}</p>
+                  <ActionForm action={amendNote} className="stack">
+                    <input type="hidden" name="_pid" value={pid} /><input type="hidden" name="_id" value={r.id} /><input type="hidden" name="_path" value={returnPath} />
+                    <div className="field"><label htmlFor={`am-${r.id}`}>{t("نص التعديل", "Amendment")}</label><textarea id={`am-${r.id}`} name="body" rows={3} required maxLength={20000} defaultValue={body ?? ""} /></div>
+                    <div className="field"><label htmlFor={`amr-${r.id}`}>{t("السبب", "Reason")}</label><input id={`amr-${r.id}`} name="reason" required minLength={3} maxLength={500} /></div>
+                    <div><SubmitButton className="btn sm primary">{t("إضافة التعديل", "Add the amendment")}</SubmitButton></div>
+                  </ActionForm>
+                </div>
+              </details>
             ) : (
               <details className="fold" style={{ flex: "1 1 100%" }}>
                 <summary><Pencil size={14} aria-hidden="true" />{t("تعديل", "Edit")}</summary>
-                <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} context={context} /></div>
+                <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} context={ctx} /></div>
               </details>
+            )}
+            {isNotes && !r.contributed_by && r.status !== "signed" && (
+              <ActionForm action={signNote} className="row" resetOnSuccess={false}>
+                <input type="hidden" name="_pid" value={pid} /><input type="hidden" name="_id" value={r.id} /><input type="hidden" name="_path" value={returnPath} />
+                <ConfirmButton message={t("توقيع الملاحظة؟ بعد التوقيع لا يُعدَّل نصها، وأي تغيير لاحق يُسجَّل تعديلاً موثّقاً مع سببه.", "Sign the note? After signing its text is not edited; any later change is recorded as an amendment with its reason.")}>
+                  <PenLine size={14} aria-hidden="true" /> {t("توقيع الملاحظة", "Sign the note")}</ConfirmButton>
+              </ActionForm>
             )}
             <details className="fold" style={{ flex: "1 1 100%" }}>
               <summary><Eraser size={14} aria-hidden="true" />{t("أُدخل بالخطأ", "Entered in error")}</summary>
@@ -183,7 +231,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
       {access.canWrite && (
         <details className="fold no-print" open={openForm} style={{ marginBlockEnd: ".9rem" }}>
           <summary><Plus size={16} aria-hidden="true" />{addLabel ?? t(`إضافة ${singular}`, `Add ${singular}`)}</summary>
-          <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={formSpecialties} returnPath={returnPath} links={links} defaults={defaults} context={context} /></div>
+          <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={formSpecialties} returnPath={returnPath} links={links} defaults={defaults} context={ctx} /></div>
         </details>
       )}
       {live.length === 0 ? (empty ?? <Empty>{t("لا توجد سجلات بعد.", "No records yet.")}</Empty>) : live.map((r) => card(r))}

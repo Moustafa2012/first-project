@@ -347,3 +347,37 @@ begin
 end $$;
 revoke all on function public.share_recalls(text) from public, anon, authenticated;
 grant execute on function public.share_recalls(text) to service_role;
+
+-- what the shared bundle does not carry yet, under the same scope rules (include, specialty, dates, selected records):
+-- the dental details of visits, and the signature and amendments of notes
+create function public.share_visit_note_extras(p_session_token text) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare v_share uuid; v_sid uuid; v_st text; s public.medical_shares; v_spec uuid[]; v_from date; v_to date;
+begin
+  select a.o_share_id, a.o_session_id, a.o_status into v_share, v_sid, v_st from app.resolve_share_session(p_session_token) a;
+  if v_st <> 'ok' then return jsonb_build_object('status', 'expired'); end if;
+  select * into s from public.medical_shares where id = v_share;
+  v_spec := case when s.scope_kind = 'specialty' then s.specialty_ids else null end;
+  v_from := coalesce(s.date_from, '-infinity'::date);
+  v_to := coalesce(s.date_to, 'infinity'::date);
+  return jsonb_build_object('status', 'ok',
+    'encounters', case when 'encounters' = any (s.include) then coalesce((select jsonb_object_agg(e.id, jsonb_build_object(
+        'teeth', to_jsonb(e.teeth), 'anesthesia_kind', e.anesthesia_kind, 'anesthetic', e.anesthetic, 'materials', e.materials,
+        'complications', e.complications, 'instructions', e.instructions, 'follow_up_date', e.follow_up_date))
+      from public.encounters e
+      where e.patient_id = s.patient_id and e.record_status = 'active' and (v_spec is null or e.specialty_id = any (v_spec))
+        and e.started_at::date between v_from and v_to
+        and (s.scope_kind <> 'custom' or exists (select 1 from public.medical_share_items i where i.share_id = s.id and i.table_name = 'encounters' and i.record_id = e.id))
+    ), '{}'::jsonb) else '{}'::jsonb end,
+    'notes', case when 'notes' = any (s.include) then coalesce((select jsonb_object_agg(x.id, jsonb_build_object(
+        'status', x.status, 'signed_name', x.signed_name, 'signed_at', x.signed_at,
+        'amendments', coalesce((select jsonb_agg(jsonb_build_object('body', a.body, 'reason', a.reason, 'amended_at', a.amended_at, 'amended_name', a.amended_name)
+                                                 order by a.amended_at) from public.note_amendments a where a.note_id = x.id), '[]')))
+      from public.clinical_notes x
+      where x.patient_id = s.patient_id and x.record_status = 'active' and (v_spec is null or x.specialty_id = any (v_spec))
+        and x.noted_at::date between v_from and v_to
+        and (s.scope_kind <> 'custom' or exists (select 1 from public.medical_share_items i where i.share_id = s.id and i.table_name = 'clinical_notes' and i.record_id = x.id))
+    ), '{}'::jsonb) else '{}'::jsonb end);
+end $$;
+revoke all on function public.share_visit_note_extras(text) from public, anon, authenticated;
+grant execute on function public.share_visit_note_extras(text) to service_role;

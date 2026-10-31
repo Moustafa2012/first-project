@@ -80,6 +80,8 @@ select test.ok(:'am' = 'ok' and (select amended_name = 'Dr Note' and contributed
   'and amended by them, with the reason, through the share');
 select test.ok(jsonb_array_length(public.share_my_notes(:'sess') -> 0 -> 'amendments') = 1, 'they see their note with its amendment');
 select test.ok(jsonb_array_length(public.share_recalls(:'sess')) = 2, 'the dentist sees the recalls');
+select test.ok((public.share_visit_note_extras(:'sess') -> 'encounters' -> :'enc' ->> 'anesthesia_kind') is null,
+  'visit details follow the share''s scope (this share does not include visits)');
 select test.as_user(:'alice'::uuid);
 select test.throws(format($$insert into public.note_amendments (patient_id, note_id, body, reason) values (%L, %L, 'x', 'patient edit')$$, :'pv', :'dn'),
   'contributed_record_readonly', 'the patient does not amend the dentist''s note');

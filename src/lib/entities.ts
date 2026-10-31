@@ -45,6 +45,8 @@ export interface FormContext {
   external?: string[];
   /** only these fields are asked (a short form in a tight place); the rest keep their defaults */
   pick?: string[];
+  /** note templates offered above the text */
+  templates?: { id: string; title: string; body: string; mine?: boolean }[];
 }
 const teethChip = (r: Row, lang: Lang): Chip[] =>
   Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info", text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : [];
@@ -185,7 +187,8 @@ export const ENTITIES: Record<string, EntityDef> = {
     order: ["started_at", "desc"], hasSpecialty: true, dateOf: (r) => (r.started_at as string) ?? null, dateKind: "datetime", bodyField: "summary",
     titleOf: (r, lang) => [L.lbl(L.ENCOUNTER_KIND, s(r, "kind"), lang), s(r, "reason")].filter(Boolean).join(" — "),
     dupKey: (r) => `${s(r, "kind")}|${minute(r.started_at)}`,
-    chipsOf: (r, lang) => [{ tone: tone(s(r, "status"), { completed: "ok", planned: "info", in_progress: "warn" }), text: L.lbl(L.ENCOUNTER_STATUS, s(r, "status"), lang) }],
+    chipsOf: (r, lang) => [{ tone: tone(s(r, "status"), { completed: "ok", planned: "info", in_progress: "warn" }), text: L.lbl(L.ENCOUNTER_STATUS, s(r, "status"), lang) },
+      ...teethChip(r, lang), ...(r.anesthesia_kind && r.anesthesia_kind !== "none" ? [{ tone: "muted" as const, text: L.lbl(L.ANESTHESIA_KIND, s(r, "anesthesia_kind"), lang) }] : [])],
     fields: [
       f("kind", "نوع الزيارة", "Visit type", "select", { options: L.ENCOUNTER_KIND, dflt: "clinic" }),
       f("status", "الحالة", "Status", "select", { options: L.ENCOUNTER_STATUS, dflt: "completed" }),
@@ -199,7 +202,15 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("history_of_present_illness", "التاريخ المرضي المرتبط", "History of present illness", "textarea", { wide: true }),
       f("examination", "الفحص السريري", "Clinical examination", "textarea", { wide: true }),
       f("assessment", "التقييم", "Assessment", "textarea", { wide: true }),
-      f("plan", "خطة العلاج", "Treatment plan", "textarea", { wide: true }),
+      f("plan", "الخطة", "Plan", "textarea", { wide: true }),
+      // what was done in the chair (dental visits)
+      teethField(),
+      f("anesthesia_kind", "التخدير", "Anaesthesia", "select", { options: L.ANESTHESIA_KIND, only: "dental" }),
+      f("anesthetic", "المادة المخدرة والكمية", "Anaesthetic and amount", "text", { only: "dental", maxLength: 300,
+        hint: ["مثل: أرتيكائين 4% مع أدرينالين 1:100,000 — أمبولتان", "e.g. Articaine 4% with adrenaline 1:100,000 — 2 cartridges"] }),
+      f("materials", "المواد المستخدمة", "Materials used", "text", { only: "dental", maxLength: 1000, wide: true }),
+      f("complications", "المضاعفات", "Complications", "textarea", { wide: true }),
+      f("instructions", "التعليمات المعطاة", "Instructions given", "textarea", { wide: true }),
       f("follow_up_date", "موعد المتابعة", "Follow-up date", "date"),
       f("summary", "ملخص الزيارة", "Visit summary", "textarea", { wide: true }),
       f("discharge_summary", "ملخص الخروج (للتنويم)", "Discharge summary (inpatient)", "textarea", { wide: true }),
@@ -314,7 +325,8 @@ export const ENTITIES: Record<string, EntityDef> = {
     order: ["noted_at", "desc"], hasSpecialty: true, dateOf: (r) => (r.noted_at as string) ?? null, dateKind: "datetime", bodyField: "body",
     titleOf: (r, lang) => s(r, "title") || L.lbl(L.NOTE_KIND, s(r, "kind"), lang),
     dupKey: (r) => `${n(r, "title")}|${normText(r.body).slice(0, 200)}`,
-    chipsOf: (r, lang) => [{ tone: "muted", text: L.lbl(L.NOTE_KIND, s(r, "kind"), lang) }],
+    chipsOf: (r, lang) => [{ tone: "muted", text: L.lbl(L.NOTE_KIND, s(r, "kind"), lang) },
+      { tone: r.status === "signed" ? "ok" : "warn", text: L.lbl(L.NOTE_STATUS, s(r, "status") || "draft", lang) }],
     fields: [
       f("kind", "النوع", "Type", "select", { options: L.NOTE_KIND, dflt: "patient_note" }),
       f("title", "العنوان", "Title", "text", { wide: true }),

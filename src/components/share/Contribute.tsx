@@ -9,7 +9,9 @@ import { Banner, Chip, Empty } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { FieldInput } from "@/components/EntityForm";
 import { SignaturePad } from "@/components/SignaturePad";
-import { contributeDentalExam, contributeRecord, identifyContributor, retractContribution } from "@/app/actions/share-viewer";
+import { contributeDentalExam, contributeRecord, identifyContributor, retractContribution, shareAmendNote } from "@/app/actions/share-viewer";
+import { TemplatePicker } from "@/components/TemplatePicker";
+import type { ShareMyNote } from "@/lib/share-types";
 import { ExamEditor } from "@/components/dental/ExamEditor";
 import type { Dentition } from "@/lib/dental";
 
@@ -86,9 +88,9 @@ export function ContributorCard({ token, st, uploaded, uploadError }: { token: s
  * The form adding one record to `table`. `fixed` values are sent, not asked; `external` fields come from a control
  * outside the form (the tooth chosen on the chart); `pick` keeps a short form to the fields that matter there.
  */
-export function ContribForm({ token, st, table, formId, fixed = {}, external = [], pick, defaults, submitLabel, suggest }: {
+export function ContribForm({ token, st, table, formId, fixed = {}, external = [], pick, defaults, submitLabel, suggest, templates }: {
   token: string; st: ContribState; table: string; formId?: string; fixed?: Record<string, string>; external?: string[]; pick?: string[];
-  defaults?: Record<string, string>; submitLabel?: string; suggest?: Record<string, string[]>;
+  defaults?: Record<string, string>; submitLabel?: string; suggest?: Record<string, string[]>; templates?: { id: string; title: string; body: string }[];
 }) {
   const { lang, t } = i18n();
   const tz = getTz();
@@ -105,6 +107,7 @@ export function ContribForm({ token, st, table, formId, fixed = {}, external = [
       <input type="hidden" name="_t" value={token} /><input type="hidden" name="_table" value={table} /><input type="hidden" name="_who" value={st.contributor.full_name} />
       <input type="hidden" name="_fields" value={[...fields.map((f) => f.name), ...Object.keys(fixed), ...external].join(",")} />
       {Object.entries(fixed).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+      {table === "clinical_notes" && templates && templates.length > 0 && <TemplatePicker target={`${prefix}_body`} templates={templates} lang={lang} />}
       <div className="form-grid">
         {linkable && <div className="field"><label htmlFor={`${formId ?? table}_enc`}>{t("ضمن زيارة أضفتها", "Within a visit you added")}</label>
           <select id={`${formId ?? table}_enc`} name="_encounter" defaultValue=""><option value="">—</option>
@@ -117,7 +120,7 @@ export function ContribForm({ token, st, table, formId, fixed = {}, external = [
 }
 
 /** "Add: …" folded inside the section it belongs to; nothing when this clinician may not add it. */
-export function ContribAdd({ token, st, table, dentition = "permanent", uploadError }: { token: string; st: ContribState | null | undefined; table: string; dentition?: Dentition; uploadError?: string }) {
+export function ContribAdd({ token, st, table, dentition = "permanent", uploadError, templates }: { token: string; st: ContribState | null | undefined; table: string; dentition?: Dentition; uploadError?: string; templates?: { id: string; title: string; body: string }[] }) {
   const { lang, t } = i18n();
   const tz = getTz();
   if (!st || !canAdd(st, table)) return null;
@@ -153,13 +156,16 @@ export function ContribAdd({ token, st, table, dentition = "permanent", uploadEr
   return (
     <details className="fold">
       <summary>{t(`إضافة: ${label}`, `Add: ${label}`)}</summary>
-      <div className="fold-body"><ContribForm token={token} st={st} table={table} /></div>
+      <div className="fold-body">
+        {table === "clinical_notes" && <p className="small muted" style={{ marginBlockStart: 0 }}>{t("تُحفظ ملاحظتك موقّعةً باسمك؛ وأي تغيير لاحق يُضاف تعديلاً موثّقاً مع سببه.", "Your note is saved signed with your name; any later change is added as an amendment with its reason.")}</p>}
+        <ContribForm token={token} st={st} table={table} templates={templates} />
+      </div>
     </details>
   );
 }
 
 /** At the end of the page: what this share added, each item withdrawable (it stays in the history with the reason). */
-export function ContribSummary({ token, st }: { token: string; st: ContribState }) {
+export function ContribSummary({ token, st, myNotes = [] }: { token: string; st: ContribState; myNotes?: ShareMyNote[] }) {
   const { lang, t } = i18n();
   const tz = getTz();
   if (!st.contributor) return null;
@@ -168,6 +174,27 @@ export function ContribSummary({ token, st }: { token: string; st: ContribState 
     <section className="card" id="contribute" aria-label={t("ملخص ما أضفته", "Summary of what you added")}>
       <div className="card-head"><h2><ListChecks size={18} aria-hidden="true" /> {t("ملخص ما أُضيف عبر هذه المشاركة", "Summary of what was added through this share")}</h2>
         <Chip tone="muted">{t(`${st.used ?? 0} من ${st.max ?? 0} إضافة`, `${st.used ?? 0} of ${st.max ?? 0} additions`)}</Chip></div>
+      {myNotes.filter((n) => n.record_status === "active").length > 0 && (
+        <div className="stack" style={{ marginBlockEnd: ".9rem" }}>
+          <h3 style={{ margin: 0 }}>{t("ملاحظاتك الموقّعة", "Your signed notes")}</h3>
+          {myNotes.filter((n) => n.record_status === "active").map((n) => (
+            <article key={n.id} className="rec my-note">
+              <div className="row between"><strong>{n.title || t("ملاحظة", "Note")}</strong><span className="muted small">{fmtDateTime(n.noted_at, lang, tz)}</span></div>
+              <p className="rec-body">{n.body}</p>
+              <p className="small note-sign">{t("موقّعة", "Signed")}{n.signed_name ? ` — ${n.signed_name}` : ""}{n.signed_at ? ` · ${fmtDateTime(n.signed_at, lang, tz)}` : ""}</p>
+              {n.amendments.map((a, j) => <div className="amendment" key={j}><div className="small"><strong>{t(`تعديل موثّق ${j + 1}`, `Amendment ${j + 1}`)}</strong> · {fmtDateTime(a.amended_at, lang, tz)} — {t("السبب", "Reason")}: {a.reason}</div><p className="rec-body">{a.body}</p></div>)}
+              <details className="fold"><summary>{t("تعديل موثّق", "Add an amendment")}</summary><div className="fold-body">
+                <ActionForm action={shareAmendNote} className="stack">
+                  <input type="hidden" name="_t" value={token} /><input type="hidden" name="_id" value={n.id} />
+                  <div className="field"><label htmlFor={`sam-${n.id}`}>{t("نص التعديل", "Amendment")}</label><textarea id={`sam-${n.id}`} name="body" rows={3} required defaultValue={n.amendments.at(-1)?.body ?? n.body} /></div>
+                  <div className="field"><label htmlFor={`samr-${n.id}`}>{t("السبب", "Reason")}</label><input id={`samr-${n.id}`} name="reason" required minLength={3} maxLength={500} /></div>
+                  <div><SubmitButton className="btn sm primary">{t("إضافة التعديل", "Add the amendment")}</SubmitButton></div>
+                </ActionForm>
+              </div></details>
+            </article>
+          ))}
+        </div>
+      )}
       {items.length === 0 ? <Empty>{t("لا إضافات بعد.", "Nothing added yet.")}</Empty> : items.map((it) => (
         <article key={`${it.table}:${it.id}`} className={`rec${it.record_status !== "active" ? " error" : ""}`}>
           <div className="row between">

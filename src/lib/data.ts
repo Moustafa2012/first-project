@@ -63,6 +63,6 @@ export interface SpecialtyUse { specialty_id: string; code: string; name_ar: str
 /** The specialties this file uses, the most used first (counted under RLS). Empty when nothing is recorded yet. */
 export const getSpecialtyUsage = cache(async (pid: string): Promise<SpecialtyUse[]> => {
   const { data, error } = await createClient().rpc("patient_specialty_usage", { p_patient: pid });
-  if (error) return [];
-  return ((data ?? []) as SpecialtyUse[]).map((r) => ({ ...r, n: Number(r.n) }));
+  if (error || !Array.isArray(data)) return [];
+  return (data as SpecialtyUse[]).map((r) => ({ ...r, n: Number(r.n) }));
 });

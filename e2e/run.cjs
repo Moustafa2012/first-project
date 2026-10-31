@@ -611,8 +611,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const signed = page.locator("article.rec", { hasText: "Filling 36 note" }).first();
     assert((await signed.locator("summary", { hasText: "Edit" }).count()) === 0, "a signed note has no Edit");
     await signed.locator("summary", { hasText: "Add an amendment" }).click();
-    await signed.locator('textarea[name="body"]').fill("Tooth and surfaces: 36 MO");
-    await signed.locator('input[name="reason"]').fill("surfaces were missing");
+    await signed.locator('textarea[id^="am-"]').fill("Tooth and surfaces: 36 MO");
+    await signed.locator('input[id^="amr-"]').fill("surfaces were missing");
     await signed.getByRole("button", { name: "Add the amendment" }).click();
     await page.locator("article.rec", { hasText: "Filling 36 note" }).first().getByText("Amendment 1").waitFor();
 

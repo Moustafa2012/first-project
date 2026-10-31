@@ -15,7 +15,8 @@ export default async function PatientLayout({ children, params }: { children: Re
   const { lang, t } = i18n();
   // one wave of round trips instead of three in a row
   const dentId = (await getSpecialties()).find((x) => x.code === "dentistry")?.id ?? "00000000-0000-0000-0000-000000000000";
-  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }] = await Promise.all([
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }, { count: overdue }] = await Promise.all([
     getPatient(params.pid),
     getAccess(params.pid),
     getSpecialtyUsage(params.pid),
@@ -28,6 +29,8 @@ export default async function PatientLayout({ children, params }: { children: Re
       .eq("specialty_id", dentId).is("teeth", null).in("clinical_status", ["active", "recurrence"]).neq("certainty", "refuted"),
     createClient().from("treatment_plans").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active")
       .in("status", ["draft", "proposed", "accepted", "in_progress"]),
+    createClient().from("recalls").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active")
+      .eq("status", "active").lt("due_on", todayIso),
   ]);
   const admin = profile?.role === "admin";
   const base = `/patients/${p.id}`;
@@ -66,6 +69,7 @@ export default async function PatientLayout({ children, params }: { children: Re
             { href: `${P("dental")}?tab=problems`, tab: "problems", icon: "problems",
               label: unassigned ? t(`المشكلات والتشخيصات (${unassigned} بلا سن)`, `Problems & diagnoses (${unassigned} without a tooth)`) : t("المشكلات والتشخيصات", "Problems & diagnoses") },
             { href: `${P("dental")}?tab=treatment`, tab: "treatment", icon: "treatment", label: t("العلاج", "Treatment"), badge: openPlans ? String(openPlans) : undefined },
+            { href: `${P("dental")}?tab=followup`, tab: "followup", icon: "followup", label: t("المتابعة والفحص الدوري", "Follow-up & recalls"), badge: overdue ? String(overdue) : undefined },
             { href: `${P("dental")}?tab=care`, tab: "care", icon: "care", label: t("الزيارات والإجراءات", "Visits & procedures") },
             { href: `${P("dental")}?tab=imaging`, tab: "imaging", icon: "images", label: t("الصور والأشعة", "Images & X-rays") },
             { href: `${P("dental")}?tab=profile`, tab: "profile", icon: "profile", label: t("الملف السني", "Dental profile") },

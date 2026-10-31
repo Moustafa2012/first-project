@@ -23,3 +23,12 @@ export interface ShareDental {
   plans?: import("@/lib/treatment").TreatmentPlan[];
   my_costs?: import("@/lib/treatment").TreatmentCost[];
 }
+
+export interface ShareNoteAmendment { body: string; reason: string; amended_at: string; amended_name: string | null }
+/** dental details of visits and signatures of notes in the shared scope (keyed by record id) */
+export interface ShareExtras {
+  encounters: Record<string, { teeth: number[] | null; anesthesia_kind: string | null; anesthetic: string | null; materials: string | null; complications: string | null; instructions: string | null; follow_up_date: string | null }>;
+  notes: Record<string, { status: string; signed_name: string | null; signed_at: string | null; amendments: ShareNoteAmendment[] }>;
+}
+export interface ShareMyNote { id: string; title: string | null; body: string; noted_at: string; signed_name: string | null; signed_at: string | null; record_status: string; amendments: ShareNoteAmendment[] }
+export interface ShareRecall { kind: string; label: string | null; interval_months: number; due_on: string; last_done_on: string | null; status: string }

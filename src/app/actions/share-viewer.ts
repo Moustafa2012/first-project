@@ -265,3 +265,20 @@ export async function shareSetCost(_: FormState, fd: FormData): Promise<FormStat
   revalidatePath(`/s/${s.token}/view`);
   return { ok: true, message: t("حُفظت تكلفتك (تظهر لك وللمريض فقط).", "Your cost was saved (visible to you and the patient only).") };
 }
+
+/** The dentist amends their own signed note: added next to the original, with the reason. */
+export async function shareAmendNote(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const id = String(fd.get("_id") ?? "");
+  const body = String(fd.get("body") ?? "").trim().slice(0, 20000), reason = String(fd.get("reason") ?? "").trim().slice(0, 500);
+  if (!UUID_RE.test(id) || !body) return { error: t(...CONTRIB_STATUS.invalid) };
+  if (reason.length < 3) return { error: t("اكتب سبب التعديل.", "Give the reason for the amendment.") };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_amend_note", { p_session_token: s.session, p_note: id, p_body: body, p_reason: reason, p_ip_hash: ipHash, p_user_agent: ua });
+  const bad = txAnswer(data, error, t);
+  if (bad) return bad;
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("أُضيف التعديل الموثّق؛ النص الأصلي محفوظ.", "The amendment was added; the original text is kept.") };
+}

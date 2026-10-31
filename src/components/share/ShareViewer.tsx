@@ -2,10 +2,10 @@ import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut, Printer } fro
 import { i18n } from "@/lib/i18n";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
-import { ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_TYPE, ENCOUNTER_KIND, IMAGING_MODALITY, lbl, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, FAMILY_RELATION, CARE_PLAN_STATUS, LAB_GROUP, IMMUNIZATION_STATUS } from "@/lib/labels";
+import { ANESTHESIA_KIND, RECALL_KIND, ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_TYPE, ENCOUNTER_KIND, IMAGING_MODALITY, lbl, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, FAMILY_RELATION, CARE_PLAN_STATUS, LAB_GROUP, IMMUNIZATION_STATUS } from "@/lib/labels";
 import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
-import type { Bundle, ShareDental } from "@/lib/share-types";
+import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall } from "@/lib/share-types";
 import { DentalChart, type ToothAddForm } from "@/components/dental/DentalChart";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import type { ClinicalContextData } from "@/lib/clinical-context";
@@ -24,7 +24,10 @@ import { canAdd, ContribAdd, ContribForm, ContributorCard, ContribSummary, contr
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError, catalog = [] }: { b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string; catalog?: CatalogItem[] }) {
+export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [] }: {
+  b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string;
+  catalog?: CatalogItem[]; extras?: ShareExtras | null; myNotes?: ShareMyNote[]; recalls?: ShareRecall[]; templates?: { id: string; title: string; body: string }[];
+}) {
   const { lang, t } = i18n();
   const tz = getTz();
   const inc = new Set(b.meta.include);
@@ -47,7 +50,7 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   // the clinician adds where the information belongs: each "add" form sits in its section, the tooth forms in the panel of
   // the chosen tooth; what has no section on this page gathers in "other additions"
   const dentition = dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent";
-  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} /> : null);
+  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} templates={templates} /> : null);
   const placed = new Set<string>();
   const place = (table: string, shown: boolean) => { if (shown) placed.add(table); return shown; };
   const showEnc = place("encounters", inc.has("encounters"));
@@ -165,6 +168,10 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
             <ul>{dental.diagnoses.filter((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence"))
               .map((x) => <li key={x.id}>{x.name} <Chip tone="muted">{lbl(CLINICAL_STATUS, x.clinical_status, lang)}</Chip></li>)}</ul>
           </>)}
+          {recalls.length > 0 && (<>
+            <h3>{t("الفحص الدوري", "Recalls")}</h3>
+            <ul>{recalls.map((r, i) => <li key={i}>{r.kind === "other" ? s(r.label) : lbl(RECALL_KIND, r.kind, lang)} — {t(`كل ${r.interval_months} أشهر`, `every ${r.interval_months} months`)} · {t("الموعد", "due")} {d(r.due_on)}{r.last_done_on ? ` · ${t("آخر مرة", "last")} ${d(r.last_done_on)}` : ""}{r.status === "paused" ? ` (${t("موقوف مؤقتاً", "paused")})` : ""}</li>)}</ul>
+          </>)}
           {dental.exams.length > 0 && (<>
             <h3>{t("الفحوص", "Exams")}</h3>
             {dental.exams.map((e) => (
@@ -218,7 +225,11 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           {add("encounters")}
           {(b.encounters ?? []).length === 0 ? <Empty>{t("لا زيارات ضمن النطاق.", "No visits in scope.")}</Empty> : (b.encounters ?? []).map((e, i) => (
             <article className="rec" key={i}><div className="row between"><span className="row"><span className="rec-title">{lbl(ENCOUNTER_KIND, s(e.kind), lang)}{e.reason ? ` — ${s(e.reason)}` : ""}</span>{spec(e.specialty_id) && <Chip tone="info">{spec(e.specialty_id)}</Chip>}</span><span className="muted small">{dt(e.started_at)}</span></div>
-              <KV items={[[t("الطبيب", "Practitioner"), s(e.practitioner_name)], [t("المنشأة", "Facility"), s(e.facility_name)], [t("الأعراض", "Symptoms"), s(e.symptoms)], [t("الفحص", "Examination"), s(e.examination)], [t("التقييم", "Assessment"), s(e.assessment)], [t("الخطة", "Plan"), s(e.plan)], [t("الملخص", "Summary"), s(e.summary)], [t("ملخص الخروج", "Discharge"), s(e.discharge_summary)]]} /></article>))}
+              <KV items={[[t("الطبيب", "Practitioner"), s(e.practitioner_name)], [t("المنشأة", "Facility"), s(e.facility_name)], [t("الأعراض", "Symptoms"), s(e.symptoms)], [t("الفحص", "Examination"), s(e.examination)], [t("التقييم", "Assessment"), s(e.assessment)], [t("الخطة", "Plan"), s(e.plan)], [t("الملخص", "Summary"), s(e.summary)], [t("ملخص الخروج", "Discharge"), s(e.discharge_summary)],
+                ...((): [string, string][] => { const x = extras?.encounters[s(e.id)]; if (!x) return [];
+                  return [[t("الأسنان", "Teeth"), x.teeth?.length ? x.teeth.join("، ") : ""], [t("التخدير", "Anaesthesia"), x.anesthesia_kind ? lbl(ANESTHESIA_KIND, x.anesthesia_kind, lang) : ""],
+                    [t("المادة المخدرة والكمية", "Anaesthetic"), s(x.anesthetic)], [t("المواد", "Materials"), s(x.materials)], [t("المضاعفات", "Complications"), s(x.complications)],
+                    [t("التعليمات المعطاة", "Instructions given"), s(x.instructions)], [t("موعد المتابعة", "Follow-up"), x.follow_up_date ? d(x.follow_up_date) : ""]]; })()]} /></article>))}
         </Card>
       )}
 
@@ -262,7 +273,11 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
 
       {showNotes && (
         <Card title={t("الملاحظات السريرية", "Clinical notes")} id="sec-notes">{add("clinical_notes")}{(b.notes ?? []).map((x, i) => (
-          <article className="rec" key={i}><div className="row between"><strong>{s(x.title)}</strong><span className="muted small">{dt(x.noted_at)}{x.author_name ? ` · ${s(x.author_name)}` : ""}</span></div><p className="rec-body">{s(x.body)}</p></article>))}</Card>
+          <article className="rec" key={i}><div className="row between"><strong>{s(x.title)}</strong><span className="muted small">{dt(x.noted_at)}{x.author_name ? ` · ${s(x.author_name)}` : ""}</span></div><p className="rec-body">{s(x.body)}</p>
+            {(() => { const n = extras?.notes[s(x.id)]; if (!n) return null; return (<>
+              {n.status === "signed" ? <p className="small note-sign">{t("موقّعة", "Signed")}{n.signed_name ? ` — ${n.signed_name}` : ""}{n.signed_at ? ` · ${dt(n.signed_at)}` : ""}</p> : <Chip tone="warn">{t("مسودة", "Draft")}</Chip>}
+              {n.amendments.map((a, j) => <div className="amendment" key={j}><div className="small"><strong>{t(`تعديل موثّق ${j + 1}`, `Amendment ${j + 1}`)}</strong> · {dt(a.amended_at)}{a.amended_name ? ` · ${a.amended_name}` : ""} — {t("السبب", "Reason")}: {a.reason}</div><p className="rec-body">{a.body}</p></div>)}
+            </>); })()}</article>))}</Card>
       )}
 
       {inc.has("immunizations") && (b.immunizations ?? []).length > 0 && (
@@ -292,7 +307,7 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
         </Card>
       )}
 
-      {contrib && <ContribSummary token={token} st={contrib} />}
+      {contrib && <ContribSummary token={token} st={contrib} myNotes={myNotes} />}
 
       {b.meta.allow_notes && (
         <Card title={t("ملاحظة للمريض", "Leave a note for the patient")}>

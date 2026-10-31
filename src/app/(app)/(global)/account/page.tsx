@@ -10,6 +10,9 @@ import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { PhotoForm } from "@/components/PhotoForm";
 import { updatePassword } from "@/app/actions/auth";
 import { updateProfile } from "@/app/actions/account";
+import { deleteTemplate, saveTemplate } from "@/app/actions/notes";
+import { ConfirmButton } from "@/components/ui/client";
+import { NOTE_KIND } from "@/lib/labels";
 
 export const metadata = { title: "حسابي" };
 
@@ -18,6 +21,7 @@ export default async function AccountPage({ searchParams }: { searchParams: { ph
   const [user, profile] = await Promise.all([currentUser(), currentProfile()]);
   const { count: ownFiles } = await createClient().from("patient_members").select("patient_id", { count: "exact", head: true }).eq("role", "owner").is("revoked_at", null);
   const name = profile?.full_name ?? "";
+  const { data: myTemplates } = await createClient().from("note_templates").select("id, title, body, kind").eq("owner_id", user?.id ?? "").order("title");
   const src = profile?.avatar_path ? `/api/avatar?v=${encodeURIComponent(profile.updated_at)}` : null;
   return (
     <>
@@ -58,6 +62,37 @@ export default async function AccountPage({ searchParams }: { searchParams: { ph
           <div className="field"><label htmlFor="password">{t("كلمة المرور الجديدة", "New password")}</label><input id="password" name="password" type="password" autoComplete="new-password" minLength={10} required dir="ltr" /></div>
           <div><SubmitButton>{t("تحديث", "Update")}</SubmitButton></div>
         </ActionForm>
+      </Card>
+
+      <Card title={t("قوالب ملاحظاتي", "My note templates")} id="templates">
+        <p className="small muted">{t("تظهر قوالبك مع القوالب الجاهزة عند كتابة ملاحظة، في كل ملفاتك. هي خاصة بك ولا يراها غيرك.", "Your templates appear with the ready-made ones when you write a note, in all your files. They are private to you.")}</p>
+        {(myTemplates ?? []).map((x) => (
+          <details className="fold" key={x.id}>
+            <summary>{x.title}</summary>
+            <div className="fold-body stack">
+              <ActionForm action={saveTemplate} className="stack" resetOnSuccess={false}>
+                <input type="hidden" name="_id" value={x.id} />
+                <div className="field"><label htmlFor={`tt-${x.id}`}>{t("العنوان", "Title")}</label><input id={`tt-${x.id}`} name="title" defaultValue={x.title} required maxLength={120} /></div>
+                <div className="field"><label htmlFor={`tb-${x.id}`}>{t("النص", "Text")}</label><textarea id={`tb-${x.id}`} name="body" defaultValue={x.body} rows={5} required maxLength={8000} /></div>
+                <input type="hidden" name="kind" value={x.kind} />
+                <div><SubmitButton className="btn sm">{t("حفظ", "Save")}</SubmitButton></div>
+              </ActionForm>
+              <ActionForm action={deleteTemplate}><input type="hidden" name="_id" value={x.id} />
+                <ConfirmButton message={t("حذف هذا القالب؟", "Delete this template?")}>{t("حذف القالب", "Delete the template")}</ConfirmButton></ActionForm>
+            </div>
+          </details>
+        ))}
+        <details className="fold" open={(myTemplates ?? []).length === 0}>
+          <summary>{t("قالب جديد", "New template")}</summary>
+          <div className="fold-body">
+            <ActionForm action={saveTemplate} className="stack">
+              <div className="field"><label htmlFor="nt-title">{t("العنوان", "Title")}</label><input id="nt-title" name="title" required maxLength={120} /></div>
+              <div className="field"><label htmlFor="nt-kind">{t("النوع", "Type")}</label><select id="nt-kind" name="kind" defaultValue="progress">{NOTE_KIND.map((k) => <option key={k.value} value={k.value}>{k[lang]}</option>)}</select></div>
+              <div className="field"><label htmlFor="nt-body">{t("النص", "Text")}</label><textarea id="nt-body" name="body" rows={6} required maxLength={8000} placeholder={t("مثلاً:\nالسن:\nالتخدير:\nما أُجري:\nالتعليمات:", "e.g.\nTooth:\nAnaesthesia:\nDone:\nInstructions:")} /></div>
+              <div><SubmitButton>{t("حفظ القالب", "Save the template")}</SubmitButton></div>
+            </ActionForm>
+          </div>
+        </details>
       </Card>
     </>
   );

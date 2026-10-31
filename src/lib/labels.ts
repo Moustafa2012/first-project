@@ -132,6 +132,19 @@ export const CONTRIB_ENTITY: Record<string, string> = {
 export const FAMILY_CERTAINTY: Opt[] = [o("reported", "أفاد به المريض", "Reported"), o("confirmed", "مؤكد", "Confirmed"), o("unknown", "غير معروف", "Unknown")];
 export const APPOINTMENT_STATUS: Opt[] = [o("scheduled", "مجدول", "Scheduled"), o("completed", "تم", "Attended"), o("cancelled", "ملغى", "Cancelled"), o("no_show", "لم يحضر", "No-show")];
 export const CARE_PLAN_STATUS: Opt[] = [o("draft", "مسودة", "Draft"), o("active", "نشطة", "Active"), o("on_hold", "موقوفة", "On hold"), o("completed", "مكتملة", "Completed"), o("cancelled", "ملغاة", "Cancelled")];
+export const ANESTHESIA_KIND: Opt[] = [
+  o("none", "بلا تخدير", "None"), o("topical", "موضعي سطحي (جل/رذاذ)", "Topical"), o("local_infiltration", "موضعي بالارتشاح", "Local infiltration"),
+  o("nerve_block", "إحصار عصبي (مثل السني السفلي)", "Nerve block"), o("intraligamentary", "داخل الرباط", "Intraligamentary"),
+  o("nitrous_oxide", "غاز الضحك (أكسيد النيتروز)", "Nitrous oxide"), o("sedation_oral", "تهدئة بالفم", "Oral sedation"),
+  o("sedation_iv", "تهدئة وريدية", "IV sedation"), o("general", "تخدير عام", "General anaesthesia"),
+];
+export const RECALL_KIND: Opt[] = [
+  o("dental_checkup", "فحص الأسنان الدوري", "Dental check-up"), o("dental_cleaning", "تنظيف الأسنان", "Dental cleaning"),
+  o("dental_xray", "صور الأشعة الدورية", "Routine X-rays"), o("perio_maintenance", "صيانة اللثة", "Periodontal maintenance"),
+  o("ortho_review", "مراجعة التقويم", "Orthodontic review"), o("other", "أخرى", "Other"),
+];
+export const RECALL_STATUS: Opt[] = [o("active", "فعّال", "Active"), o("paused", "موقوف مؤقتاً", "Paused"), o("stopped", "متوقف", "Stopped")];
+export const NOTE_STATUS: Opt[] = [o("draft", "مسودة", "Draft"), o("signed", "موقّعة", "Signed")];
 export const NOTE_KIND: Opt[] = [o("progress", "ملاحظة متابعة", "Progress note"), o("consult", "استشارة", "Consultation"), o("nursing", "تمريض", "Nursing"), o("patient_note", "ملاحظة المريض", "Patient note"), o("other", "أخرى", "Other")];
 export const ORDER_KIND: Opt[] = [o("lab", "تحليل مخبري", "Lab test"), o("imaging", "تصوير", "Imaging"), o("clinical", "فحص سريري", "Clinical exam"), o("other", "أخرى", "Other")];
 export const ORDER_PRIORITY: Opt[] = [o("routine", "عادي", "Routine"), o("soon", "قريباً", "Soon"), o("urgent", "عاجل", "Urgent")];

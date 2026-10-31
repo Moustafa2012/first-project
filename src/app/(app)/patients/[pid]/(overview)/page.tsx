@@ -14,6 +14,10 @@ import { valueText } from "@/components/observations/ObservationTable";
 import { DerivedCard } from "@/components/observations/DerivedCard";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import { getClinicalContext } from "@/lib/clinical-context-server";
+import { pendingFollowUps, type Recall } from "@/lib/followups";
+import { PendingList } from "@/components/dental/FollowUps";
+import { RECALL_KIND } from "@/lib/labels";
+import { localDate } from "@/lib/format";
 
 const HIGHLIGHT = ["blood_pressure", "blood_glucose", "heart_rate", "weight", "spo2", "body_temperature"];
 
@@ -55,9 +59,31 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   if (suggested.count) alerts.push(t(`${suggested.count} فحص مقترح بانتظار قرار الطبيب.`, `${suggested.count} suggested test(s) awaiting a clinician’s decision.`));
   const activeShares = (shares.data ?? []) as { id: string; title: string; expires_at: string }[];
 
+  // what is waiting, across the file: due recalls, open treatments, follow-ups asked at a visit
+  const today = localDate(new Date(), tz);
+  const [{ data: rc }, { data: fv }, { data: ti }] = await Promise.all([
+    supabase.from("recalls").select("id, kind, label, interval_months, due_on, last_done_on, status").match(active).eq("status", "active").order("due_on"),
+    supabase.from("encounters").select("id, started_at, follow_up_date, reason, specialty_id").match(active).order("started_at", { ascending: false }).limit(100),
+    supabase.from("treatment_items").select("id, name, status, scheduled_for, teeth").match(active).in("status", ["accepted", "scheduled", "in_progress"]).limit(50),
+  ]);
+  const pending = pendingFollowUps({
+    today, base, recalls: (rc ?? []) as Recall[],
+    items: (ti ?? []) as { id: string; name: string; status: string; scheduled_for: string | null; teeth: number[] | null }[],
+    visits: (fv ?? []) as { id: string; started_at: string; follow_up_date: string | null; reason: string | null; specialty_id: string | null }[],
+    label: { recall: (r) => (r.kind === "other" ? r.label ?? "" : lbl(RECALL_KIND, r.kind, lang)), acceptedNotScheduled: t("علاج موافَق عليه ولم يُجدول", "Accepted treatment, not scheduled"),
+      inProgress: t("علاج قيد التنفيذ", "Treatment in progress"), visitFollowUp: t("متابعة طلبتها زيارة", "Follow-up asked at a visit"), appointment: t("موعد", "Appointment"),
+      appointmentPast: t("موعد مضى", "Past appointment") },
+  }).filter((f) => f.state !== "upcoming");
+
   return (
     <>
       {alerts.length > 0 && <Banner tone="info" title={t("للانتباه", "Needs attention")}><ul style={{ margin: 0, paddingInlineStart: "1.1rem" }}>{alerts.map((a) => <li key={a}>{a}</li>)}</ul></Banner>}
+
+      {pending.length > 0 && (
+        <Card title={<><CalendarClock size={18} aria-hidden="true" /> {t("المتابعات المعلّقة", "Pending follow-ups")}</>} id="pending">
+          <PendingList items={pending.slice(0, 8)} lang={lang} />
+        </Card>
+      )}
 
       <div className="grid cols-3">
         {HIGHLIGHT.map((code) => {

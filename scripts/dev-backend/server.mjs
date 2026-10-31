@@ -189,7 +189,7 @@ async function handleRest(req, res, url, claims) {
     if (seg.startsWith("rpc/")) {
       const fn = seg.slice(4);
       const { rows: meta } = await c.query(
-        `select p.proargnames as names, array(select format_type(t, null) from unnest(p.proargtypes::oid[]) t) as types, p.prorettype::regtype::text as ret
+        `select p.proargnames as names, array(select format_type(t, null) from unnest(p.proargtypes::oid[]) t) as types, p.prorettype::regtype::text as ret, p.proretset as set
            from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = $1`, [fn]);
       if (!meta.length) throw httpErr(404, { code: "PGRST202", message: `function ${fn} not found` });
       const args = payload || {}; const params = []; const named = [];
@@ -201,6 +201,11 @@ async function handleRest(req, res, url, claims) {
         if (v !== null && typeof v === "object") v = type.endsWith("[]") && Array.isArray(v) ? `{${v.map((x) => `"${String(x).replace(/"/g, '\\"')}"`).join(",")}}` : JSON.stringify(v);
         params.push(v);
         named.push(`${q(name)} := $${params.length}::${type}`);
+      }
+      // a set-returning function answers with its rows, as PostgREST does
+      if (meta[0].set) {
+        const { rows } = await c.query(`select * from public.${q(fn)}(${named.join(", ")})`, params);
+        return { status: 200, rows: [rows], scalar: true };
       }
       const { rows } = await c.query(`select public.${q(fn)}(${named.join(", ")}) as result`, params);
       return { status: meta[0].ret === "void" ? 204 : 200, rows: meta[0].ret === "void" ? [] : [rows[0].result], scalar: true };

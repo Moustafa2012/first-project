@@ -475,6 +475,37 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.screenshot({ path: path.join(OUT, "dental-linked.png"), fullPage: true });
   });
 
+  await step("in place: the chosen tooth's panel adds a diagnosis and a procedure to that tooth; the menu lists the specialties in use first", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("#chart-46").click();
+    const panel = page.locator(".tooth-panel");
+    await panel.locator("summary", { hasText: "A diagnosis for this tooth" }).click();
+    const dx = page.locator("form#tooth-dx");
+    assert((await dx.locator('[name="specialty_id"]:not([type="hidden"]), [name="category"]:not([type="hidden"]), input[name="teeth"]:not([type="hidden"])').count()) === 0,
+      "no specialty, category or tooth question when adding from the tooth itself");
+    await dx.locator('input[name="name"]').fill("Cracked tooth (from the chart)");
+    await dx.getByRole("button", { name: "Add the diagnosis" }).click();
+    await panel.locator("li", { hasText: "Cracked tooth (from the chart)" }).waitFor();
+    await panel.locator("summary", { hasText: "A procedure on this tooth" }).click();
+    const px = page.locator("form#tooth-px");
+    await px.locator('input[name="name"]').fill("Bonded splint (from the chart)");
+    await px.getByRole("button", { name: "Add the procedure" }).click();
+    await panel.locator("li", { hasText: "Bonded splint (from the chart)" }).waitFor();
+    await page.reload();
+    const label = await page.locator("#chart-46").getAttribute("aria-label");
+    assert(/problem: Cracked tooth/.test(label) && /procedures: 1/.test(label), "both are on tooth 46: " + label);
+    // the menu: the specialties this file uses, then "open another"
+    const nav = page.locator("nav.sidenav");
+    await nav.getByText("Specialty files", { exact: true }).waitFor();
+    await nav.getByRole("link", { name: "Dentistry" }).waitFor();
+    assert(/\/dental$/.test(await nav.getByRole("link", { name: "Dentistry" }).getAttribute("href")), "dentistry opens the dental file");
+    await nav.getByRole("link", { name: "Open another specialty" }).click();
+    await page.locator("#used").getByText("Dentistry").waitFor();
+    assert((await page.locator("#used").getByText("Gynecology").count()) === 0, "unused specialties are not in the used list");
+    await page.locator("#others summary").click();
+    await page.locator("#others").getByText("Ophthalmology").waitFor();
+  });
+
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
     await page.goto(`${BASE}/patients/${pid}/documents`);
     const up = async (name, buf, mime, title, spec) => {
@@ -745,7 +776,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await doc.getByRole("button", { name: "Send" }).click();
     await doc.getByText("Your note was sent to the patient.").waitFor();
     await page.goto(`${BASE}/patients/${pid}/sharing`);
-    await page.getByRole("link", { name: /Dentistry/ }).first().click();
+    await page.locator('a[href*="/sharing/"]', { hasText: /Dentistry/ }).first().click();     // the share, not the menu's Dentistry
     await page.getByText("Please bring the latest panoramic film.").waitFor();
     await page.getByRole("button", { name: "Mark reviewed" }).click();
     await page.getByText("Reviewed", { exact: true }).waitFor();
@@ -884,6 +915,16 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.getByText("The exam was saved to the patient's file under your name.").waitFor();
     await d3.reload();
     await d3.locator("#contribute article.rec", { hasText: "Dental exam on the chart" }).first().waitFor();
+    // in place: the dentist chooses a tooth and adds a diagnosis to it, without a separate form list
+    await d3.locator("#chart-47").click();
+    await d3.locator(".tooth-panel summary", { hasText: "A diagnosis for this tooth" }).click();
+    await d3.locator("#ctooth-dx_conditions_name").fill("Fractured cusp 47 (dentist)");
+    await d3.locator("form#ctooth-dx").getByRole("button", { name: "Add the diagnosis" }).click();
+    await d3.locator(".tooth-panel li", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
+    await d3.locator("#contribute article.rec", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
+    // the summary of additions comes after the clinical content
+    const order = await d3.evaluate(() => ["#contributor", "#dental", "#contribute"].map((q) => { const el = document.querySelector(q); return el ? el.getBoundingClientRect().top + window.scrollY : NaN; }));
+    assert(order[0] < order[1] && order[1] < order[2], "identity, then the dental workspace, then the summary: " + order);
     await d3.screenshot({ path: path.join(OUT, "dentist-contribute.png"), fullPage: true });
     // the dentist withdraws the misplaced note
     const noteRec = d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).first();
@@ -1001,7 +1042,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const opts = await page.locator("#f_specialty_id option, select[name=specialty_id] option").allInnerTexts();
     assert(opts.length > 3 && !opts.some((o) => /Obstetrics/.test(o)), "visit form hides obstetrics: " + opts.slice(0, 5));
     await page.goto(`${BASE}/patients/${pid}/specialties`);
-    const fem = (await page.locator("main").innerText());
+    const fem = (await page.locator("main").textContent()) ?? "";                              // unused specialties sit in a folded list
     if (/Female/.test(await page.locator("header.patient-head").innerText())) assert(/Obstetrics/.test(fem) && !/Men's health/.test(fem), "female file view");
   });
 

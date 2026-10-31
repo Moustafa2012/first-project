@@ -58,3 +58,11 @@ export function specialtyName(list: Specialty[], id: string | null | undefined, 
   const s = list.find((x) => x.id === id);
   return s ? (lang === "ar" ? s.name_ar : s.name_en) : "";
 }
+
+export interface SpecialtyUse { specialty_id: string; code: string; name_ar: string; name_en: string; icon: string; n: number }
+/** The specialties this file uses, the most used first (counted under RLS). Empty when nothing is recorded yet. */
+export const getSpecialtyUsage = cache(async (pid: string): Promise<SpecialtyUse[]> => {
+  const { data, error } = await createClient().rpc("patient_specialty_usage", { p_patient: pid });
+  if (error || !Array.isArray(data)) return [];
+  return (data as SpecialtyUse[]).map((r) => ({ ...r, n: Number(r.n) }));
+});

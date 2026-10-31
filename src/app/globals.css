@@ -513,6 +513,8 @@ body.no-print-share .print-only { display: block; }
 .tooth-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
 .tooth-list li { border-inline-start: 4px solid var(--border-strong); padding: .35rem .6rem; background: var(--surface-2); border-radius: var(--radius-sm); }
 .tooth-list li.disease { border-inline-start-color: var(--bad); }
+.tooth-add { border-block-start: 1px dashed var(--border-strong); margin-block-start: var(--space-4); }
+.tooth-add .fold + .fold { margin-block-start: .4rem; }
 .tooth-list li.work { border-inline-start-color: var(--info); }
 .tooth-hist { margin: 0; padding-inline-start: 1.2rem; display: grid; gap: .3rem; }
 .pill { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .65rem; border: 1px solid var(--border-strong); border-radius: 999px; margin: .15rem; cursor: pointer; font-size: .88rem; background: var(--surface); }

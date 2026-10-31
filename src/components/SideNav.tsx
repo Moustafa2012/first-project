@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SpecialtyIcon } from "@/components/Icon";
 import { Activity, AlertTriangle, CalendarDays, ClipboardList, FileText, FlaskConical, FolderHeart, HeartPulse, History, Home, Layers, NotebookPen, Pill, ScanLine, Scissors, Smile, Menu, ShieldCheck, Share2, X, Stethoscope, Syringe, TestTube2, UserRound, Users, type LucideIcon } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -13,9 +14,15 @@ const ICONS: Record<string, LucideIcon> = {
 };
 const iconFor = (href: string, root: string): LucideIcon => ICONS[href === root ? "" : href.slice(root.length + 1)] ?? FolderHeart;
 
-export interface NavItem { href: string; label: string; short?: string; group?: string }
+/** `icon`: a specialty icon name (for the specialty files listed in the menu); `exact`: active only on that very page. */
+export interface NavItem { href: string; label: string; short?: string; group?: string; icon?: string; exact?: boolean }
 
-const isActive = (path: string, it: NavItem, root: string) => (it.href === root ? path === it.href : path === it.href || path.startsWith(it.href + "/"));
+const isActive = (path: string, it: NavItem, root: string) => (it.href === root || it.exact ? path === it.href : path === it.href || path.startsWith(it.href + "/"));
+const NavIcon = ({ it, root, size }: { it: NavItem; root: string; size: number }) => {
+  if (it.icon) return <SpecialtyIcon name={it.icon} size={size} />;
+  const I = iconFor(it.href, root);
+  return <I size={size} aria-hidden="true" />;
+};
 
 function Links({ items, path, onNavigate }: { items: NavItem[]; path: string; onNavigate?: () => void }) {
   let last = "";
@@ -25,11 +32,10 @@ function Links({ items, path, onNavigate }: { items: NavItem[]; path: string; on
       {items.map((it) => {
         const head = it.group && it.group !== last ? <div className="group" key={`g-${it.group}`}>{it.group}</div> : null;
         last = it.group ?? last;
-        const I = iconFor(it.href, root);
         return (
           <span key={it.href} style={{ display: "contents" }}>
             {head}
-            <Link href={it.href} aria-current={isActive(path, it, root) ? "page" : undefined} onClick={onNavigate}><I size={18} aria-hidden="true" />{it.label}</Link>
+            <Link href={it.href} aria-current={isActive(path, it, root) ? "page" : undefined} onClick={onNavigate}><NavIcon it={it} root={root} size={18} />{it.label}</Link>
           </span>
         );
       })}
@@ -38,7 +44,7 @@ function Links({ items, path, onNavigate }: { items: NavItem[]; path: string; on
 }
 
 /** Desktop: sticky side list. Mobile: bottom tab bar with the four key sections and a "More" sheet with everything else. */
-export function SideNav({ items, label, moreLabel = "More", closeLabel = "Close", primary = ["", "vitals", "labs", "documents"] }: { items: NavItem[]; label: string; moreLabel?: string; closeLabel?: string; primary?: string[] }) {
+export function SideNav({ items, label, moreLabel = "More", closeLabel = "Close", primary = ["", "profile", "vitals", "documents"] }: { items: NavItem[]; label: string; moreLabel?: string; closeLabel?: string; primary?: string[] }) {
   const path = usePathname();
   const root = items[0].href;
   const [open, setOpen] = useState(false);
@@ -57,8 +63,7 @@ export function SideNav({ items, label, moreLabel = "More", closeLabel = "Close"
       <nav className="sidenav no-print" aria-label={label}><Links items={items} path={path} /></nav>
       <nav className="bottomnav no-print" aria-label={label}>
         {tabs.map((it) => {
-          const I = iconFor(it.href, root);
-          return <Link key={it.href} href={it.href} aria-current={isActive(path, it, root) ? "page" : undefined}><I size={22} aria-hidden="true" /><span>{it.short ?? it.label}</span></Link>;
+          return <Link key={it.href} href={it.href} aria-current={isActive(path, it, root) ? "page" : undefined}><NavIcon it={it} root={root} size={22} /><span>{it.short ?? it.label}</span></Link>;
         })}
         <button type="button" className={moreActive ? "on" : ""} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Menu size={22} aria-hidden="true" /><span>{moreLabel}</span></button>
       </nav>

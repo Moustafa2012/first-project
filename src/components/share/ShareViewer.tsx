@@ -6,10 +6,10 @@ import { ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_T
 import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
 import type { Bundle, ShareDental } from "@/lib/share-types";
-import { DentalChart } from "@/components/dental/DentalChart";
+import { DentalChart, type ToothAddForm } from "@/components/dental/DentalChart";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import type { ClinicalContextData } from "@/lib/clinical-context";
-import { chartDentition, EXAM_KIND } from "@/lib/dental";
+import { chartDentition, DENTAL_DIAGNOSES, EXAM_KIND } from "@/lib/dental";
 import { localDate } from "@/lib/format";
 import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
@@ -17,7 +17,7 @@ import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
 import { endShare, addShareNote } from "@/app/actions/share-viewer";
 import type { ContribState } from "@/lib/share-contrib";
-import { ContributePanel } from "@/components/share/ContributePanel";
+import { canAdd, ContribAdd, ContribForm, ContributorCard, ContribSummary, contribLabel } from "@/components/share/Contribute";
 
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
@@ -41,6 +41,33 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
     const rows = list.map((o) => ({ ...o, id: o.id, status: o.status, interpretation: o.interpretation, unit: o.unit, type_id: code } as unknown as ObservationRow));
     return { code, ty, list, series: buildSeries(ty, rows), cat: s(f.category), group: s(f.lab_group) };
   });
+
+  // the clinician adds where the information belongs: each "add" form sits in its section, the tooth forms in the panel of
+  // the chosen tooth; what has no section on this page gathers in "other additions"
+  const dentition = dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent";
+  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} /> : null);
+  const placed = new Set<string>();
+  const place = (table: string, shown: boolean) => { if (shown) placed.add(table); return shown; };
+  const showEnc = place("encounters", inc.has("encounters"));
+  const showCond = place("conditions", inc.has("other_conditions"));
+  const showProc = place("procedures", inc.has("procedures"));
+  const showImg = place("imaging_studies", inc.has("imaging") && ((b.imaging ?? []).length > 0 || canAdd(contrib, "imaging_studies")));
+  const showNotes = place("clinical_notes", inc.has("notes") && ((b.notes ?? []).length > 0 || canAdd(contrib, "clinical_notes")));
+  const showDocs = place("medical_documents", inc.has("documents"));
+  if (dental) placed.add("dental_exams");
+  const others = (contrib?.modules ?? []).filter((m) => !placed.has(m) && canAdd(contrib, m));
+  const toothAdd: ToothAddForm[] = contrib && dental ? ([
+    canAdd(contrib, "conditions") && { id: "ctooth-dx", label: t("تشخيص لهذا السن", "A diagnosis for this tooth"), node: (
+      <ContribForm token={token} st={contrib} table="conditions" formId="ctooth-dx" fixed={{ category: "diagnosis" }} external={["teeth"]}
+        pick={["name", "clinical_status", "certainty", "evidence", "onset_date", "notes"]} defaults={{ certainty: "confirmed" }}
+        suggest={{ name: DENTAL_DIAGNOSES.map((x) => (lang === "ar" ? x.ar : x.en)) }} submitLabel={t("إضافة التشخيص", "Add the diagnosis")} />) },
+    canAdd(contrib, "procedures") && { id: "ctooth-px", label: t("إجراء على هذا السن", "A procedure on this tooth"), node: (
+      <ContribForm token={token} st={contrib} table="procedures" formId="ctooth-px" fixed={{ kind: "dental" }} external={["teeth"]}
+        pick={["name", "performed_on", "outcome", "notes"]} submitLabel={t("إضافة الإجراء", "Add the procedure")} />) },
+    canAdd(contrib, "imaging_studies") && { id: "ctooth-img", label: t("صورة أو أشعة لهذا السن", "An image or X-ray of this tooth"), node: (
+      <ContribForm token={token} st={contrib} table="imaging_studies" formId="ctooth-img" external={["teeth"]} defaults={{ modality: "dental_xray" }}
+        pick={["modality", "performed_on", "findings", "impression"]} submitLabel={t("إضافة الصورة", "Add the image")} />) },
+  ] as (ToothAddForm | false)[]).filter((x): x is ToothAddForm => Boolean(x)) : [];
 
   return (
     <div className="stack">
@@ -91,6 +118,32 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
         <Card title={t("جهات الطوارئ", "Emergency contacts")}>{(b.emergency_contacts ?? []).map((c, i) => <div key={i}>{s(c.full_name)} {c.relation ? `(${s(c.relation)})` : ""} <span className="ltr">{s(c.phone)}</span></div>)}</Card>
       )}
 
+      {contrib && <ContributorCard token={token} st={contrib} uploaded={uploaded} uploadError={uploadError} />}
+
+      {dental && (
+        <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{canAdd(contrib, "conditions") || canAdd(contrib, "procedures") ? t("اختر سناً لعرض تاريخه وصوره، وللإضافة إليه مباشرة.", "Choose a tooth to see its history and images, and to add to it directly.") : t("اختر سناً لعرض تاريخه وصوره.", "Choose a tooth to see its history and images.")}</p>
+          <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
+            diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
+            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} />
+          {canAdd(contrib, "dental_exams") && <div style={{ marginBlockStart: ".75rem" }}>{add("dental_exams")}</div>}
+          {dental.diagnoses.some((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence")) && (<>
+            <h3>{t("مشكلات سنية بلا سن محدد", "Dental problems without a tooth")}</h3>
+            <ul>{dental.diagnoses.filter((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence"))
+              .map((x) => <li key={x.id}>{x.name} <Chip tone="muted">{lbl(CLINICAL_STATUS, x.clinical_status, lang)}</Chip></li>)}</ul>
+          </>)}
+          {dental.exams.length > 0 && (<>
+            <h3>{t("الفحوص", "Exams")}</h3>
+            {dental.exams.map((e) => (
+              <div className="row between" key={e.id}><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}
+                {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
+                <span className="muted small">{d(e.exam_date)}</span></div>
+            ))}
+          </>)}
+        </Card>
+      )}
+
+
       {inc.has("observations") && (
         <Card title={t("القياسات والتحاليل عبر الزمن", "Measurements & lab results over time")}>
           {obs.length === 0 ? <Empty>{t("لا توجد قياسات ضمن النطاق.", "No measurements in scope.")}</Empty> : (
@@ -127,31 +180,34 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
         </Card>
       )}
 
-      {inc.has("encounters") && (
-        <Card title={t("الزيارات", "Visits")}>
+      {showEnc && (
+        <Card title={t("الزيارات", "Visits")} id="sec-encounters">
+          {add("encounters")}
           {(b.encounters ?? []).length === 0 ? <Empty>{t("لا زيارات ضمن النطاق.", "No visits in scope.")}</Empty> : (b.encounters ?? []).map((e, i) => (
             <article className="rec" key={i}><div className="row between"><span className="row"><span className="rec-title">{lbl(ENCOUNTER_KIND, s(e.kind), lang)}{e.reason ? ` — ${s(e.reason)}` : ""}</span>{spec(e.specialty_id) && <Chip tone="info">{spec(e.specialty_id)}</Chip>}</span><span className="muted small">{dt(e.started_at)}</span></div>
               <KV items={[[t("الطبيب", "Practitioner"), s(e.practitioner_name)], [t("المنشأة", "Facility"), s(e.facility_name)], [t("الأعراض", "Symptoms"), s(e.symptoms)], [t("الفحص", "Examination"), s(e.examination)], [t("التقييم", "Assessment"), s(e.assessment)], [t("الخطة", "Plan"), s(e.plan)], [t("الملخص", "Summary"), s(e.summary)], [t("ملخص الخروج", "Discharge"), s(e.discharge_summary)]]} /></article>))}
         </Card>
       )}
 
-      {inc.has("other_conditions") && (
-        <Card title={t("التشخيصات والحالات الأخرى", "Other diagnoses & conditions")}>
+      {showCond && (
+        <Card title={t("التشخيصات والحالات الأخرى", "Other diagnoses & conditions")} id="sec-conditions">
+          {add("conditions")}
           {(b.other_conditions ?? []).length === 0 ? <Empty>{t("لا شيء ضمن النطاق.", "Nothing in scope.")}</Empty> : (b.other_conditions ?? []).map((c, i) => (
             <div key={i} className="rec row between"><span><strong>{s(c.name)}</strong> <Chip tone={c.certainty === "confirmed" ? "ok" : "muted"}>{lbl(CERTAINTY, s(c.certainty), lang)}</Chip> <span className="muted small">{lbl(CLINICAL_STATUS, s(c.clinical_status), lang)}{spec(c.specialty_id) ? ` · ${spec(c.specialty_id)}` : ""}</span></span><span className="muted small">{d(c.onset_date, c.date_precision)}</span></div>))}
         </Card>
       )}
 
-      {inc.has("procedures") && (
-        <Card title={t("العمليات والإجراءات", "Procedures & surgeries")}>
+      {showProc && (
+        <Card title={t("العمليات والإجراءات", "Procedures & surgeries")} id="sec-procedures">
+          {add("procedures")}
           {(b.procedures ?? []).length === 0 ? <Empty>{t("لا شيء ضمن النطاق.", "Nothing in scope.")}</Empty> : (b.procedures ?? []).map((x, i) => (
             <article className="rec" key={i}><div className="row between"><span className="rec-title">{s(x.name)} <Chip tone="muted">{lbl(PROCEDURE_KIND, s(x.kind), lang)}</Chip>{x.body_site ? <Chip tone="muted">{s(x.body_site)}</Chip> : null}</span><span className="muted small">{d(x.performed_on, x.date_precision)}</span></div>
               <KV items={[[t("المنفّذ", "Operator"), s(x.operator_name)], [t("الدافع", "Indication"), s(x.indication)], [t("النتيجة", "Outcome"), s(x.outcome)], [t("المضاعفات", "Complications"), s(x.complications)], [t("ملاحظات", "Notes"), s(x.notes)]]} /></article>))}
         </Card>
       )}
 
-      {inc.has("imaging") && (b.imaging ?? []).length > 0 && (
-        <Card title={t("الأشعة والتصوير", "Imaging")}>{(b.imaging ?? []).map((x, i) => (
+      {showImg && (
+        <Card title={t("الأشعة والتصوير", "Imaging")} id="sec-imaging">{add("imaging_studies")}{(b.imaging ?? []).map((x, i) => (
           <article className="rec" key={i}><div className="row between"><span className="rec-title">{lbl(IMAGING_MODALITY, s(x.modality), lang)} {s(x.body_site)}</span><span className="muted small">{d(x.performed_on, x.date_precision)}</span></div>
             <KV items={[[t("الموجودات", "Findings"), s(x.findings)], [t("الخلاصة", "Impression"), s(x.impression)]]} /></article>))}</Card>
       )}
@@ -171,8 +227,8 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           <article className="rec" key={i}><span className="rec-title">{s(x.title)}</span> <Chip tone="muted">{lbl(CARE_PLAN_STATUS, s(x.status), lang)}</Chip><KV items={[[t("الأهداف", "Goals"), s(x.goals)], [t("التعليمات", "Instructions"), s(x.instructions)]]} /></article>))}</Card>
       )}
 
-      {inc.has("notes") && (b.notes ?? []).length > 0 && (
-        <Card title={t("الملاحظات السريرية", "Clinical notes")}>{(b.notes ?? []).map((x, i) => (
+      {showNotes && (
+        <Card title={t("الملاحظات السريرية", "Clinical notes")} id="sec-notes">{add("clinical_notes")}{(b.notes ?? []).map((x, i) => (
           <article className="rec" key={i}><div className="row between"><strong>{s(x.title)}</strong><span className="muted small">{dt(x.noted_at)}{x.author_name ? ` · ${s(x.author_name)}` : ""}</span></div><p className="rec-body">{s(x.body)}</p></article>))}</Card>
       )}
 
@@ -186,8 +242,9 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           <div key={i}>{lbl(FAMILY_RELATION, s(x.relation), lang)}: <strong>{s(x.condition_name)}</strong>{x.age_at_onset != null ? <span className="muted small"> · {t("بدأ بعمر", "onset at")} {s(x.age_at_onset)}</span> : null}</div>))}</Card>
       )}
 
-      {inc.has("documents") && (
-        <Card title={t("المستندات والتقارير", "Documents & reports")}>
+      {showDocs && (
+        <Card title={t("المستندات والتقارير", "Documents & reports")} id="sec-documents">
+          {add("medical_documents")}
           {(b.documents ?? []).length === 0 ? <Empty>{t("لا مستندات ضمن النطاق.", "No documents in scope.")}</Empty> : (b.documents ?? []).map((x, i) => (
             <div className="rec row between" key={i}>
               <span className="row"><FileText size={16} aria-hidden="true" /><a href={`/s/${token}/doc/${s(x.id)}`} target="_blank" rel="noopener noreferrer"><strong>{s(x.title)}</strong></a><Chip tone="info">{lbl(DOC_TYPE, s(x.doc_type), lang)}</Chip>{spec(x.specialty_id) && <Chip tone="muted">{spec(x.specialty_id)}</Chip>}</span>
@@ -195,29 +252,14 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
         </Card>
       )}
 
-      {dental && (
-        <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
-          <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
-            diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
-            procedures={dental.procedures ?? []} images={dental.imaging ?? []} />
-          {dental.diagnoses.some((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence")) && (<>
-            <h3>{t("مشكلات سنية بلا سن محدد", "Dental problems without a tooth")}</h3>
-            <ul>{dental.diagnoses.filter((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence"))
-              .map((x) => <li key={x.id}>{x.name} <Chip tone="muted">{lbl(CLINICAL_STATUS, x.clinical_status, lang)}</Chip></li>)}</ul>
-          </>)}
-          {dental.exams.length > 0 && (<>
-            <h3>{t("الفحوص", "Exams")}</h3>
-            {dental.exams.map((e) => (
-              <div className="row between" key={e.id}><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}
-                {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
-                <span className="muted small">{d(e.exam_date)}</span></div>
-            ))}
-          </>)}
+      {others.length > 0 && contrib && (
+        <Card title={t("إضافات أخرى", "Other additions")} id="contrib-others">
+          <p className="small muted">{t("ما سمح لك المريض بإضافته وليس له قسم في هذه الصفحة.", "What the patient allowed you to add that has no section on this page.")} {others.map((m) => <Chip key={m} tone="muted">{contribLabel(m, lang)}</Chip>)}</p>
+          {others.map((m) => <div key={m}>{add(m)}</div>)}
         </Card>
       )}
 
-      {contrib && <ContributePanel token={token} st={contrib} uploaded={uploaded} uploadError={uploadError}
-        dentition={dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent"} />}
+      {contrib && <ContribSummary token={token} st={contrib} />}
 
       {b.meta.allow_notes && (
         <Card title={t("ملاحظة للمريض", "Leave a note for the patient")}>

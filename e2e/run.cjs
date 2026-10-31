@@ -102,8 +102,10 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.selectOption("#blood_rh", "+");
     await page.fill("#phone", "+966500000001");
     await submit(page, "Create file");
-    await page.waitForURL(/\/patients\/[0-9a-f-]{36}$/);
-    pid = page.url().split("/").pop();
+    // a new file opens on its core file
+    await page.waitForURL(/\/patients\/[0-9a-f-]{36}\/profile\?new=1$/);
+    pid = page.url().split("/")[4];
+    await page.getByText("The file was created. Complete the core file now").waitFor();
     await page.getByText("Allergy status unknown").waitFor();
     assert(await page.getByRole("heading", { name: "Alice Alpha" }).count(), "name shown");
     assert((await page.getByText(/^SH-\d{8}/).count()) > 0, "MRN shown");
@@ -117,11 +119,11 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText(/same name and birth date/).waitFor();
   });
 
-  await step("personal details: allergy statement, national id masked, contacts", async () => {
+  await step("core file: allergy statement, national id masked, contacts", async () => {
     await page.goto(`${BASE}/patients/${pid}/profile`);
     await page.selectOption("#allergy_assertion", "none_known");
-    await submit(page, "Save");
-    await page.getByText("Saved.").first().waitFor();
+    await page.locator("form:has(#allergy_assertion)").getByRole("button", { name: "Save" }).click();
+    await page.locator("form:has(#allergy_assertion)").getByText("Saved.").waitFor();
     await page.fill('input[name="id_value"]', "1098765432");
     await page.locator('form:has(input[name="id_value"])').getByRole("button", { name: "Save" }).click();
     await page.getByText("••••••5432").waitFor();
@@ -145,7 +147,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Documented allergies").waitFor();
     await page.goto(`${BASE}/patients/${pid}/profile`);
     await page.selectOption("#allergy_assertion", "none_known");
-    await submit(page, "Save");
+    await page.locator("form:has(#allergy_assertion)").getByRole("button", { name: "Save" }).click();
     await page.getByText(/Active allergies are recorded/).waitFor();
   });
 
@@ -327,7 +329,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
 
   await step("specialty page: shared context; dentistry links to the dental file", async () => {
     await page.goto(`${BASE}/patients/${pid}/specialties/dentistry`);
-    await page.getByText("Shared health context").waitFor();
+    await page.getByText("Health context (from the core file)").waitFor();
     await page.getByText("Penicillin").first().waitFor();
     await page.getByText("Hypertension").first().waitFor();
     assert((await page.locator("summary", { hasText: "Dental finding / treatment" }).count()) === 0, "the retired free-text dental form is gone");
@@ -541,9 +543,47 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert((await page.locator("table.t tbody tr").count()) >= 10, "audit rows present");
   });
 
+  await step("core file: height and weight become readings, devices, lifestyle, 'none known', completeness; the context reaches the dental file", async () => {
+    await page.goto(`${BASE}/patients/${pid}/profile`);
+    await page.locator("#completeness").getByText(/core items are missing/).waitFor();
+    await page.fill("#height_cm", "165");
+    await page.fill("#weight_kg", "62.5");
+    await page.locator("form:has(#height_cm)").getByRole("button", { name: "Save" }).click();
+    await page.getByText("Saved, and recorded under vitals.").waitFor();
+    await page.locator("#body").getByText("165 cm").waitFor();
+    // a device in place
+    await page.locator("#devices summary", { hasText: "Add a device or implant" }).click();
+    await page.selectOption("#devices_new_kind", "prosthetic_heart_valve");
+    await page.fill("#devices_new_name", "Mechanical aortic valve");
+    await page.locator("form:has(#devices_new_name)").getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#devices").getByText("Mechanical aortic valve").waitFor();
+    // "no long-term medications" cannot be confused with an empty list
+    await page.locator("#medications").getByText("An empty list does not mean “none” until you confirm it.").waitFor();
+    // lifestyle: a current smoker with amounts; not pregnant
+    await page.selectOption("#hp_tobacco_status", "current");
+    await page.locator('#lifestyle input[name="tobacco_types"][value="cigarettes"]').check();
+    await page.fill("#hp_cpd", "10");
+    await page.fill("#hp_start", "2010");
+    await page.selectOption("#hp_pregnancy_status", "not_pregnant");
+    await page.locator("form:has(#hp_tobacco_status)").getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#lifestyle").getByText("Saved.").waitFor();
+    // the reading is in vitals too (one source)
+    await page.goto(`${BASE}/patients/${pid}/vitals?type=weight`);
+    await page.getByText("62.5").first().waitFor();
+    // the context in the dental file, with the dentistry reminders
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const ctxBox = page.locator("section.ctx");
+    await ctxBox.getByText("Prosthetic heart valve: endocarditis prophylaxis").waitFor();
+    await ctxBox.getByText(/Smoker: slower healing/).waitFor();
+    await ctxBox.getByText(/pack-years/).waitFor();
+    await ctxBox.getByText("Penicillin", { exact: true }).waitFor();
+    await ctxBox.getByText(/Penicillin allergy: choose an alternative antibiotic/).waitFor();
+    await page.screenshot({ path: path.join(OUT, "core-context-dental.png"), fullPage: true });
+  });
+
   await step("dashboard summarises vitals, medications, conditions and alerts", async () => {
     await page.goto(`${BASE}/patients/${pid}`);
-    await page.getByText("Current medications").waitFor();
+    await page.getByText("Health context (from the core file)").waitFor();
     await page.getByText(/Metformin/).first().waitFor();
     await page.getByText("Hypertension").first().waitFor();
     await page.getByText("Blood pressure").first().waitFor();
@@ -587,8 +627,10 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await doc.getByRole("button", { name: "Open file" }).click();
     await doc.waitForURL(/\/view$/);
     const html = await doc.content();
-    await doc.getByText("Documented allergies").waitFor();
+    await doc.getByText("Health context & safety information").waitFor();
+    await doc.getByText(/Prosthetic heart valve: endocarditis prophylaxis/).waitFor();       // the dentistry reminder, from the core file
     assert(html.includes("Penicillin") && html.includes("Hypertension") && html.includes("Metformin"), "safety core present");
+    assert(html.includes("Mechanical aortic valve") && html.includes("165 cm"), "devices and body measurements reach the doctor");
     assert(html.includes("Dental check") && html.includes("Dental caries"), "dentistry data present");
     assert(!html.includes("Cardio follow-up") && !html.includes("Cardio report"), "cardiology data absent");
     assert(!html.includes("1098765432"), "national id never shared");
@@ -827,8 +869,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/new`);
     await page.fill("#full_name", name); await page.fill("#date_of_birth", dob); await page.selectOption("#sex", sex);
     await submit(page, "Create file");
-    await page.waitForURL(/\/patients\/[0-9a-f-]{36}$/);
-    return page.url().split("/").pop();
+    await page.waitForURL(/\/patients\/[0-9a-f-]{36}\/profile\?new=1$/);
+    return page.url().split("/")[4];
   };
 
   await step("account: basic details saved; picture uploaded, shown in the menu, non-images refused, removable", async () => {
@@ -947,7 +989,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
     await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
     const mp = await m.newPage(); watch(mp, "mobile");
-    for (const p of ["", "/vitals", "/labs", "/specialties", "/dental", "/sharing/new", "/documents", "/timeline"]) {
+    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/sharing/new", "/documents", "/timeline"]) {
       const r = await mp.goto(`${BASE}/patients/${pid}${p}`);
       assert(r.status() === 200, `${p} => ${r.status()}`);
       assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");

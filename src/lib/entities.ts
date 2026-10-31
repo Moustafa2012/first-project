@@ -128,6 +128,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     chipsOf: (r, lang) => [
       { tone: tone(s(r, "status"), { active: "ok", on_hold: "warn" }), text: L.lbl(L.MED_STATUS, s(r, "status"), lang) },
       { tone: "info", text: L.lbl(L.MED_ORIGIN, s(r, "origin"), lang) },
+      ...(r.long_term ? [{ tone: "info" as const, text: lang === "ar" ? "دواء دائم" : "Long-term" }] : []),
       ...(r.as_needed ? [{ tone: "muted" as const, text: lang === "ar" ? "عند الحاجة" : "As needed" }] : []),
       ...(r.sensitive ? [{ tone: "warn" as const, text: lang === "ar" ? "حساس" : "Sensitive" }] : []),
     ],
@@ -139,6 +140,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("dose", "الجرعة", "Dose", "text", { maxLength: 100 }),
       f("route", "طريق الإعطاء", "Route", "select", { options: L.MED_ROUTE }),
       f("frequency", "التكرار", "Frequency", "text", { maxLength: 100 }),
+      f("long_term", "دواء دائم (يُؤخذ باستمرار)", "Long-term (taken continuously)", "checkbox"),
       f("as_needed", "عند الحاجة فقط", "Only when needed", "checkbox"),
       f("origin", "مصدر المعلومة", "How we know", "select", { options: L.MED_ORIGIN, dflt: "patient_reported" }),
       f("status", "الحالة", "Status", "select", { options: L.MED_STATUS, dflt: "active", hint: ["لا تُعد الأدوية القديمة فعّالة: غيّر الحالة عند إيقافها.", "Old medications are not assumed active — change the status when stopped."] }),
@@ -320,6 +322,28 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
     ],
   },
+  devices: {
+    slug: "devices", table: "patient_devices", ar: "الأجهزة والزرعات", en: "Devices & implants", singular: { ar: "جهاز أو زرعة", en: "device or implant" },
+    order: ["implanted_on", "desc"], hasSpecialty: true, bodyField: "notes", dateOf: (r) => (r.implanted_on as string) ?? null, datePrecision: PREC,
+    dupKey: (r) => `${s(r, "kind")}|${n(r, "name")}|${n(r, "body_site")}`,
+    titleOf: (r, lang) => [L.lbl(L.DEVICE_KIND, s(r, "kind"), lang), s(r, "name")].filter(Boolean).join(" — "),
+    chipsOf: (r, lang) => [
+      { tone: s(r, "status") === "in_place" ? "info" : "muted", text: L.lbl(L.DEVICE_STATUS, s(r, "status"), lang) },
+      ...(r.mri_safety && r.mri_safety !== "unknown" ? [{ tone: (r.mri_safety === "unsafe" ? "bad" : r.mri_safety === "conditional" ? "warn" : "ok") as Chip["tone"], text: `MRI: ${L.lbl(L.MRI_SAFETY, s(r, "mri_safety"), lang)}` }] : []),
+    ],
+    fields: [
+      f("kind", "النوع", "Kind", "select", { options: L.DEVICE_KIND, dflt: "other" }),
+      f("name", "الوصف", "Description", "text", { maxLength: 200, hint: ["مثال: صمام أبهري ميكانيكي، مفصل ورك أيمن.", "e.g. mechanical aortic valve, right hip replacement."] }),
+      f("body_site", "الموضع", "Body site", "text", { maxLength: 200 }),
+      f("implanted_on", "تاريخ الزرع", "Implanted on", "date", { precision: PREC, hint: partialDate }),
+      f("status", "الحالة", "Status", "select", { options: L.DEVICE_STATUS, dflt: "in_place" }),
+      f("removed_on", "تاريخ الإزالة", "Removed on", "date"),
+      f("mri_safety", "الأمان في الرنين المغناطيسي", "MRI safety", "select", { options: L.MRI_SAFETY, dflt: "unknown" }),
+      f("manufacturer", "الشركة / الطراز", "Manufacturer / model", "text", { maxLength: 200 }),
+      spec,
+      f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
+    ],
+  },
   // invalidation only: the payload of these records is rendered/edited by the specialty page
   "specialty-records": {
     slug: "specialty-records", table: "specialty_records", ar: "سجلات التخصص", en: "Specialty records", singular: { ar: "سجل", en: "record" },
@@ -341,6 +365,7 @@ const NOT_NULL_SELECTS: Record<string, string[]> = {
   "care-plans": ["status"],
   notes: ["kind"],
   "test-orders": ["kind", "priority", "status"],
+  devices: ["kind", "status", "mri_safety"],
 };
 for (const [slug, names] of Object.entries(NOT_NULL_SELECTS)) {
   for (const fld of ENTITIES[slug].fields) if (names.includes(fld.name)) fld.required = true;

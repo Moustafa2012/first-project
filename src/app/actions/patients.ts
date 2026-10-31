@@ -35,7 +35,7 @@ export async function createPatient(_: FormState, fd: FormData): Promise<FormSta
   });
   if (error) return { error: explainError(error, t) };
   revalidatePath("/patients");
-  return { ok: true, redirectTo: `/patients/${data as string}` };
+  return { ok: true, redirectTo: `/patients/${data as string}/profile?new=1` };
 }
 
 export async function updatePatient(_: FormState, fd: FormData): Promise<FormState> {
@@ -48,9 +48,10 @@ export async function updatePatient(_: FormState, fd: FormData): Promise<FormSta
   const sex = str(fd, "sex");
   const abo = str(fd, "blood_abo");
   const rh = str(fd, "blood_rh");
-  const assertion = str(fd, "allergy_assertion");
+  // the allergy statement has its own form in the core file; this form may leave it out
+  const assertion = fd.has("allergy_assertion") ? str(fd, "allergy_assertion") : null;
   if (name.length < 2 || !DATE_RE.test(dob)) return { error: t("الاسم وتاريخ الميلاد مطلوبان.", "Name and date of birth are required.") };
-  if (!oneOf(sex, SEX) || (abo && !oneOf(abo, ABO)) || (rh && !oneOf(rh, RH)) || !oneOf(assertion, ALLERGY_ASSERTION)) return { error: t("بيانات غير صالحة.", "Invalid data.") };
+  if (!oneOf(sex, SEX) || (abo && !oneOf(abo, ABO)) || (rh && !oneOf(rh, RH)) || (assertion !== null && !oneOf(assertion, ALLERGY_ASSERTION))) return { error: t("بيانات غير صالحة.", "Invalid data.") };
 
   const supabase = createClient();
   if (assertion === "none_known") {
@@ -64,7 +65,7 @@ export async function updatePatient(_: FormState, fd: FormData): Promise<FormSta
     blood_group_verified: fd.get("blood_group_verified") === "on",
     phone: str(fd, "phone", 40) || null, email: str(fd, "email") || null,
     address_line: str(fd, "address_line", 300) || null, city: str(fd, "city", 100) || null, country: str(fd, "country", 100) || null,
-    allergy_assertion: assertion,
+    ...(assertion !== null ? { allergy_assertion: assertion } : {}),
   }).eq("id", pid).select("id");
   if (error) return { error: explainError(error, t) };
   if (!data?.length) return { error: t("لا تملك صلاحية التعديل.", "You may not edit this file.") };

@@ -7,6 +7,8 @@ import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
 import type { Bundle, ShareDental } from "@/lib/share-types";
 import { DentalChart } from "@/components/dental/DentalChart";
+import { ClinicalContext } from "@/components/ClinicalContext";
+import type { ClinicalContextData } from "@/lib/clinical-context";
 import { chartDentition, EXAM_KIND } from "@/lib/dental";
 import { localDate } from "@/lib/format";
 import type { ObservationRow, ObservationType } from "@/lib/types";
@@ -20,7 +22,7 @@ import { ContributePanel } from "@/components/share/ContributePanel";
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, dental, uploaded, uploadError }: { b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; uploaded?: boolean; uploadError?: string }) {
+export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError }: { b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const inc = new Set(b.meta.include);
@@ -66,7 +68,8 @@ export function ShareViewer({ b, token, contrib, dental, uploaded, uploadError }
         </p>
       </section>
 
-      <section className="card" aria-label={t("معلومات السلامة", "Safety information")}>
+      {ctx ? <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={ctx.specialties ?? "all"} title={t("السياق الصحي ومعلومات السلامة", "Health context & safety information")} /> : (
+        <section className="card" aria-label={t("معلومات السلامة", "Safety information")}>
         <h2>{t("معلومات السلامة", "Safety information")}</h2>
         {b.allergies.length > 0 ? (
           <div className="banner bad" role="alert"><TriangleAlert size={18} aria-hidden="true" style={{ flex: "none", marginBlockStart: 3 }} />
@@ -82,6 +85,7 @@ export function ShareViewer({ b, token, contrib, dental, uploaded, uploadError }
               <div key={i}><strong>{[s(m.name_generic), m.name_brand && `(${s(m.name_brand)})`, s(m.strength)].filter(Boolean).join(" ")}</strong> <span className="muted small">{[s(m.dose), s(m.frequency), s(m.route)].filter(Boolean).join(" · ")} · {lbl(MED_ORIGIN, s(m.origin), lang)}{m.indication ? ` · ${s(m.indication)}` : ""}</span></div>))}</div>
         </div>
       </section>
+      )}
 
       {inc.has("contact") && (b.emergency_contacts ?? []).length > 0 && (
         <Card title={t("جهات الطوارئ", "Emergency contacts")}>{(b.emergency_contacts ?? []).map((c, i) => <div key={i}>{s(c.full_name)} {c.relation ? `(${s(c.relation)})` : ""} <span className="ltr">{s(c.phone)}</span></div>)}</Card>

@@ -10,7 +10,7 @@ import { Card, Chip } from "@/components/ui";
 
 const CODES = ["weight", "height", "creatinine", "glucose_fasting_lab", "insulin"];
 
-const BMI_LABEL: Record<BmiClass, [string, string, "ok" | "warn" | "bad" | "muted"]> = {
+export const BMI_LABEL: Record<BmiClass, [string, string, "ok" | "warn" | "bad" | "muted"]> = {
   underweight: ["نقص وزن", "Underweight", "warn"], normal: ["وزن طبيعي", "Normal weight", "ok"], overweight: ["وزن زائد", "Overweight", "warn"],
   obese1: ["سمنة درجة 1", "Obesity class I", "bad"], obese2: ["سمنة درجة 2", "Obesity class II", "bad"], obese3: ["سمنة درجة 3", "Obesity class III", "bad"],
 };

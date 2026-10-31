@@ -6,6 +6,7 @@ import { i18n } from "@/lib/i18n";
 import { buildShareReport } from "@/lib/pdf/reports";
 import { pdfResponse } from "@/lib/pdf/respond";
 import type { Bundle } from "@/lib/share-types";
+import type { ClinicalContextData } from "@/lib/clinical-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,9 @@ export async function GET(request: NextRequest, { params }: { params: { token: s
   if (!bundle.meta.allow_print) return new NextResponse("Printing is not permitted for this share", { status: 403, headers: { "Cache-Control": "no-store" } });
   try {
     const { lang } = i18n();
-    const { meta, blocks, filename } = buildShareReport(bundle, { lang, tz: getTz() });
+    const { data: context } = await createAdminClient().rpc("share_context", { p_session_token: session });
+    const ctx = context as (ClinicalContextData & { status: string; specialties: string[] | null }) | null;
+    const { meta, blocks, filename } = buildShareReport(bundle, { lang, tz: getTz(), ctx: ctx?.status === "ok" ? ctx : null });
     return await pdfResponse(meta, blocks, filename, {}, request.nextUrl.searchParams.get("dl") === "1");
   } catch (e) {
     console.error("[pdf-error]", String((e as Error)?.message ?? e).slice(0, 300));

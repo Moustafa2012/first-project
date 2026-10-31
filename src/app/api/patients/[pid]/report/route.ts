@@ -6,6 +6,7 @@ import { UUID_RE } from "@/lib/uuid";
 import { getTz } from "@/lib/auth";
 import { i18n } from "@/lib/i18n";
 import { buildPatientReport, type ReportScope } from "@/lib/pdf/reports";
+import { getClinicalContext } from "@/lib/clinical-context-server";
 import { pdfResponse } from "@/lib/pdf/respond";
 import type { PatientRow } from "@/lib/types";
 
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest, { params }: { params: { pid: str
   try {
     const { meta, blocks, filename } = await buildPatientReport(supabase, p as PatientRow, {
       lang, tz: getTz(), scope, typeCode, range: q.get("range") ?? undefined, from: date(q.get("from")), to: date(q.get("to")), types: await getObsTypes(),
+      ctx: scope === "summary" || scope === "full" ? await getClinicalContext((p as PatientRow).id) : undefined,
     });
     return await pdfResponse(meta, blocks, filename, {}, q.get("dl") === "1");
   } catch (e) {

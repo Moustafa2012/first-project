@@ -11,6 +11,8 @@ import { forSex } from "@/lib/sex";
 import type { Bundle } from "@/lib/share-types";
 import type { ObservationRow, ObservationType, PatientRow } from "@/lib/types";
 import type { Block, Cell, ReportMeta } from "@/lib/pdf/engine";
+import { bodyMetrics, contextPackYears, matchHighlights, type ClinicalContextData } from "@/lib/clinical-context";
+import { ALCOHOL_STATUS, DEVICE_KIND, PREGNANCY_STATUS, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
 
 type Lang = "ar" | "en";
 type R = Record<string, unknown>;
@@ -24,6 +26,32 @@ const interpCell = (v: string, lang: Lang): Cell => {
 };
 const valueOf = (o: { value_kind?: unknown; value_num?: unknown; value_num2?: unknown; value_text?: unknown }) =>
   o.value_kind === "bp" ? `${num(o.value_num)}/${num(o.value_num2)}` : s(o.value_num != null ? num(o.value_num) : o.value_text);
+
+/** The core context (body, blood, devices, lifestyle, pregnancy) and the specialty reminders, as report blocks. */
+function contextBlocks(ctx: ClinicalContextData, lang: Lang, codes: string[] | "all" | null): Block[] {
+  const t = tx(lang);
+  const out: Block[] = [];
+  for (const h of codes ? matchHighlights(ctx, codes) : []) {
+    out.push({ t: "alert", tone: h.level === "info" ? "info" : h.level, text: `${lang === "ar" ? h.message_ar : h.message_en} (${t("بسبب", "because of")}: ${h.because.join(lang === "ar" ? "، " : ", ")})` });
+  }
+  const { cm, kg, bmi } = bodyMetrics(ctx.body);
+  const l = ctx.lifestyle;
+  const py = contextPackYears(l);
+  const rows: [string, string][] = [
+    [t("فصيلة الدم", "Blood group"), ctx.patient.blood_abo ? `${ctx.patient.blood_abo}${ctx.patient.blood_rh ?? ""}${ctx.patient.blood_group_verified ? "" : ` (${t("غير موثقة", "unverified")})`}` : t("غير مسجلة", "Not recorded")],
+    [t("الطول / الوزن / BMI", "Height / weight / BMI"), [cm ? `${Math.round(cm)} cm` : "—", kg ? `${kg.toFixed(1)} kg` : "—", bmi ? bmi.toFixed(1) : "—"].join("  ·  ")],
+    [t("التدخين", "Tobacco"), !l || l.tobacco_status === "unknown" ? t("غير محدد", "Not stated") : [lbl(TOBACCO_STATUS, l.tobacco_status, lang),
+      l.tobacco_types.map((x) => lbl(TOBACCO_TYPE, x, lang)).join(lang === "ar" ? "، " : ", "), py ? t(`${py.toFixed(1)} علبة-سنة`, `${py.toFixed(1)} pack-years`) : ""].filter(Boolean).join(" · ")],
+  ];
+  if (l?.alcohol_status && l.alcohol_status !== "unknown") rows.push([t("الكحول", "Alcohol"), lbl(ALCOHOL_STATUS, l.alcohol_status, lang)]);
+  if (ctx.patient.sex !== "male" && l?.pregnancy_status && l.pregnancy_status !== "unknown") {
+    rows.push([t("الحمل", "Pregnancy"), `${lbl(PREGNANCY_STATUS, l.pregnancy_status, lang)}${l.pregnancy_edd ? ` · ${l.pregnancy_edd}` : ""}${l.breastfeeding ? ` · ${t("ترضع", "breastfeeding")}` : ""}`]);
+  }
+  rows.push([t("الأجهزة والزرعات", "Devices & implants"), ctx.devices.length ? ctx.devices.map((d) => `${lbl(DEVICE_KIND, d.kind, lang)}${d.name ? ` — ${d.name}` : ""}`).join(lang === "ar" ? "، " : ", ")
+    : l?.none_devices ? t("لا يوجد (إقرار مسجل)", "None (recorded statement)") : t("غير مسجل", "Not recorded")]);
+  out.push({ t: "kv", rows });
+  return out;
+}
 
 const SAFETY_NOTE = (lang: Lang) => tx(lang)(
   "أداة لتنظيم المعلومات الصحية؛ لا تقدّم تشخيصاً ولا علاجاً. التصنيفات مؤشرات فحص عامة تستدعي تقييم مختص.",
@@ -66,6 +94,7 @@ export type ReportScope = "summary" | "vitals" | "labs" | "full";
 
 export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow, o: {
   lang: Lang; tz: string; scope: ReportScope; typeCode?: string; range?: string; from?: string; to?: string; types: ObservationType[];
+  ctx?: ClinicalContextData;
 }): Promise<{ meta: ReportMeta; blocks: Block[]; filename: string }> {
   const { lang, tz } = o;
   const t = tx(lang);
@@ -94,6 +123,7 @@ export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow
   if (wantSummary) {
     const al = (allergies.data ?? []) as R[];
     blocks.push({ t: "h", text: t("معلومات السلامة", "Safety information") });
+    if (o.ctx) blocks.push(...contextBlocks(o.ctx, lang, null));
     if (al.length) blocks.push({ t: "alert", tone: "bad", title: t("حساسية موثقة", "Documented allergies"), text: al.map((a) => `${s(a.substance)} — ${lbl(ALLERGY_SEVERITY, s(a.severity), lang)}${a.reaction ? ` (${s(a.reaction)})` : ""}`).join(lang === "ar" ? "،  " : ",  ") });
     else if (p.allergy_assertion === "none_known") blocks.push({ t: "alert", tone: "ok", text: t("لا توجد حساسية معروفة (إقرار مسجل).", "No known allergies (recorded statement).") });
     else blocks.push({ t: "alert", tone: "warn", title: t("حالة الحساسية غير معروفة", "Allergy status unknown"), text: t("لم تُسجَّل بعد؛ لا يعني ذلك غياب الحساسية.", "not recorded yet; this does not mean there are none.") });
@@ -190,7 +220,7 @@ export async function buildPatientReport(supabase: SupabaseClient, p: PatientRow
 }
 
 // ------------------------------------------------------------------------------------------------ a doctor's shared bundle
-export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string }): { meta: ReportMeta; blocks: Block[]; filename: string } {
+export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null }): { meta: ReportMeta; blocks: Block[]; filename: string } {
   const { lang, tz } = o;
   const t = tx(lang);
   const d = (v: unknown, prec?: unknown) => (prec ? fmtPartialDate(s(v), prec, lang, tz) : fmtDate(s(v), lang, tz));
@@ -205,6 +235,7 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string }): { me
   blocks.push({ t: "p", muted: true, text: `${t("النطاق", "Scope")}: ${b.meta.scope_kind === "specialty" ? b.meta.specialties.map((x) => (lang === "ar" ? x.name_ar : x.name_en)).join(lang === "ar" ? "، " : ", ") : b.meta.scope_kind === "full" ? t("الملف الكامل", "Whole file") : t("سجلات مختارة", "Selected records")}${b.meta.date_from || b.meta.date_to ? ` · ${b.meta.date_from ?? "…"} – ${b.meta.date_to ?? "…"}` : ""} · ${t("يتضمن", "includes")}: ${b.meta.include.map((m) => (SHARE_MODULES.find((x: Opt) => x.value === m) as Opt | undefined)?.[lang]).filter(Boolean).join(lang === "ar" ? "، " : ", ") || t("الأساسيات فقط", "essentials only")}` });
 
   sec(t("معلومات السلامة", "Safety information"));
+  if (o.ctx) blocks.push(...contextBlocks(o.ctx, lang, o.ctx.specialties ?? "all"));
   if (b.allergies.length) blocks.push({ t: "alert", tone: "bad", title: t("حساسية موثقة", "Documented allergies"), text: b.allergies.map((a) => `${s(a.substance)} — ${lbl(ALLERGY_SEVERITY, s(a.severity), lang)}${a.reaction ? ` (${s(a.reaction)})` : ""}`).join(lang === "ar" ? "،  " : ",  ") });
   else if (b.allergy_assertion === "none_known") blocks.push({ t: "alert", tone: "ok", text: t("لا توجد حساسية معروفة (إقرار المريض).", "No known allergies (patient’s statement).") });
   else blocks.push({ t: "alert", tone: "warn", title: t("حالة الحساسية غير معروفة", "Allergy status unknown"), text: t("لم يُسجَّل شيء؛ لا يعني ذلك غياب الحساسية.", "nothing recorded; this does not mean none exist.") });

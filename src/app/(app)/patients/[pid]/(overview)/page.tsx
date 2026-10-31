@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { appliesToSex, forSex } from "@/lib/sex";
-import { CalendarClock, ClipboardList, Link2, Pill } from "lucide-react";
+import { CalendarClock, ClipboardList, Link2 } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
@@ -12,6 +12,8 @@ import { Banner, Card, Chip, Empty, InterpChip } from "@/components/ui";
 import { SpecialtyIcon } from "@/components/Icon";
 import { valueText } from "@/components/observations/ObservationTable";
 import { DerivedCard } from "@/components/observations/DerivedCard";
+import { ClinicalContext } from "@/components/ClinicalContext";
+import { getClinicalContext } from "@/lib/clinical-context-server";
 
 const HIGHLIGHT = ["blood_pressure", "blood_glucose", "heart_rate", "weight", "spo2", "body_temperature"];
 
@@ -26,11 +28,10 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const active = { patient_id: p.id, record_status: "active" };
 
-  const [vit, flagged, meds, conds, appts, visits, orders, shares, notes, docsNoDate, suggested, ctrs] = await Promise.all([
+  const [ctx, vit, flagged, appts, visits, orders, shares, notes, docsNoDate, suggested, ctrs] = await Promise.all([
+    getClinicalContext(p.id),
     supabase.from("observations").select("*").eq("patient_id", p.id).in("status", ["final", "preliminary"]).in("type_id", types.filter((x) => HIGHLIGHT.includes(x.code)).map((x) => x.id)).order("effective_at", { ascending: false }).limit(300),
     supabase.from("observations").select("*").eq("patient_id", p.id).eq("status", "final").gte("effective_at", since).not("interpretation", "in", "(normal,not_assessed)").order("effective_at", { ascending: false }).limit(8),
-    supabase.from("medications").select("id, name_generic, name_brand, strength, dose, frequency, status").match(active).in("status", ["active", "on_hold"]).order("name_generic").limit(30),
-    supabase.from("conditions").select("id, name, category, clinical_status, certainty").match(active).in("clinical_status", ["active", "recurrence", "inactive", "remission"]).in("category", ["chronic", "congenital", "genetic", "disability"]).order("name").limit(30),
     supabase.from("appointments").select("id, scheduled_at, reason, practitioner_name, specialty_id").match(active).eq("status", "scheduled").gte("scheduled_at", now).order("scheduled_at").limit(5),
     supabase.from("encounters").select("id, kind, reason, started_at, specialty_id").match(active).order("started_at", { ascending: false }).limit(3),
     supabase.from("test_orders").select("id", { count: "exact", head: true }).match(active).eq("status", "requested"),
@@ -47,8 +48,6 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   for (const o of (vit.data ?? []) as ObservationRow[]) if (!byType.has(o.type_id)) byType.set(o.type_id, o);
   const tOf = new Map(types.map((x) => [x.id, x]));
   const alerts: string[] = [];
-  if (p.allergy_assertion === "unknown") alerts.push(t("حالة الحساسية لم تُحدَّد بعد.", "Allergy status has not been stated yet."));
-  if (!p.blood_abo) alerts.push(t("فصيلة الدم غير مسجلة.", "Blood group is not recorded."));
   if ((notes as { count: number | null }).count) alerts.push(t(`${(notes as { count: number }).count} ملاحظة من طبيب بانتظار مراجعتك.`, `${(notes as { count: number }).count} doctor note(s) waiting for your review.`));
   if (docsNoDate.count) alerts.push(t(`${docsNoDate.count} مستند بلا تاريخ.`, `${docsNoDate.count} document(s) without a date.`));
   if (orders.count) alerts.push(t(`${orders.count} فحص طلبه طبيب ولم يُنجز.`, `${orders.count} test(s) ordered by a clinician not done yet.`));
@@ -79,20 +78,7 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
 
       <DerivedCard pid={p.id} compact />
 
-      <div className="grid cols-2">
-        <Card title={<><Pill size={18} aria-hidden="true" /> {t("الأدوية الحالية", "Current medications")}</>} actions={<Link href={`${base}/medications`} className="small">{t("الكل", "All")}</Link>}>
-          {(meds.data ?? []).length === 0 ? <Empty>{t("لا توجد أدوية مسجلة. هذا لا يعني أنه لا يتناول أدوية.", "No medications recorded. This does not mean none are taken.")}</Empty> : (
-            <ul style={{ margin: 0, paddingInlineStart: "1.1rem" }}>{(meds.data ?? []).map((m) => (
-              <li key={m.id}><strong>{[m.name_generic, m.name_brand && `(${m.name_brand})`, m.strength].filter(Boolean).join(" ")}</strong> <span className="muted small">{[m.dose, m.frequency].filter(Boolean).join(" · ")}</span>{m.status !== "active" && <> <Chip tone="warn">{lbl(MED_STATUS, m.status, lang)}</Chip></>}</li>
-            ))}</ul>)}
-        </Card>
-        <Card title={t("الأمراض المزمنة والخلقية", "Chronic & congenital conditions")} actions={<Link href={`${base}/conditions`} className="small">{t("الكل", "All")}</Link>}>
-          {(conds.data ?? []).length === 0 ? <Empty>{t("لا توجد حالات مسجلة.", "None recorded.")}</Empty> : (
-            <ul style={{ margin: 0, paddingInlineStart: "1.1rem" }}>{(conds.data ?? []).map((c) => (
-              <li key={c.id}><strong>{c.name}</strong> <Chip tone={c.certainty === "confirmed" ? "ok" : "muted"}>{c.certainty === "confirmed" ? t("مؤكد", "Confirmed") : t("غير مؤكد", "Unconfirmed")}</Chip> <span className="muted small">{lbl(CLINICAL_STATUS, c.clinical_status, lang)}</span></li>
-            ))}</ul>)}
-        </Card>
-      </div>
+      <ClinicalContext ctx={ctx} lang={lang} tz={tz} coreHref={`${base}/profile`} />
 
       <Card title={t("نتائج حديثة خارج المجال (آخر 30 يوماً)", "Recent out-of-range results (last 30 days)")} actions={<Link href={`${base}/labs`} className="small">{t("التحاليل", "Labs")}</Link>}>
         {(flagged.data ?? []).length === 0 ? <Empty>{t("لا توجد نتائج مُعلَّمة.", "No flagged results.")}</Empty> : (

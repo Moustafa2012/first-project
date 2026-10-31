@@ -21,7 +21,7 @@ export default async function PatientLayout({ children, params }: { children: Re
 
   const items: NavItem[] = [
     { href: base, label: t("نظرة عامة", "Overview"), short: t("الرئيسية", "Home") },
-    { href: `${base}/profile`, label: t("البيانات الشخصية", "Personal details") },
+    { href: `${base}/profile`, label: t("الملف الأساسي", "Core file") },
     { href: `${base}/timeline`, label: t("الخط الزمني", "Timeline") },
     { href: `${base}/conditions`, label: t("الأمراض والتشخيصات", "Conditions"), group: t("الملخص الصحي", "Health summary") },
     { href: `${base}/allergies`, label: t("الحساسية", "Allergies"), group: t("الملخص الصحي", "Health summary") },

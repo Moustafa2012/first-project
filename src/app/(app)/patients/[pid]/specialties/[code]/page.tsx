@@ -7,13 +7,14 @@ import { createClient } from "@/lib/supabase/server";
 import { getPatient, getSpecialties, getObsTypes, getAccess } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { ENTITIES } from "@/lib/entities";
-import { ALLERGY_SEVERITY, lbl, MED_STATUS } from "@/lib/labels";
 import type { ObservationRow } from "@/lib/types";
-import { Banner, Card, Chip, Empty, PageHead } from "@/components/ui";
+import { Banner, Card, Empty, PageHead } from "@/components/ui";
 import { SpecialtyIcon } from "@/components/Icon";
 import { EntitySection } from "@/components/EntitySection";
 import { SpecialtyRecords } from "@/components/SpecialtyRecords";
 import { ObservationTable } from "@/components/observations/ObservationTable";
+import { ClinicalContext } from "@/components/ClinicalContext";
+import { getClinicalContext } from "@/lib/clinical-context-server";
 
 const SUPPORT: Record<string, [string, string, string]> = {
   laboratory: ["labs", "افتح صفحة التحاليل المخبرية", "Open lab results"],
@@ -35,10 +36,8 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
   const supabase = createClient();
   const base = `/patients/${p.id}/specialties/${spec.code}`;
   const typeIds = types.filter((x) => x.default_specialty_id === spec.id).map((x) => x.id);
-  const [{ data: allergies }, { data: chronic }, { data: meds }, { data: obs }] = await Promise.all([
-    supabase.from("allergies").select("id, substance, severity").eq("patient_id", p.id).eq("status", "active").eq("record_status", "active"),
-    supabase.from("conditions").select("id, name, certainty").eq("patient_id", p.id).eq("record_status", "active").in("category", ["chronic", "congenital", "genetic", "disability"]).in("clinical_status", ["active", "recurrence", "inactive", "remission"]),
-    supabase.from("medications").select("id, name_generic, name_brand, strength, status").eq("patient_id", p.id).eq("record_status", "active").in("status", ["active", "on_hold"]),
+  const [ctx, { data: obs }] = await Promise.all([
+    getClinicalContext(p.id),
     supabase.from("observations").select("*").eq("patient_id", p.id).in("status", ["final", "preliminary"])
       .or(typeIds.length ? `specialty_id.eq.${spec.id},type_id.in.(${typeIds.join(",")})` : `specialty_id.eq.${spec.id}`).order("effective_at", { ascending: false }).limit(15),
   ]);
@@ -55,16 +54,7 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
       {support && <Banner tone="info"><Link href={`/patients/${p.id}/${support[0]}`}>{t(support[1], support[2])}</Link></Banner>}
       {spec.code === "dentistry" && <Banner tone="info"><Link href={`/patients/${p.id}/dental`}>{t("افتح مخطط الأسنان والفحوص (ملف الأسنان)", "Open the tooth chart and exams (dental file)")}</Link></Banner>}
 
-      <Card title={t("السياق الصحي المشترك (من الملف الرئيسي)", "Shared health context (from the master record)")}>
-        <div className="grid cols-3">
-          <div><h3>{t("الحساسية", "Allergies")}</h3>{(allergies ?? []).length === 0
-            ? <p className="muted small">{p.allergy_assertion === "none_known" ? t("لا توجد حساسية معروفة", "No known allergies") : t("غير محدد — لا يعني عدم وجودها", "Not stated — not the same as none")}</p>
-            : (allergies ?? []).map((a) => <div key={a.id}><Chip tone="bad">{a.substance}</Chip> <span className="small muted">{lbl(ALLERGY_SEVERITY, a.severity, lang)}</span></div>)}</div>
-          <div><h3>{t("الأمراض المزمنة / الخلقية", "Chronic / congenital")}</h3>{(chronic ?? []).length === 0 ? <p className="muted small">{t("لا شيء مسجل", "None recorded")}</p> : (chronic ?? []).map((c) => <div key={c.id}>{c.name} {c.certainty !== "confirmed" && <span className="muted small">({t("غير مؤكد", "unconfirmed")})</span>}</div>)}</div>
-          <div><h3>{t("الأدوية الحالية", "Current medications")}</h3>{(meds ?? []).length === 0 ? <p className="muted small">{t("لا شيء مسجل", "None recorded")}</p> : (meds ?? []).map((m) => <div key={m.id}>{[m.name_generic ?? m.name_brand, m.strength].filter(Boolean).join(" ")} {m.status !== "active" && <Chip tone="warn">{lbl(MED_STATUS, m.status, lang)}</Chip>}</div>)}</div>
-        </div>
-        <p className="small muted" style={{ marginBlockStart: ".6rem" }}>{t("تُعدَّل هذه البيانات من أقسامها في الملف الرئيسي فتظهر هنا تلقائياً.", "Edit these in their own sections of the master record; they appear here automatically.")}</p>
-      </Card>
+      <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={[spec.code]} coreHref={`/patients/${p.id}/profile`} />
 
       <SpecialtyRecords pid={p.id} specialtyId={spec.id} returnPath={base} />
       <EntitySection {...sub("visits")} title={t("الزيارات", "Visits")} compact />

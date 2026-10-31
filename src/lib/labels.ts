@@ -208,3 +208,22 @@ export const LAB_GROUP: Record<string, { ar: string; en: string }> = {
   microbiology: { ar: "الميكروبيولوجيا والمزارع", en: "Microbiology & cultures" }, genetics: { ar: "الفحوصات الوراثية", en: "Genetic tests" },
   pregnancy: { ar: "الحمل", en: "Pregnancy" }, other: { ar: "أخرى", en: "Other" },
 };
+
+// ---------------------------------------------------------------- core file (0016)
+export const DEVICE_KIND: Opt[] = [
+  o("prosthetic_heart_valve", "صمام قلب صناعي", "Prosthetic heart valve"), o("pacemaker", "منظم ضربات القلب", "Pacemaker"),
+  o("icd", "مزيل رجفان مزروع (ICD)", "Implantable defibrillator (ICD)"), o("coronary_stent", "دعامة شريان تاجي", "Coronary stent"),
+  o("vascular_graft", "طُعم أو دعامة وعائية", "Vascular graft / stent"), o("joint_replacement", "مفصل صناعي", "Joint replacement"),
+  o("spinal_hardware", "تثبيت فقرات", "Spinal hardware"), o("fracture_hardware", "صفائح أو مسامير كسر", "Fracture plates / screws"),
+  o("cochlear_implant", "زرعة قوقعة", "Cochlear implant"), o("breast_implant", "حشوة ثدي", "Breast implant"),
+  o("neurostimulator", "منبّه عصبي", "Neurostimulator"), o("shunt", "تحويلة (Shunt)", "Shunt"), o("insulin_pump", "مضخة إنسولين", "Insulin pump"),
+  o("iud", "لولب رحمي", "Intrauterine device"), o("dental_implant", "زرعة سنية", "Dental implant"), o("other", "أخرى", "Other"),
+];
+export const MRI_SAFETY: Opt[] = [o("unknown", "غير معروف", "Unknown"), o("safe", "آمن", "MR safe"), o("conditional", "آمن بشروط", "MR conditional"), o("unsafe", "غير آمن", "MR unsafe")];
+export const DEVICE_STATUS: Opt[] = [o("in_place", "مزروع حالياً", "In place"), o("removed", "أُزيل", "Removed")];
+export const TOBACCO_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("never", "لم يدخّن قط", "Never smoked"), o("former", "مدخّن سابق", "Former smoker"), o("current", "مدخّن حالياً", "Current smoker")];
+export const TOBACCO_TYPE: Opt[] = [o("cigarettes", "سجائر", "Cigarettes"), o("waterpipe", "أرجيلة / شيشة", "Waterpipe (shisha)"), o("cigars", "سيجار", "Cigars"),
+  o("pipe", "غليون", "Pipe"), o("smokeless", "تبغ ممضوغ / نشوق", "Smokeless tobacco"), o("e_cigarette", "سيجارة إلكترونية", "E-cigarette")];
+export const ALCOHOL_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("none", "لا يشرب", "None"), o("occasional", "أحياناً", "Occasional"), o("regular", "بانتظام", "Regular"), o("former", "سابقاً", "Former")];
+export const ACTIVITY_LEVEL: Opt[] = [o("sedentary", "خامل", "Sedentary"), o("light", "خفيف", "Light"), o("moderate", "متوسط", "Moderate"), o("active", "نشيط", "Active")];
+export const PREGNANCY_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("not_pregnant", "غير حامل", "Not pregnant"), o("pregnant", "حامل", "Pregnant"), o("not_applicable", "لا ينطبق", "Not applicable")];

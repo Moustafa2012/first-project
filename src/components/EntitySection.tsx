@@ -19,22 +19,27 @@ interface Props {
   returnPath: string;
   title?: React.ReactNode;
   /** only rows matching these column=value pairs (e.g. specialty_id, encounter_id) */
-  filter?: Record<string, string>;
+  filter?: Record<string, string | boolean | string[]>;
   /** links stored on newly created rows (e.g. encounter_id); also preselects form defaults */
   links?: Record<string, string>;
   defaults?: Record<string, string>;
   limit?: number;
   openForm?: boolean;
   compact?: boolean;
+  id?: string;
+  /** shown instead of "No records yet" (e.g. a "none known" statement) */
+  empty?: React.ReactNode;
+  /** the add button's wording in this context (default: "Add <singular>") */
+  addLabel?: string;
 }
 
-export async function EntitySection({ entity, pid, returnPath, title, filter = {}, links = {}, defaults = {}, limit = 200, openForm = false, compact = false }: Props) {
+export async function EntitySection({ entity, pid, returnPath, title, filter = {}, links = {}, defaults = {}, limit = 200, openForm = false, compact = false, id, empty, addLabel }: Props) {
   const { lang, t } = i18n();
   const tz = getTz();
   const [access, specialties, patient] = await Promise.all([getAccess(pid), getSpecialties(), getPatient(pid)]);
   const formSpecialties = forSex(specialties, patient.sex);
   let q = createClient().from(entity.table).select("*").eq("patient_id", pid);
-  for (const [k, v] of Object.entries(filter)) q = q.eq(k, v);
+  for (const [k, v] of Object.entries(filter)) q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
   const { data, error } = await q.order(entity.order[0], { ascending: entity.order[1] === "asc", nullsFirst: false }).limit(limit);
   const rows = (data ?? []) as Row[];
   const live = rows.filter((r) => r.record_status !== "entered_in_error");
@@ -117,18 +122,18 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
   };
 
   return (
-    <section className="card" aria-label={String(title ?? (lang === "ar" ? entity.ar : entity.en))}>
+    <section className="card" id={id} aria-label={String(title ?? (lang === "ar" ? entity.ar : entity.en))}>
       <div className="card-head">
         <h2>{title ?? (lang === "ar" ? entity.ar : entity.en)} <span className="muted small">({live.length})</span></h2>
       </div>
       {error && <p className="form-msg err">{t("تعذر تحميل السجلات.", "Could not load the records.")}</p>}
       {access.canWrite && (
         <details className="fold no-print" open={openForm} style={{ marginBlockEnd: ".9rem" }}>
-          <summary><Plus size={16} aria-hidden="true" />{t(`إضافة ${singular}`, `Add ${singular}`)}</summary>
+          <summary><Plus size={16} aria-hidden="true" />{addLabel ?? t(`إضافة ${singular}`, `Add ${singular}`)}</summary>
           <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={formSpecialties} returnPath={returnPath} links={links} defaults={defaults} /></div>
         </details>
       )}
-      {live.length === 0 ? <Empty>{t("لا توجد سجلات بعد.", "No records yet.")}</Empty> : live.map((r) => card(r))}
+      {live.length === 0 ? (empty ?? <Empty>{t("لا توجد سجلات بعد.", "No records yet.")}</Empty>) : live.map((r) => card(r))}
       {dead.length > 0 && (
         <details style={{ marginBlockStart: ".9rem" }}>
           <summary className="muted small">{t(`سجلات مُبطلة (${dead.length})`, `Invalidated records (${dead.length})`)}</summary>

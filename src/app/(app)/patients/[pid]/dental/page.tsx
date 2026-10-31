@@ -16,6 +16,8 @@ import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client"
 import { EntitySection } from "@/components/EntitySection";
 import { DentalChart, type DentalDiagnosis } from "@/components/dental/DentalChart";
 import { ExamEditor } from "@/components/dental/ExamEditor";
+import { ClinicalContext } from "@/components/ClinicalContext";
+import { getClinicalContext } from "@/lib/clinical-context-server";
 import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actions/dental";
 
 type Profile = Record<string, string | boolean | null>;
@@ -24,7 +26,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const { lang, t } = i18n();
   const tz = getTz();
   const p = await getPatient(params.pid);
-  const [access, specs] = await Promise.all([getAccess(p.id), getSpecialties()]);
+  const [access, specs, ctx] = await Promise.all([getAccess(p.id), getSpecialties(), getClinicalContext(p.id)]);
   const dent = specs.find((s) => s.code === "dentistry");
   const supabase = createClient();
   const [{ data: profile }, { data: examRows }, { data: stateRows }, { data: findingRows }, { data: condRows }, { data: ctrRows }] = await Promise.all([
@@ -60,6 +62,8 @@ export default async function DentalPage({ params, searchParams }: { params: { p
           {access.canShare && <Link className="btn primary" href={`/patients/${p.id}/sharing/new?specialty=dentistry`}><Share2 size={16} aria-hidden="true" />{t("شارك مع طبيب الأسنان", "Share with the dentist")}</Link>}
         </>}
       />
+
+      <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={["dentistry"]} coreHref={`/patients/${p.id}/profile`} />
 
       <Card id="chart" title={asExam ? t(`المخطط كما كان في ${day(asExam.exam_date)}`, `The chart as of ${day(asExam.exam_date)}`) : t("مخطط الأسنان الحالي", "Current tooth chart")}
         actions={exams.length > 0 ? (

@@ -38,7 +38,7 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision }:
     case "checkbox":
       return (
         <div className={`field${def.wide ? " wide" : ""}`}>
-          <label className="check"><input type="checkbox" name={def.name} defaultChecked={value === true || (value == null && def.dflt === true)} />{label}</label>
+          <label className="check"><input type="checkbox" name={def.name} defaultChecked={value === true || value === "true" || (value == null && def.dflt === true)} />{label}</label>
         </div>
       );
     case "datetime":

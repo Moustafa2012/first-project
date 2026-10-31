@@ -146,7 +146,7 @@ select v.spec, v.src, v.kw, v.dk, v.lvl, v.ar, v.en, v.srt
      'On an anticoagulant or antiplatelet: bleeding risk with extractions and surgery — check with the treating physician first.', 10),
   ('dentistry', 'medication', array['alendronate','ألندرونات','fosamax','risedronate','ريزدرونات','ibandronate','zoledron','زوليدرون','denosumab','دينوسوماب','prolia','xgeva'],
      '{}'::text[], 'bad', 'بايفوسفونات أو دينوسوماب: خطر تنخّر عظم الفك بعد الخلع.', 'Bisphosphonate or denosumab: risk of jaw osteonecrosis after extraction.', 20),
-  ('dentistry', 'condition', array['aortic stenosis','تضيق الابهر','تضيق خلقي في الشريان الابهر','الشريان الابهر','valve','صمام','endocarditis','التهاب الشغاف',
+  ('dentistry', 'condition', array['aortic stenosis','aortic narrowing','coarctation','تضيق الابهر','تضيق خلقي في الشريان الابهر','الشريان الابهر','تضيق برزخ','valve','صمام','endocarditis','التهاب الشغاف',
      'congenital heart','قلب خلقي','قلبي خلقي','rheumatic heart','روماتيزم القلب','حمى روماتيزمية'],
      '{}'::text[], 'warn', 'مرض قلبي أو صمامي: راجع الحاجة لوقاية بالمضاد الحيوي قبل الإجراءات التي تسبب نزفاً.',
      'Heart or valve disease: review the need for antibiotic prophylaxis before procedures that cause bleeding.', 30),

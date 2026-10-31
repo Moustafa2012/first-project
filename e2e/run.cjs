@@ -575,6 +575,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const ctxBox = page.locator("section.ctx");
     await ctxBox.getByText("Prosthetic heart valve: endocarditis prophylaxis").waitFor();
     await ctxBox.getByText(/Smoker: slower healing/).waitFor();
+    await ctxBox.getByText(/Heart or valve disease: review the need for antibiotic prophylaxis/).waitFor();   // from "Congenital aortic narrowing"
     await ctxBox.getByText(/pack-years/).waitFor();
     await ctxBox.getByText("Penicillin", { exact: true }).waitFor();
     await ctxBox.getByText(/Penicillin allergy: choose an alternative antibiotic/).waitFor();

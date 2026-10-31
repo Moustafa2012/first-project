@@ -33,9 +33,11 @@ const DEFAULTS: Record<string, Record<string, string>> = { medications: { origin
 /** May this clinician add to `table` now (identified, and the patient allowed that kind of record)? */
 export function canAdd(st: ContribState | null | undefined, table: string): boolean {
   if (!st?.contributor || !(st.modules ?? []).includes(table)) return false;
-  return table === "dental_exams" ? Boolean(st.covers_dentistry) : true;
+  return table === "dental_exams" || table === "treatment_plans" ? Boolean(st.covers_dentistry) : true;
 }
-export const contribLabel = (table: string, lang: "ar" | "en") => CONTRIB_MODULES.find((m) => m.value === table)?.[lang] ?? table;
+const EXTRA_LABELS: Record<string, [string, string]> = { treatment_costs: ["تكلفة علاج", "Treatment cost"], treatment_plans: ["خطة علاج", "Treatment plan"] };
+export const contribLabel = (table: string, lang: "ar" | "en") =>
+  EXTRA_LABELS[table]?.[lang === "ar" ? 0 : 1] ?? CONTRIB_MODULES.find((m) => m.value === table)?.[lang] ?? table;
 
 /** Who is adding: the identity + signature form first, then "adding as …" with the count. */
 export function ContributorCard({ token, st, uploaded, uploadError }: { token: string; st: ContribState; uploaded?: boolean; uploadError?: string }) {

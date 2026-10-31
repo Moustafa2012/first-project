@@ -388,14 +388,18 @@ export interface ToothProcedure { id: string; name: string; teeth: number[] | nu
 export interface ToothImage { id: string; modality: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; impression?: string | null; body_site?: string | null; documents?: { id: string; title: string }[] }
 
 /** For each tooth: its open problems (with a chart label), and how many procedures and images name it. */
-export function toothLinks(diagnoses: ToothDiagnosis[], procedures: ToothProcedure[], images: ToothImage[]) {
-  const out = new Map<number, { problems: { name: string; code: string }[]; procedures: number; images: number }>();
-  const get = (t: number) => { let v = out.get(t); if (!v) { v = { problems: [], procedures: 0, images: 0 }; out.set(t, v); } return v; };
+/** A treatment still to happen, from a current plan (see src/lib/treatment.ts). */
+export interface ToothPlanned { id: string; name: string; status: string; plan: string; plan_id: string; teeth: number[] | null }
+
+export function toothLinks(diagnoses: ToothDiagnosis[], procedures: ToothProcedure[], images: ToothImage[], planned: ToothPlanned[] = []) {
+  const out = new Map<number, { problems: { name: string; code: string }[]; procedures: number; images: number; planned: number }>();
+  const get = (t: number) => { let v = out.get(t); if (!v) { v = { problems: [], procedures: 0, images: 0, planned: 0 }; out.set(t, v); } return v; };
   for (const d of diagnoses) {
     if (!OPEN_PROBLEM.has(d.clinical_status ?? "active") || d.certainty === "refuted") continue;
     for (const t of d.teeth ?? []) get(t).problems.push({ name: d.name, code: diagnosisCode(d.name) });
   }
   for (const p of procedures) for (const t of p.teeth ?? []) get(t).procedures++;
   for (const i of images) for (const t of i.teeth ?? []) get(t).images++;
+  for (const x of planned) for (const t of x.teeth ?? []) get(t).planned++;
   return out;
 }

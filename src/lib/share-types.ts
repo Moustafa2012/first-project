@@ -19,4 +19,7 @@ export interface ShareDental {
   diagnoses: { id: string; name: string; icd10_code: string | null; teeth: number[] | null; evidence: string | null; certainty: string | null; clinical_status: string | null; onset_date: string | null; date_precision: string | null; resolved_date?: string | null; contributed_by?: string | null }[];
   procedures?: import("@/lib/dental").ToothProcedure[];
   imaging?: import("@/lib/dental").ToothImage[];
+  /** current treatment plans (never with costs) and the costs this clinician entered themselves */
+  plans?: import("@/lib/treatment").TreatmentPlan[];
+  my_costs?: import("@/lib/treatment").TreatmentCost[];
 }

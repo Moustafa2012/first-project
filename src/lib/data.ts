@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasServiceRole } from "@/lib/supabase/admin";
 import { currentUser } from "@/lib/auth";
 import type { ObservationType, PatientRow, Specialty } from "@/lib/types";
+import type { CatalogItem } from "@/lib/treatment";
 
 export { UUID_RE } from "@/lib/uuid";
 import { UUID_RE } from "@/lib/uuid";
@@ -15,7 +16,7 @@ const CATALOG_TTL_MS = 10 * 60_000;
 const catalogs = new Map<string, { at: number; data: unknown[] }>();
 export function clearCatalogCache() { catalogs.clear(); }
 
-async function catalog<T>(table: "medical_specialties" | "observation_types"): Promise<T[]> {
+async function catalog<T>(table: "medical_specialties" | "observation_types" | "procedure_catalog"): Promise<T[]> {
   const hit = catalogs.get(table);
   if (hit && Date.now() - hit.at < CATALOG_TTL_MS) return hit.data as T[];
   const client = hasServiceRole() ? createAdminClient() : createClient();
@@ -27,6 +28,8 @@ async function catalog<T>(table: "medical_specialties" | "observation_types"): P
 
 export const getSpecialties = cache(async (): Promise<Specialty[]> => catalog<Specialty>("medical_specialties"));
 export const getObsTypes = cache(async (): Promise<ObservationType[]> => catalog<ObservationType>("observation_types"));
+/** The local catalogue of dental procedures (reference data, cached like the other catalogues). */
+export const getProcedureCatalog = cache(async (): Promise<CatalogItem[]> => catalog<CatalogItem>("procedure_catalog"));
 
 /** RLS decides whether this returns anything: another user's patient id simply 404s. */
 export const getPatient = cache(async (pid: string): Promise<PatientRow> => {

@@ -13,6 +13,7 @@ import type { ObservationRow, ObservationType, PatientRow } from "@/lib/types";
 import type { Block, Cell, ReportMeta } from "@/lib/pdf/engine";
 import { bodyMetrics, contextPackYears, matchHighlights, type ClinicalContextData } from "@/lib/clinical-context";
 import { ALCOHOL_STATUS, DEVICE_KIND, PREGNANCY_STATUS, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
+import { ITEM_STATUS, PLAN_STATUS, byPhase, costTotals, fmtMoney, planProgress, type TreatmentCost, type TreatmentPlan } from "@/lib/treatment";
 
 type Lang = "ar" | "en";
 type R = Record<string, unknown>;
@@ -331,5 +332,78 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string; ctx?: (
       footerNote: t("هذا عرض لمعلومات سجّلها المريض أو مقدمو الرعاية؛ قد لا يكون كاملاً. القرار السريري لك. ", "A view of information recorded by the patient or care providers; it may be incomplete. Clinical judgement is yours. ") + SAFETY_NOTE(lang),
     },
     blocks, filename: `${p.mrn}-shared.pdf`,
+  };
+}
+
+// ------------------------------------------------------------------------------------------------ a treatment plan, with consent
+export function buildTreatmentPlanReport(p: PatientRow, plan: TreatmentPlan, o: {
+  lang: Lang; tz: string; ctx?: ClinicalContextData; problems: { id: string; name: string }[]; costs?: TreatmentCost[] | null;
+}): { meta: ReportMeta; blocks: Block[]; filename: string } {
+  const { lang, tz } = o;
+  const t = tx(lang);
+  const day = (v: string | null) => (v ? fmtDate(v, lang, tz) : "");
+  const blocks: Block[] = [];
+  if (o.ctx) {
+    blocks.push({ t: "h", text: t("معلومات السلامة قبل العلاج", "Safety information before treatment") });
+    blocks.push(...contextBlocks(o.ctx, lang, ["dentistry"]));
+  }
+  blocks.push({ t: "h", text: t("الخطة", "The plan") });
+  blocks.push({ t: "kv", rows: ([
+    [t("العنوان", "Title"), plan.title],
+    [t("الحالة", "Status"), lbl(PLAN_STATUS, plan.status, lang)],
+    [t("النسخة", "Version"), String(plan.version)],
+    [t("اقترحها", "Proposed by"), s(plan.presented_by)],
+    [t("تاريخ الاقتراح", "Proposed on"), day(plan.presented_on)],
+    [t("تاريخ الاعتماد", "Accepted on"), day(plan.accepted_on)],
+    [t("ملاحظات", "Notes"), s(plan.notes)],
+  ] as [string, string][]).filter(([, v]) => v) });
+  const { byItem, totals } = costTotals(plan.items, o.costs ?? []);
+  const prog = planProgress(plan.items);
+  blocks.push({ t: "p", muted: true, text: t(`التقدم: منجز ${prog.done} من ${prog.total} (${prog.pct}%).`, `Progress: ${prog.done} of ${prog.total} done (${prog.pct}%).`) });
+  const withCost = Boolean(o.costs);
+  for (const [phase, list] of byPhase(plan.items)) {
+    blocks.push({ t: "h", text: t(`المرحلة ${phase}`, `Phase ${phase}`) });
+    blocks.push({ t: "table", cols: [
+      { label: t("السن", "Tooth"), w: 2 }, { label: t("العلاج", "Treatment"), w: 4 }, { label: t("يعالج", "Treats"), w: 3 }, { label: t("الحالة", "Status"), w: 2 },
+      ...(withCost ? [{ label: t("التكلفة", "Cost"), w: 2, align: "end" as const }] : []),
+    ], rows: list.map((i): Cell[] => {
+      const c = byItem.get(i.id);
+      return [
+        (i.teeth ?? []).join(", ") + (i.surfaces?.length && i.teeth?.length === 1 ? ` ${i.surfaces.join("")}` : ""),
+        { text: i.name + (i.surgical ? t(" (جراحي)", " (surgical)") : ""), bold: true },
+        o.problems.find((x) => x.id === i.condition_id)?.name ?? "",
+        { text: lbl(ITEM_STATUS, i.status, lang) + (i.scheduled_for && i.status === "scheduled" ? ` ${day(i.scheduled_for)}` : i.completed_on ? ` ${day(i.completed_on)}` : ""),
+          tone: i.status === "completed" ? "ok" : i.status === "cancelled" ? "muted" : "info" },
+        ...(withCost ? [c ? fmtMoney(c.amount, c.currency, lang) : ""] : []),
+      ];
+    }) });
+  }
+  if (withCost && totals.length) {
+    blocks.push({ t: "p", text: `${t("المجموع", "Total")}: ${totals.map((x) => fmtMoney(x.amount, x.currency, lang)).join("  ·  ")} — ${t("لكل عملة على حدة؛ تقديرات ما لم يُذكر غير ذلك.", "per currency; estimates unless stated otherwise.")}` });
+  }
+
+  // consent: what the patient confirms, and the lines to sign
+  const surgical = plan.items.filter((i) => i.surgical && i.status !== "cancelled");
+  blocks.push({ t: "h", text: t("الموافقة على العلاج", "Consent to treatment") });
+  blocks.push({ t: "p", text: t(
+    "شُرحت لي خطة العلاج أعلاه، بما فيها طبيعة كل علاج وفائدته المتوقعة ومخاطره الشائعة والبدائل المتاحة (ومنها عدم العلاج)، وأُتيحت لي فرصة السؤال. أوافق على العلاجات المذكورة، وأعلم أنني أستطيع سحب موافقتي قبل أي علاج.",
+    "The treatment plan above was explained to me, including the nature of each treatment, its expected benefit, its common risks and the alternatives (including no treatment), and I could ask questions. I agree to the treatments listed and know I may withdraw my consent before any treatment.") });
+  if (surgical.length) blocks.push({ t: "alert", tone: "warn", title: t("علاجات جراحية", "Surgical treatments"), text: t(
+    `تتضمن الخطة علاجاً جراحياً (${surgical.map((i) => i.name).join("، ")}). أؤكد أنه شُرح لي على حدة وأوافق عليه صراحة.`,
+    `The plan includes surgical treatment (${surgical.map((i) => i.name).join(", ")}). I confirm it was explained to me separately and I explicitly agree to it.`) });
+  const line = "____________________";
+  blocks.push({ t: "table", cols: [{ label: "", w: 3 }, { label: t("الاسم", "Name"), w: 4 }, { label: t("التوقيع", "Signature"), w: 4 }, { label: t("التاريخ", "Date"), w: 3 }], rows: [
+    [{ text: t("المريض أو وليّه", "Patient or guardian"), bold: true }, line, line, line],
+    [{ text: t("طبيب الأسنان", "Dentist"), bold: true }, s(plan.presented_by) || line, line, line],
+    [{ text: t("شاهد (اختياري)", "Witness (optional)"), bold: true }, line, line, line],
+  ] });
+  const name = lang === "en" && p.full_name_en ? p.full_name_en : p.full_name;
+  return {
+    meta: {
+      lang, title: t("خطة علاج الأسنان", "Dental treatment plan"), subtitle: plan.title, brand: t("بوابة شفاء", "Shifa Portal"),
+      headline: { name, lines: identityLines(lang, tz, { mrn: p.mrn, date_of_birth: p.date_of_birth, sex: p.sex, nationality: p.nationality, blood: p.blood_abo ? `${p.blood_abo}${p.blood_rh ?? ""}` : null, verified: p.blood_group_verified, phone: p.phone }) },
+      generatedAt: `${t("أُنشئ في", "Generated")} ${fmtDateTime(new Date(), lang, tz)}`, footerNote: SAFETY_NOTE(lang),
+    },
+    blocks, filename: `${p.mrn}-treatment-plan-v${plan.version}.pdf`,
   };
 }

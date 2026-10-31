@@ -15,14 +15,16 @@ import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
-import { endShare, addShareNote } from "@/app/actions/share-viewer";
+import { endShare, addShareNote, contributeTreatment, shareSetCost, shareTreatmentStatus } from "@/app/actions/share-viewer";
+import { TreatmentItemForm, TreatmentPlans } from "@/components/dental/TreatmentPlans";
+import { OPEN_ITEM, OPEN_PLAN, type CatalogItem } from "@/lib/treatment";
 import type { ContribState } from "@/lib/share-contrib";
 import { canAdd, ContribAdd, ContribForm, ContributorCard, ContribSummary, contribLabel } from "@/components/share/Contribute";
 
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError }: { b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string }) {
+export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError, catalog = [] }: { b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string; catalog?: CatalogItem[] }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const inc = new Set(b.meta.include);
@@ -54,8 +56,17 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   const showImg = place("imaging_studies", inc.has("imaging") && ((b.imaging ?? []).length > 0 || canAdd(contrib, "imaging_studies")));
   const showNotes = place("clinical_notes", inc.has("notes") && ((b.notes ?? []).length > 0 || canAdd(contrib, "clinical_notes")));
   const showDocs = place("medical_documents", inc.has("documents"));
-  if (dental) placed.add("dental_exams");
+  if (dental) { placed.add("dental_exams"); placed.add("treatment_plans"); }
   const others = (contrib?.modules ?? []).filter((m) => !placed.has(m) && canAdd(contrib, m));
+  // treatment plans in the dental workspace: the dentist proposes, moves treatments along and notes their own cost
+  const plans = dental?.plans ?? [];
+  const myId = contrib?.contributor?.id;
+  const myProposals = plans.filter((p) => p.contributed_by && p.contributed_by === myId && (p.status === "draft" || p.status === "proposed"));
+  const openProblems = (dental?.diagnoses ?? []).filter((x) => (x.clinical_status === "active" || x.clinical_status === "recurrence") && x.certainty !== "refuted")
+    .map((x) => ({ id: x.id, name: x.name, teeth: x.teeth }));
+  const planned = plans.filter((p) => OPEN_PLAN.has(p.status)).flatMap((p) => p.items.filter((i) => OPEN_ITEM.has(i.status) && i.teeth?.length)
+    .map((i) => ({ id: i.id, name: i.name, status: i.status, plan: p.title, plan_id: p.id, teeth: i.teeth })));
+  const txWrite = canAdd(contrib, "treatment_plans");
   const toothAdd: ToothAddForm[] = contrib && dental ? ([
     canAdd(contrib, "conditions") && { id: "ctooth-dx", label: t("تشخيص لهذا السن", "A diagnosis for this tooth"), node: (
       <ContribForm token={token} st={contrib} table="conditions" formId="ctooth-dx" fixed={{ category: "diagnosis" }} external={["teeth"]}
@@ -67,6 +78,9 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
     canAdd(contrib, "imaging_studies") && { id: "ctooth-img", label: t("صورة أو أشعة لهذا السن", "An image or X-ray of this tooth"), node: (
       <ContribForm token={token} st={contrib} table="imaging_studies" formId="ctooth-img" external={["teeth"]} defaults={{ modality: "dental_xray" }}
         pick={["modality", "performed_on", "findings", "impression"]} submitLabel={t("إضافة الصورة", "Add the image")} />) },
+    canAdd(contrib, "treatment_plans") && { id: "ctooth-tx", label: t("علاج مقترح لهذا السن", "A treatment for this tooth"), node: (
+      <TreatmentItemForm action={contributeTreatment} hidden={{ _t: token }} catalog={catalog} problems={openProblems} lang={lang} idPrefix="ctooth-tx" formId="ctooth-tx"
+        plans={myProposals.map((p) => ({ id: p.id, title: p.title }))} externalTeeth submitLabel={t("اقتراح العلاج", "Propose the treatment")} />) },
   ] as (ToothAddForm | false)[]).filter((x): x is ToothAddForm => Boolean(x)) : [];
 
   return (
@@ -125,8 +139,27 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           <p className="small muted" style={{ marginBlockStart: 0 }}>{canAdd(contrib, "conditions") || canAdd(contrib, "procedures") ? t("اختر سناً لعرض تاريخه وصوره، وللإضافة إليه مباشرة.", "Choose a tooth to see its history and images, and to add to it directly.") : t("اختر سناً لعرض تاريخه وصوره.", "Choose a tooth to see its history and images.")}</p>
           <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
             diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
-            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} />
+            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} planned={planned} />
           {canAdd(contrib, "dental_exams") && <div style={{ marginBlockStart: ".75rem" }}>{add("dental_exams")}</div>}
+          {(plans.length > 0 || txWrite) && (<>
+            <h3 id="treatment">{t("خطط العلاج", "Treatment plans")}</h3>
+            <p className="small muted" style={{ marginBlockStart: 0 }}>{txWrite
+              ? t("اقترح العلاج من لوحة السن أو من النموذج أدناه؛ يعتمده المريض، ثم تسجّل أنت إنجازه فيُضاف الإجراء ويُحدَّث المخطط. تكاليف المريض لا تظهر لك.",
+                  "Propose treatment from a tooth's panel or the form below; the patient accepts it, then you record it done and the procedure and chart are updated. The patient's costs are not shown to you.")
+              : t("خطط العلاج الحالية (بلا تكاليف).", "Current treatment plans (without costs).")}</p>
+            <TreatmentPlans plans={plans} costs={dental.my_costs ?? []} catalog={catalog} problems={openProblems} lang={lang} today={localDate(new Date(), tz)}
+              actions={txWrite ? { hidden: { _t: token }, status: shareTreatmentStatus, clinician: true, addCost: shareSetCost, addItem: contributeTreatment,
+                canAddTo: (p) => myProposals.some((m) => m.id === p.id) } : { hidden: {} }} />
+            {txWrite && (
+              <details className="fold" id="contrib-treatment">
+                <summary>{t("إضافة: اقتراح علاج", "Add: Propose treatment")}</summary>
+                <div className="fold-body">
+                  <TreatmentItemForm action={contributeTreatment} hidden={{ _t: token }} catalog={catalog} problems={openProblems} lang={lang} idPrefix="cx-tx"
+                    plans={myProposals.map((p) => ({ id: p.id, title: p.title }))} submitLabel={t("اقتراح العلاج", "Propose the treatment")} />
+                </div>
+              </details>
+            )}
+          </>)}
           {dental.diagnoses.some((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence")) && (<>
             <h3>{t("مشكلات سنية بلا سن محدد", "Dental problems without a tooth")}</h3>
             <ul>{dental.diagnoses.filter((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence"))

@@ -173,6 +173,7 @@ export function Panoramic({
                 <text x={cx} y={numY} className="ptooth-num">{tooth}</text>
                 {codes && <text x={cx} y={row.upper ? numY + 11 : numY - 13} className="ptooth-code">{codes}</text>}
                 {nProc > 0 && <circle cx={cx - w / 2 + 5} cy={numY - 4} r="3" className="mk-proc" />}
+                {(data?.links?.planned ?? 0) > 0 && <path d={`M ${cx - w / 2 + 9},${numY - 1} l 3.5,-6 l 3.5,6 z`} className="mk-plan" />}
                 {nImg > 0 && <rect x={cx + w / 2 - 9} y={numY - 7} width="6" height="6" rx="1" className="mk-img" />}
               </g>
             );
@@ -198,6 +199,7 @@ export function PanoLegend({ lang }: { lang: Lang }) {
       {item(<path d="M 8,2 L 14,2 L 13,14 L 9,14 Z" className="implant-legend" />, ar ? "زرعة" : "Implant")}
       {item(<circle cx="11" cy="8" r="3.5" className="mk-proc" />, ar ? "إجراء مسجل" : "Procedure recorded")}
       {item(<rect x="8" y="5" width="7" height="7" rx="1" className="mk-img" />, ar ? "صورة / أشعة" : "Image / X-ray")}
+      {item(<path d="M 7.5,12 l 4,-7 l 4,7 z" className="mk-plan" />, ar ? "علاج مخطط" : "Planned treatment")}
       {item(<rect x="3" y="3" width="16" height="10" className="nodata-legend" />, ar ? "لا بيانات فحص (لا يعني سليماً)" : "No exam data (not the same as healthy)")}
     </ul>
   );

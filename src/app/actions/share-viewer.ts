@@ -16,6 +16,8 @@ import { explainError, getTz } from "@/lib/auth";
 import { UUID_RE } from "@/lib/uuid";
 import { parseExamForm } from "@/lib/dental";
 import { localDate } from "@/lib/format";
+import { parseTreatmentItem } from "@/lib/treatment-form";
+import { COST_KIND, CURRENCIES, treatmentError } from "@/lib/treatment";
 
 /** The doctor's PIN gate. Every failure path returns a generic message; the database enforces limits. */
 export async function openShare(_: FormState, fd: FormData): Promise<FormState> {
@@ -180,4 +182,86 @@ export async function contributeDentalExam(_: FormState, fd: FormData): Promise<
   if (st !== "ok") return { error: t(...(CONTRIB_STATUS[st] ?? CONTRIB_STATUS.invalid)) };
   revalidatePath(`/s/${token}/view`);
   return { ok: true, message: t("حُفظ الفحص في ملف المريض باسمك.", "The exam was saved to the patient's file under your name.") };
+}
+
+// ---------------------------------------------------------------- treatment (dentistry): propose, move along, own cost
+const TX_STATUS: Record<string, [string, string]> = { ...CONTRIB_STATUS, patient_decides: ["الموافقة على العلاج قرار المريض.", "Accepting a treatment is the patient's decision."] };
+function txSession(fd: FormData): { token: string; session: string } | null {
+  const token = String(fd.get("_t") ?? "");
+  const session = validToken(token) ? getShareSession(token) : null;
+  return session ? { token, session } : null;
+}
+function txAnswer(data: unknown, error: { message: string } | null, t: (a: string, e: string) => string): FormState | null {
+  if (error) return { error: treatmentError(error.message, t) ?? explainError(error, t) };
+  const r = (data ?? {}) as { status?: string; reason?: string };
+  if (r.status === "ok") return null;
+  if (r.status === "invalid" && r.reason) return { error: treatmentError(r.reason, t) ?? t(...CONTRIB_STATUS.invalid) };
+  return { error: t(...(TX_STATUS[r.status ?? "invalid"] ?? CONTRIB_STATUS.invalid)) };
+}
+
+/** The dentist proposes a treatment: to a proposal of theirs ("_plan"), or as a new proposed plan. */
+export async function contributeTreatment(_: FormState, fd: FormData): Promise<FormState> {
+  const { t, lang } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const parsed = parseTreatmentItem(fd, t);
+  if ("error" in parsed) return { error: parsed.error };
+  const plan = String(fd.get("_plan") ?? "new");
+  const { ipHash, ua } = clientMeta();
+  const admin = createAdminClient();
+  const item = { ...parsed.item, lang };
+  const res = plan && plan !== "new"
+    ? (UUID_RE.test(plan) ? await admin.rpc("share_add_treatment_item", { p_session_token: s.session, p_plan: plan, p_item: item, p_ip_hash: ipHash, p_user_agent: ua }) : null)
+    : await admin.rpc("share_contribute_treatment_plan", {
+        p_session_token: s.session, p_ip_hash: ipHash, p_user_agent: ua, p_items: [item],
+        p_plan: { title: String(fd.get("title") ?? "").trim().slice(0, 200) || t("خطة علاج مقترحة", "Proposed treatment plan"), lang,
+                  notes: String(fd.get("plan_notes") ?? "").trim().slice(0, 4000) || null, alternative_of: String(fd.get("alternative_of") ?? "") || null },
+      });
+  if (!res) return { error: t(...CONTRIB_STATUS.invalid) };
+  const bad = txAnswer(res.data, res.error, t);
+  if (bad) return bad;
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("أُضيف العلاج مقترحاً باسمك؛ يعتمده المريض.", "The treatment was proposed under your name; the patient accepts it.") };
+}
+
+/** The dentist moves a treatment along (schedules, starts, completes, refers…); completing it records the procedure and updates the chart. */
+export async function shareTreatmentStatus(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const id = String(fd.get("_id") ?? ""), status = String(fd.get("status") ?? ""), date = String(fd.get("date") ?? "");
+  if (!UUID_RE.test(id) || !/^[a-z_]{3,20}$/.test(status) || (date && !/^\d{4}-\d{2}-\d{2}$/.test(date))) return { error: t(...CONTRIB_STATUS.invalid) };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_treatment_item_status", {
+    p_session_token: s.session, p_item: id, p_status: status, p_date: date || null, p_reason: String(fd.get("reason") ?? "").trim().slice(0, 500) || null,
+    p_confirm: fd.get("confirm_surgical") === "on", p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  const bad = txAnswer(data, error, t);
+  if (bad) return bad;
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: status === "completed"
+    ? t("سُجّل العلاج منجزاً باسمك، وأُضيف الإجراء وحُدّث المخطط.", "Recorded as completed under your name; the procedure was added and the chart updated.")
+    : t("تغيّرت حالة العلاج.", "The treatment's status changed.") };
+}
+
+/** The dentist notes their own cost; the patient sees it, nobody else does. */
+export async function shareSetCost(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const id = String(fd.get("_id") ?? "");
+  const amount = Number(String(fd.get("amount") ?? "").replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[,،\s]/g, ""));
+  const currency = String(fd.get("currency") ?? "").toUpperCase(), kind = String(fd.get("kind") ?? "estimate");
+  if (!UUID_RE.test(id) || !Number.isFinite(amount) || amount < 0 || amount >= 1e10 || !CURRENCIES.includes(currency) || !COST_KIND.some((k) => k.value === kind)) {
+    return { error: t("أدخل مبلغاً صحيحاً.", "Enter a valid amount.") };
+  }
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_set_cost", {
+    p_session_token: s.session, p_item: id, p_amount: amount, p_currency: currency, p_kind: kind,
+    p_note: String(fd.get("note") ?? "").trim().slice(0, 300) || null, p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  const bad = txAnswer(data, error, t);
+  if (bad) return bad;
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("حُفظت تكلفتك (تظهر لك وللمريض فقط).", "Your cost was saved (visible to you and the patient only).") };
 }

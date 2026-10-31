@@ -516,6 +516,7 @@ body.no-print-share .print-only { display: block; }
 .tooth-add { border-block-start: 1px dashed var(--border-strong); margin-block-start: var(--space-4); }
 .tooth-add .fold + .fold { margin-block-start: .4rem; }
 .tooth-list li.work { border-inline-start-color: var(--info); }
+.tooth-list li.planned { border-inline-start-color: var(--warn); }
 .tooth-hist { margin: 0; padding-inline-start: 1.2rem; display: grid; gap: .3rem; }
 .pill { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .65rem; border: 1px solid var(--border-strong); border-radius: 999px; margin: .15rem; cursor: pointer; font-size: .88rem; background: var(--surface); }
 .pill.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); font-weight: 600; }
@@ -563,6 +564,22 @@ body.no-print-share .print-only { display: block; }
 .tooth-badge tspan.bad, .tooth-badge-txt.bad { fill: var(--bad); color: var(--bad); }
 .mk-proc { fill: var(--info); }
 .mk-img { fill: var(--muted); }
+.mk-plan { fill: var(--warn); }
+.pano-svg .mk-plan { fill: #f5c36b; }
+/* treatment plans */
+.plan-card { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); background: var(--surface); }
+.plan-card.closed { opacity: .85; }
+.plan-card h3 { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: 1.05rem; }
+.plan-progress { display: flex; align-items: center; gap: .6rem; margin-block: .6rem; }
+.plan-progress .bar { flex: 1; block-size: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+.plan-progress .bar span { display: block; block-size: 100%; background: var(--ok); }
+.plan-phase h4 { margin: .6rem 0 .35rem; font-size: .9rem; color: var(--muted); }
+.treat-item.st-completed { border-inline-start-color: var(--ok); }
+.treat-item.st-cancelled { opacity: .65; }
+.treat-item.st-scheduled, .treat-item.st-in_progress { border-inline-start-color: var(--info); }
+.treat-item.st-proposed, .treat-item.st-planned, .treat-item.st-accepted { border-inline-start-color: var(--warn); }
+.plan-total { margin-block: .5rem 0; font-weight: 600; }
+.surgical-confirm { background: var(--surface-2); padding: .5rem .6rem; border-radius: var(--radius-sm); border: 1px solid var(--warn); }
 .dental-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-block-end: 1rem; }
 .dental-tabs a { padding: .45rem .9rem; border-radius: 999px; border: 1px solid var(--border); text-decoration: none; color: var(--text); background: var(--surface); font-size: .92rem; }
 .dental-tabs a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

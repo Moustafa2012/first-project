@@ -397,7 +397,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/dental`);
     assert(/problem: Irreversible pulpitis/.test(await page.locator("#chart-36").getAttribute("aria-label")), "the open diagnosis is drawn on its tooth");
     await page.locator("#chart-36").click();
-    await page.locator(".tooth-panel").getByText("Irreversible pulpitis").waitFor();
+    await page.locator(".tooth-panel .tooth-list").getByText("Irreversible pulpitis").first().waitFor();
     await page.screenshot({ path: path.join(OUT, "dental-file.png"), fullPage: true });
   });
 
@@ -461,9 +461,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert(/problem: Dental abscess/.test(label) && /procedures: 1/.test(label) && /images: 1/.test(label), "tooth 13 carries the problem, the procedure and the image: " + label);
     await page.locator("#chart-13").click();
     const panel = page.locator(".tooth-panel");
-    await panel.getByText("Dental abscess (loose canine)").waitFor();
-    await panel.getByText("Abscess drainage").waitFor();
-    await panel.getByText("Periapical radiolucency at 13").waitFor();
+    await panel.locator(".tooth-list").getByText("Dental abscess (loose canine)").first().waitFor();
+    await panel.locator(".tooth-list").getByText("Abscess drainage").first().waitFor();
+    await panel.locator(".tooth-list").getByText("Periapical radiolucency at 13").first().waitFor();
     // the panoramic view is the default; the five-surface view is one click away and shows the same tooth
     await page.locator(".pano-svg").waitFor();
     await page.locator(".pano-svg .lesion").first().waitFor();                                 // the abscess drawn at the apex of 13
@@ -504,6 +504,81 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert((await page.locator("#used").getByText("Gynecology").count()) === 0, "unused specialties are not in the used list");
     await page.locator("#others summary").click();
     await page.locator("#others").getByText("Ophthalmology").waitFor();
+  });
+
+  await step("treatment: a crown proposed from tooth 46's panel, an extraction added, the plan accepted with the surgical confirmation, the crown completed (chart and problem updated), a private cost, a new version, the plan PDF", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("#chart-46").click();
+    const panel = page.locator(".tooth-panel");
+    await panel.locator("summary", { hasText: "A treatment for this tooth" }).click();
+    const f = page.locator("form#tooth-tx");
+    assert((await f.locator('input[name="teeth"]:not([type="hidden"])').count()) === 0, "no tooth question from the tooth panel");
+    await f.locator('select[name="catalog_code"]').selectOption("crown_zirconia");
+    await f.locator('select[name="condition_id"]').selectOption({ label: "Cracked tooth (from the chart) (46)" });
+    await f.getByRole("button", { name: "Add to the plan" }).click();
+    await panel.locator("li.planned", { hasText: "Zirconia crown" }).waitFor();
+    await page.reload();
+    assert(/planned treatments: 1/.test(await page.locator("#chart-46").getAttribute("aria-label")), "the chart marks the planned crown on 46");
+
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    const plan = page.locator("article.plan-card").first();
+    await plan.getByText("Dental treatment plan").first().waitFor();
+    const addBox = plan.locator("details", { hasText: "Add a treatment to this plan" });
+    await addBox.locator("summary").click();
+    await addBox.locator('select[name="catalog_code"]').selectOption("extraction_simple");
+    await addBox.locator('input[name="teeth"]').fill("38");
+    await addBox.locator('input[name="phase"]').fill("2");
+    await addBox.getByRole("button", { name: "Add the treatment" }).click();
+    await plan.locator("li.treat-item", { hasText: "Simple extraction" }).waitFor();
+    await plan.locator("li.treat-item", { hasText: "Simple extraction" }).getByText("Surgical").waitFor();
+
+    // accepting: a plan with a surgical treatment needs the explicit confirmation (the box is required)
+    await plan.locator("summary", { hasText: "Accept / plan status" }).click();
+    const ps = plan.locator('form[id^="ps-"]');
+    await ps.locator('select[name="status"]').selectOption("accepted");
+    await ps.locator('input[name="confirm_surgical"]').waitFor();
+    await ps.locator('input[name="confirm_surgical"]').check();
+    await ps.getByRole("button", { name: "Save the status" }).click();
+    await plan.getByText("Accepted", { exact: true }).first().waitFor();
+
+    // completing the crown: the procedure, the chart and the cracked-tooth problem follow
+    const crown = plan.locator("li.treat-item", { hasText: "Zirconia crown" });
+    await crown.locator("summary", { hasText: "Change status" }).click();
+    await crown.locator('select[name="status"]').selectOption("completed");
+    await crown.getByRole("button", { name: "Save the status" }).click();
+    // (the status form leaves with the open state, so the result is checked on the treatment itself)
+    await page.locator("li.treat-item", { hasText: "Zirconia crown" }).getByText("Completed", { exact: true }).waitFor();
+    await page.locator(".plan-progress", { hasText: "1 of 2 done" }).first().waitFor();
+
+    // a private cost on the extraction
+    const ext = page.locator("li.treat-item", { hasText: "Simple extraction" });
+    await ext.locator("summary", { hasText: "Add a cost" }).click();
+    await ext.locator('input[name="amount"]').fill("300");
+    await ext.getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator(".plan-total").first().waitFor();
+    assert(/300/.test(await page.locator(".plan-total").first().innerText()), "the total shows the cost");
+
+    // the plan prints with its consent section
+    const planId = (await page.locator("article.plan-card").first().getAttribute("id")).replace("plan-", "");
+    const r = await page.request.get(`${BASE}/api/patients/${pid}/treatment-plans/${planId}/pdf?costs=1`);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]), "plan pdf " + r.status());
+    fs.writeFileSync(path.join(OUT, "treatment-plan.pdf"), await r.body());
+
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const l46 = await page.locator("#chart-46").getAttribute("aria-label");
+    assert(/Crown/.test(l46) && !/problem: Cracked tooth/.test(l46) && !/planned treatments/.test(l46), "46 now carries the crown, the problem is closed: " + l46);
+    await page.locator("#chart-46").click();
+    await page.locator(".tooth-panel li", { hasText: "Cracked tooth (from the chart)" }).getByText("Resolved").waitFor();
+
+    // a new version keeps the old one
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    const cur = page.locator("article.plan-card").first();
+    await cur.locator("summary", { hasText: "New version" }).click();
+    await cur.getByPlaceholder("Why (e.g. the price changed)").fill("price changed");
+    await cur.getByRole("button", { name: "Create a new version" }).click();
+    await page.getByText("Version 2").first().waitFor();
+    await page.locator("#past-plans summary", { hasText: "Past and superseded plans (1)" }).waitFor();
+    await page.screenshot({ path: path.join(OUT, "treatment.png"), fullPage: true });
   });
 
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
@@ -922,6 +997,22 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.locator("form#ctooth-dx").getByRole("button", { name: "Add the diagnosis" }).click();
     await d3.locator(".tooth-panel li", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
     await d3.locator("#contribute article.rec", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
+    // treatment: the dentist proposes a root canal for 47 from its panel and notes their cost; accepting is not theirs
+    if (!(await d3.locator(".tooth-panel").isVisible())) await d3.locator("#chart-47").click();
+    await d3.locator(".tooth-panel summary", { hasText: "A treatment for this tooth" }).click();
+    await d3.locator("form#ctooth-tx select[name=catalog_code]").selectOption("root_canal");
+    await d3.locator("form#ctooth-tx").getByRole("button", { name: "Propose the treatment" }).click();
+    await d3.locator(".tooth-panel li.planned", { hasText: "Root canal treatment" }).waitFor();
+    const rct = d3.locator("li.treat-item", { hasText: "Root canal treatment" }).first();
+    await rct.getByText("From the doctor via a link").waitFor();
+    await rct.locator("summary", { hasText: "Change status" }).click();
+    const opts = await rct.locator('select[name="status"] option').allInnerTexts();
+    assert(!opts.includes("Accepted"), "the dentist is not offered 'accepted': " + opts);
+    await rct.locator("summary", { hasText: "Add a cost" }).click();
+    await rct.locator('input[name="amount"]').fill("750");
+    await rct.getByRole("button", { name: "Save", exact: true }).click();
+    await d3.getByText("Your cost was saved").first().waitFor();
+    assert(!/SAR\s?300/.test(await d3.locator("#dental").innerText()), "the patient's own cost is not shown to the dentist");
     // the summary of additions comes after the clinical content
     const order = await d3.evaluate(() => ["#contributor", "#dental", "#contribute"].map((q) => { const el = document.querySelector(q); return el ? el.getBoundingClientRect().top + window.scrollY : NaN; }));
     assert(order[0] < order[1] && order[1] < order[2], "identity, then the dental workspace, then the summary: " + order);

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Share2 } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
-import { getAccess, getPatient, getSpecialties } from "@/lib/data";
+import { getAccess, getPatient, getProcedureCatalog, getSpecialties } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { fmtPartialDate, localDate } from "@/lib/format";
 import { ENTITIES } from "@/lib/entities";
@@ -22,6 +22,9 @@ import { ExamEditor } from "@/components/dental/ExamEditor";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import { getClinicalContext } from "@/lib/clinical-context-server";
 import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actions/dental";
+import { TreatmentItemForm, TreatmentPlans, type TreatmentActions } from "@/components/dental/TreatmentPlans";
+import { addTreatmentCost, addTreatmentItem, createTreatmentPlan, invalidateTreatment, newPlanVersion, setPlanStatus, setTreatmentStatus } from "@/app/actions/treatment";
+import { OPEN_ITEM, OPEN_PLAN, type TreatmentCost, type TreatmentItem, type TreatmentPlan } from "@/lib/treatment";
 
 type Profile = Record<string, string | boolean | null>;
 
@@ -29,7 +32,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const { lang, t } = i18n();
   const tz = getTz();
   const p = await getPatient(params.pid);
-  const [access, specs, ctx] = await Promise.all([getAccess(p.id), getSpecialties(), getClinicalContext(p.id)]);
+  const [access, specs, ctx, catalog] = await Promise.all([getAccess(p.id), getSpecialties(), getClinicalContext(p.id), getProcedureCatalog()]);
   const dent = specs.find((s) => s.code === "dentistry");
   const supabase = createClient();
   const [{ data: profile }, { data: examRows }, { data: stateRows }, { data: findingRows }, { data: condRows }, { data: ctrRows }, { data: procRows }, { data: imgRows }] = await Promise.all([
@@ -42,6 +45,17 @@ export default async function DentalPage({ params, searchParams }: { params: { p
     supabase.from("procedures").select("id, name, kind, teeth, performed_on, date_precision, operator_name, contributed_by").eq("patient_id", p.id).eq("record_status", "active"),
     supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression").eq("patient_id", p.id).eq("record_status", "active"),
   ]);
+  // treatment plans, their treatments and the private costs
+  const [{ data: planRows }, { data: itemRows }, { data: costRows }] = await Promise.all([
+    supabase.from("treatment_plans").select("*").eq("patient_id", p.id).eq("record_status", "active").order("recorded_at", { ascending: false }),
+    supabase.from("treatment_items").select("*").eq("patient_id", p.id).eq("record_status", "active").order("phase").order("sort"),
+    supabase.from("treatment_costs").select("*").eq("patient_id", p.id).eq("record_status", "active"),
+  ]);
+  const plans: TreatmentPlan[] = ((planRows ?? []) as TreatmentPlan[]).map((pl) => ({ ...pl, items: ((itemRows ?? []) as (TreatmentItem & { plan_id: string })[]).filter((i) => i.plan_id === pl.id) }));
+  const costs = (costRows ?? []) as TreatmentCost[];
+  const openPlans = plans.filter((pl) => OPEN_PLAN.has(pl.status));
+  const planned = openPlans.flatMap((pl) => pl.items.filter((i) => OPEN_ITEM.has(i.status) && i.teeth?.length)
+    .map((i) => ({ id: i.id, name: i.name, status: i.status, plan: pl.title, plan_id: pl.id, teeth: i.teeth })));
   const imgIds = (imgRows ?? []).map((i) => i.id as string);
   const { data: imgDocs } = imgIds.length
     ? await supabase.from("medical_documents").select("id, title, imaging_id").eq("patient_id", p.id).eq("record_status", "active").in("imaging_id", imgIds)
@@ -55,7 +69,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const diagnoses = allConds.filter((c) => Array.isArray(c.teeth) && c.teeth.length > 0);
   // dental problems that do not name a tooth yet (they cannot be drawn until they do)
   const unassigned = allConds.filter((c) => c.specialty_id === dent?.id && !(c.teeth?.length) && OPEN_PROBLEM.has(c.clinical_status ?? "active") && c.certainty !== "refuted");
-  const tab = ["chart", "problems", "care", "imaging", "profile"].includes(searchParams.tab ?? "") ? searchParams.tab! : "chart";
+  const tab = ["chart", "problems", "treatment", "care", "imaging", "profile"].includes(searchParams.tab ?? "") ? searchParams.tab! : "chart";
   const contributors = Object.fromEntries((ctrRows ?? []).map((c) => [c.id as string, c.full_name as string]));
   const pr = (profile ?? null) as Profile | null;
   const dentition = chartDentition(pr as { dentition?: string } | null, exams);
@@ -66,7 +80,17 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const base = `/patients/${p.id}/dental`;
   // added from the panel of the chosen tooth: the tooth (and the specialty) are known, so they are not asked
   const fixedSpec: Record<string, string> = dent ? { specialty_id: dent.id } : {};
+  const openProblems = allConds.filter((c) => (c.teeth?.length || c.specialty_id === dent?.id) && OPEN_PROBLEM.has(c.clinical_status ?? "active") && c.certainty !== "refuted")
+    .map((c) => ({ id: c.id, name: c.name, teeth: c.teeth }));
+  const txActions: TreatmentActions = {
+    hidden: { _pid: p.id }, status: setTreatmentStatus,
+    ...(access.canWrite ? { planStatus: setPlanStatus, newVersion: newPlanVersion, createPlan: createTreatmentPlan, addItem: addTreatmentItem, addCost: addTreatmentCost, invalidate: invalidateTreatment } : {}),
+    pdfHref: (id: string) => `/api/patients/${p.id}/treatment-plans/${id}/pdf`,
+  };
   const toothAdd: ToothAddForm[] = access.canWrite ? [
+    { id: "tooth-tx", label: t("علاج مقترح لهذا السن", "A treatment for this tooth"), node: (
+      <TreatmentItemForm action={addTreatmentItem} hidden={{ _pid: p.id }} catalog={catalog} problems={openProblems} lang={lang} idPrefix="tooth-tx" formId="tooth-tx"
+        plans={openPlans.map((pl) => ({ id: pl.id, title: pl.title }))} externalTeeth submitLabel={t("إضافة إلى الخطة", "Add to the plan")} />) },
     { id: "tooth-dx", label: t("تشخيص لهذا السن", "A diagnosis for this tooth"), node: (
       <EntityForm entity={ENTITIES.conditions} pid={p.id} specialties={specs} returnPath={base} formId="tooth-dx" submitLabel={t("إضافة التشخيص", "Add the diagnosis")}
         context={{ fixed: { ...fixedSpec, category: "diagnosis" }, dental: true, external: ["teeth"],
@@ -97,7 +121,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
 
       <nav className="dental-tabs" aria-label={t("أقسام ملف الأسنان", "Dental file sections")}>
         {([["chart", "المخطط والفحوص", "Chart & exams"], ["problems", `المشكلات والتشخيصات${unassigned.length ? ` (${unassigned.length} بلا سن)` : ""}`, `Problems & diagnoses${unassigned.length ? ` (${unassigned.length} without a tooth)` : ""}`],
-          ["care", "الزيارات والإجراءات", "Visits & procedures"], ["imaging", "الصور والأشعة", "Images & X-rays"], ["profile", "الملف السني", "Dental profile"]] as const)
+          ["treatment", `العلاج${openPlans.length ? ` (${openPlans.length})` : ""}`, `Treatment${openPlans.length ? ` (${openPlans.length})` : ""}`], ["care", "الزيارات والإجراءات", "Visits & procedures"], ["imaging", "الصور والأشعة", "Images & X-rays"], ["profile", "الملف السني", "Dental profile"]] as const)
           .map(([k, ar, en]) => <Link key={k} href={`${base}?tab=${k}`} aria-current={tab === k ? "page" : undefined}>{t(ar, en)}</Link>)}
       </nav>
 
@@ -121,7 +145,8 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         )}
         <DentalChart dentition={dentition} exams={exams} findings={findings} diagnoses={diagnoses} contributors={contributors} lang={lang}
           pid={p.id} canWrite={access.canWrite} today={today} asOf={asExam?.exam_date ?? null} specialtyId={dent?.id ?? null}
-          procedures={procedures} images={images} problemsHref={`${base}?tab=problems#diagnoses`} toothAdd={toothAdd} />
+          procedures={procedures} images={images} problemsHref={`${base}?tab=problems#diagnoses`} toothAdd={toothAdd}
+          planned={planned} treatmentHref={`${base}?tab=treatment`} />
       </Card>
 
       {access.canWrite && (
@@ -227,6 +252,14 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         context={{ fixed: dent ? { specialty_id: dent.id, category: "diagnosis" } : { category: "diagnosis" }, dental: true,
           suggest: { name: DENTAL_DIAGNOSES.map((d) => (lang === "ar" ? d.ar : d.en)) } }} />
       </>)}
+
+      {tab === "treatment" && (
+        <Card id="treatment" title={t("العلاج وخطط العلاج", "Treatment & treatment plans")}>
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("لكل علاج دورة: مقترح ← موافَق عليه ← مجدول ← منجز. لا يُسجَّل علاج منجزاً قبل الموافقة عليه، والجراحي يحتاج تأكيداً صريحاً. عند الإنجاز يُضاف الإجراء إلى الملف ويُحدَّث المخطط وتُغلق المشكلة التي عالجها.",
+            "Each treatment moves: proposed → accepted → scheduled → completed. Nothing is completed before it was accepted, and a surgical one needs an explicit confirmation. Completing it adds the procedure, updates the chart and closes the problem it treated.")}</p>
+          <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors} />
+        </Card>
+      )}
 
       {tab === "care" && (<>
         <EntitySection entity={ENTITIES.visits} pid={p.id} returnPath={base} title={t("زيارات الأسنان", "Dental visits")} compact

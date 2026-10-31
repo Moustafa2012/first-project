@@ -2,8 +2,11 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface ContribItem { table: string; id: string; label: string | null; at: string | null; record_status: string; by: string; mine: boolean }
+/** the doctor as the patient named them on the link */
+export interface ShareClinician { name: string; specialty: string | null; facility: string | null; city: string | null; license: string | null; phone: string | null }
 export interface ContribState {
   status: string;
+  clinician?: ShareClinician | null;
   patient_id?: string;               // server-side only (storage paths); never rendered
   modules?: string[];
   max?: number;
@@ -18,9 +21,14 @@ export interface ContribState {
 
 /** What the clinician in this share session may add, who they said they are, and what was added through the share. */
 export async function contribState(session: string): Promise<ContribState> {
-  const { data, error } = await createAdminClient().rpc("share_contrib_state", { p_session_token: session });
+  const admin = createAdminClient();
+  const [{ data, error }, { data: cl }] = await Promise.all([
+    admin.rpc("share_contrib_state", { p_session_token: session }),
+    admin.rpc("share_clinician", { p_session_token: session }),
+  ]);
   if (error || !data) return { status: "error" };
-  return data as ContribState;
+  const c = cl as (ShareClinician & { status?: string }) | null;
+  return { ...(data as ContribState), clinician: c?.status === "ok" && c.name ? c : null };
 }
 
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

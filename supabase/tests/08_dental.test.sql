@@ -75,9 +75,10 @@ select test.ok((select count(*) from public.audit_logs where table_name = 'denta
 
 -- ---------------------------------------------------------------- the clinician through a share
 select public.share_create(p_patient => :'pd', p_title => 'Dentist', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_dent'::uuid],
-  p_expires_at => now() + interval '2 days', p_allow_contribute => true, p_contribute_modules => array['conditions', 'dental_exams']) as dsh \gset
+  p_expires_at => now() + interval '2 days', p_allow_contribute => true, p_contribute_modules => array['conditions', 'dental_exams'],
+  p_clinician => '{"name":"Dr Enamel","specialty":"Dentist","license":"LIC-9","facility":"Molar Clinic"}') as dsh \gset
 select public.share_create(p_patient => :'pd', p_title => 'Cardio', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_card'::uuid],
-  p_expires_at => now() + interval '2 days', p_allow_contribute => true, p_contribute_modules => array['dental_exams']) as csh \gset
+  p_expires_at => now() + interval '2 days', p_allow_contribute => true, p_contribute_modules => array['dental_exams'], p_clinician => '{"name":"Dr Heart"}') as csh \gset
 select (:'dsh'::jsonb ->> 'token') as d_tok, (:'dsh'::jsonb ->> 'pin') as d_pin, (:'csh'::jsonb ->> 'token') as c_tok, (:'csh'::jsonb ->> 'pin') as c_pin \gset
 select test.throws(format($$select public.share_dental('x')$$), 'permission denied|42501', 'an account cannot call the share dental functions');
 

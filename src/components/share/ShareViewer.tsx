@@ -314,7 +314,7 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           <p className="small muted">{t("لا تُضاف ملاحظتك إلى السجل الطبي تلقائياً؛ يراجعها المريض أولاً.", "Your note is not added to the medical record automatically; the patient reviews it first.")}</p>
           <ActionForm action={addShareNote} className="stack">
             <input type="hidden" name="_t" value={token} />
-            <div className="field"><label htmlFor="author_name">{t("اسمك", "Your name")}</label><input id="author_name" name="author_name" required minLength={2} maxLength={120} /></div>
+            <div className="field"><label htmlFor="author_name">{t("اسمك", "Your name")}</label><input id="author_name" name="author_name" required minLength={2} maxLength={120} defaultValue={contrib?.clinician?.name ?? contrib?.contributor?.full_name ?? ""} /></div>
             <div className="field"><label htmlFor="body">{t("الملاحظة", "Note")}</label><textarea id="body" name="body" required maxLength={4000} rows={4} /></div>
             <div><SubmitButton>{t("إرسال", "Send")}</SubmitButton></div>
           </ActionForm>

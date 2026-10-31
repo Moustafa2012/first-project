@@ -241,3 +241,13 @@ export const TOBACCO_TYPE: Opt[] = [o("cigarettes", "سجائر", "Cigarettes"),
 export const ALCOHOL_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("none", "لا يشرب", "None"), o("occasional", "أحياناً", "Occasional"), o("regular", "بانتظام", "Regular"), o("former", "سابقاً", "Former")];
 export const ACTIVITY_LEVEL: Opt[] = [o("sedentary", "خامل", "Sedentary"), o("light", "خفيف", "Light"), o("moderate", "متوسط", "Moderate"), o("active", "نشيط", "Active")];
 export const PREGNANCY_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("not_pregnant", "غير حامل", "Not pregnant"), o("pregnant", "حامل", "Pregnant"), o("not_applicable", "لا ينطبق", "Not applicable")];
+
+/** suggestions for the specialty of the doctor a share is for (free text is allowed) */
+export const CLINICIAN_SPECIALTIES: [string, string][] = [
+  ["طب الأسنان العام", "General dentistry"], ["علاج اللثة", "Periodontics"], ["علاج العصب (اللبّ)", "Endodontics"],
+  ["جراحة الفم والفكين", "Oral & maxillofacial surgery"], ["تقويم الأسنان", "Orthodontics"], ["التركيبات وتعويض الأسنان", "Prosthodontics"],
+  ["طب أسنان الأطفال", "Paediatric dentistry"], ["أشعة الفم والفكين", "Oral & maxillofacial radiology"], ["طب الفم", "Oral medicine"],
+  ["طب الأسرة", "Family medicine"], ["الباطنة", "Internal medicine"], ["القلب", "Cardiology"], ["الغدد الصماء والسكري", "Endocrinology & diabetes"],
+  ["النساء والولادة", "Obstetrics & gynaecology"], ["الأطفال", "Paediatrics"], ["العظام", "Orthopaedics"], ["الجلدية", "Dermatology"],
+  ["العيون", "Ophthalmology"], ["الأنف والأذن والحنجرة", "ENT"], ["المسالك البولية", "Urology"], ["الأعصاب", "Neurology"], ["الطب النفسي", "Psychiatry"],
+];

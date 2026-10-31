@@ -65,7 +65,7 @@ select test.throws(format($$select public.recall_done(%L)$$, :'rc'), 'not_found'
 -- the dentist through a share: their note is signed with their name; only they amend it
 select test.as_user(:'alice'::uuid);
 select public.share_create(p_patient => :'pv', p_title => 'Dentist', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_dent'::uuid],
-  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['clinical_notes', 'encounters']) as sh \gset
+  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['clinical_notes', 'encounters'], p_clinician => '{"name":"Dr Note"}') as sh \gset
 select (:'sh'::jsonb ->> 'token') as tok, (:'sh'::jsonb ->> 'pin') as pin \gset
 select test.as_service();
 select (public.share_open(:'tok', :'pin', 'ip-vn', 'UA') ->> 'session_token') as sess \gset

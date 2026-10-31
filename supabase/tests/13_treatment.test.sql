@@ -104,7 +104,7 @@ select test.throws(format($$select public.treatment_plan_create(%L, '{"title":"I
 -- the dentist through a share
 select test.as_user(:'alice'::uuid);
 select public.share_create(p_patient => :'pt', p_title => 'Dentist', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_dent'::uuid],
-  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['treatment_plans']) as sh \gset
+  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['treatment_plans'], p_clinician => '{"name":"Dr Plan","facility":"Smile"}') as sh \gset
 select (:'sh'::jsonb ->> 'token') as tok, (:'sh'::jsonb ->> 'pin') as pin \gset
 select test.as_service();
 select (public.share_open(:'tok', :'pin', 'ip-tx', 'UA') ->> 'session_token') as sess \gset

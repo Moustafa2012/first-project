@@ -34,14 +34,19 @@ export async function createShare(_: FormState, fd: FormData): Promise<FormState
   const allowContribute = fd.get("allow_contribute") === "on";
   const contribute = fd.getAll("contribute").map(String).filter((x) => CONTRIB_MODULES.some((m) => m.value === x));
   if (allowContribute && contribute.length === 0) return { error: t("اختر ما يمكن للطبيب إضافته.", "Choose what the doctor may add.") };
+  const cl = (k: string, max: number) => String(fd.get(`clinician_${k}`) ?? "").trim().slice(0, max);
+  const clinician = { name: cl("name", 120), specialty: cl("specialty", 120), facility: cl("facility", 200), city: cl("city", 120), license: cl("license", 60), phone: cl("phone", 40) };
+  if (clinician.name.length < 3) return { error: t("اكتب اسم الطبيب الذي تذهب إليه.", "Enter the name of the doctor you are going to.") };
+  if (clinician.specialty.length < 2) return { error: t("اكتب تخصص الطبيب.", "Enter the doctor's specialty.") };
+  if (clinician.facility.length < 2) return { error: t("اكتب اسم العيادة أو المنشأة.", "Enter the clinic or facility.") };
 
   const { data, error } = await createClient().rpc("share_create", {
     p_patient: pid, p_title: title, p_scope_kind: scope, p_specialty_ids: scope === "specialty" ? specialties : [], p_include: include,
     p_observation_type_ids: obsTypes, p_date_from: /^\d{4}-\d{2}-\d{2}$/.test(df) ? df : null, p_date_to: /^\d{4}-\d{2}-\d{2}$/.test(dt) ? dt : null,
     p_expires_at: expiresAt, p_max_attempts: attempts, p_allow_download: fd.get("allow_download") === "on", p_allow_print: fd.get("allow_print") === "on",
     p_allow_notes: fd.get("allow_notes") === "on", p_include_sensitive: fd.get("include_sensitive") === "on",
-    p_recipient_label: String(fd.get("recipient_label") ?? "").trim().slice(0, 200) || null, p_items: scope === "custom" ? items : [],
-    p_allow_contribute: allowContribute, p_contribute_modules: allowContribute ? contribute : [],
+    p_recipient_label: [clinician.name, clinician.facility].filter(Boolean).join(" — ").slice(0, 200), p_items: scope === "custom" ? items : [],
+    p_allow_contribute: allowContribute, p_contribute_modules: allowContribute ? contribute : [], p_clinician: clinician,
   });
   if (error) return { error: explainError(error, t) };
   const r = data as { share_id: string; token: string; pin: string; expires_at: string };

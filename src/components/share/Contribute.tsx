@@ -9,7 +9,7 @@ import { Banner, Chip, Empty } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { FieldInput } from "@/components/EntityForm";
 import { SignaturePad } from "@/components/SignaturePad";
-import { contributeDentalExam, contributeRecord, identifyContributor, retractContribution, shareAmendNote } from "@/app/actions/share-viewer";
+import { contributeDentalExam, contributeRecord, confirmClinician, identifyContributor, retractContribution, shareAmendNote } from "@/app/actions/share-viewer";
 import { TemplatePicker } from "@/components/TemplatePicker";
 import type { ShareMyNote } from "@/lib/share-types";
 import { ExamEditor } from "@/components/dental/ExamEditor";
@@ -53,7 +53,18 @@ export function ContributorCard({ token, st, uploaded, uploadError }: { token: s
       <p className="small muted">{t("سمح لك المريض بإضافة ما يلي. تُحفظ إضافاتك باسمك ضمن نطاق هذه المشاركة، ويراها المريض ويستطيع إبطالها. لا يمكنك تعديل أو حذف ما سجله المريض.",
         "The patient allowed you to add the following. Your additions are saved under your name within this share's scope; the patient sees them and can invalidate them. You cannot change or remove what the patient recorded.")}</p>
       <p className="small">{modules.map((m) => <Chip key={m} tone="info">{contribLabel(m, lang)}</Chip>)}</p>
-      {!who ? (
+      {!who && st.clinician ? (
+        <ActionForm action={confirmClinician} className="stack clinician-confirm" resetOnSuccess={false}>
+          <input type="hidden" name="_t" value={token} />
+          <h3>{t("هذا الرابط مخصّص لـ", "This link is for")}</h3>
+          <p className="clinician-id"><strong>{st.clinician.name}</strong>
+            {[st.clinician.specialty, st.clinician.facility, st.clinician.city, st.clinician.license && `${t("ترخيص", "licence")} ${st.clinician.license}`].filter(Boolean).map((x) => <Chip key={String(x)} tone="muted">{x}</Chip>)}</p>
+          <p className="small muted" style={{ margin: 0 }}>{t("حدّد المريض هذه البيانات عند إنشاء الرابط، وتُحفظ مع كل ما تضيفه. لا تحتاج إلى إدخال بياناتك؛ سجّل التشخيص والعمل فقط.",
+            "The patient gave these details when making the link, and they are kept with everything you add. You do not need to enter your details; record only the diagnosis and the work.")}</p>
+          <div><SubmitButton pending={t("جارٍ التأكيد…", "Confirming…")}>{t(`أنا ${st.clinician.name} — ابدأ`, `I am ${st.clinician.name} — start`)}</SubmitButton></div>
+          <p className="small muted" style={{ margin: 0 }}>{t("لست هذا الطبيب؟ لا تتابع، واطلب من المريض رابطاً باسمك.", "Not this doctor? Do not continue; ask the patient for a link in your name.")}</p>
+        </ActionForm>
+      ) : !who ? (
         <ActionForm action={identifyContributor} className="stack" resetOnSuccess={false}>
           <input type="hidden" name="_t" value={token} />
           <h3>{t("عرّف بنفسك ووقّع مرة واحدة، ثم أضف في مكان كل معلومة", "Identify yourself and sign once, then add where each piece of information belongs")}</h3>

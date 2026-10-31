@@ -17,7 +17,7 @@ insert into public.conditions (patient_id, specialty_id, name, category) values 
 insert into public.procedures (patient_id, specialty_id, kind, name) values (:'pl', :'s_dent', 'dental', 'Cleaning, no tooth');
 
 select public.share_create(p_patient => :'pl', p_title => 'Dentist', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_dent'::uuid],
-  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['procedures', 'imaging_studies', 'dental_exams']) as sh \gset
+  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['procedures', 'imaging_studies', 'dental_exams'], p_clinician => '{"name":"Dr Root"}') as sh \gset
 select (:'sh'::jsonb ->> 'token') as tok, (:'sh'::jsonb ->> 'pin') as pin \gset
 select test.as_service();
 select (public.share_open(:'tok', :'pin', 'ip-links', 'UA') ->> 'session_token') as sess \gset

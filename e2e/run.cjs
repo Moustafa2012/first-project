@@ -880,10 +880,19 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Recent out-of-range results").waitFor();
   });
 
+  // every share names the doctor it is for (the doctor types nothing)
+  const fillClinician = async (pg, name = "Dr Test Reader", extra = {}) => {
+    await pg.fill("#cl_name", name);
+    if (!(await pg.locator("#cl_spec").inputValue())) await pg.fill("#cl_spec", extra.specialty ?? "Dentistry");
+    await pg.fill("#cl_fac", extra.facility ?? "Test Clinic");
+    if (extra.city) await pg.fill("#cl_city", extra.city);
+    if (extra.license) await pg.fill("#cl_lic", extra.license);
+  };
   await step("create a specialty share (dentistry): link + PIN shown once", async () => {
     await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
     await page.getByText("Always included (for safety)").waitFor();
     await page.check('input[name="allow_notes"]');
+    await fillClinician(page);
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     shareLink = await page.locator('input[aria-label="Share link"]').inputValue();
@@ -987,6 +996,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/sharing/new`);
     await page.fill("#title", "Brute target");
     await page.check('input[name="scope_kind"][value="full"]');
+    await fillClinician(page, "Dr Brute Target", { specialty: "Family medicine" });
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     const l = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
@@ -1009,6 +1019,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
     await page.getByText("Always included (for safety)").waitFor();
     await page.check('input[name="allow_print"]');
+    await fillClinician(page);
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     const link2 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
@@ -1026,10 +1037,16 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await c2.close();
   });
 
-  await step("doctor adds through a contributing share: identify + on-screen signature, diagnosis, visit + linked note, document, withdrawal", async () => {
+  await step("doctor adds through a contributing share: the patient names the doctor, one-click confirmation, diagnosis, visit + linked note, document, withdrawal", async () => {
     await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
     await page.getByText("Always included (for safety)").waitFor();
     await page.check('input[name="allow_contribute"]');
+    // a contributing link without the doctor's name is refused
+    await page.fill("#cl_fac", "Smile Clinic");
+    await page.locator("#cl_name").evaluate((el) => el.removeAttribute("required"));
+    await submit(page, "Create link & PIN");
+    await page.getByText("Enter the name of the doctor you are going to.").waitFor();
+    await fillClinician(page, "Dr Sara Molar", { facility: "Smile Clinic", city: "Riyadh", license: "DEN-12345" });
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     const link3 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
@@ -1040,20 +1057,11 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const c3 = await newContext(browser); const d3 = await c3.newPage(); watch(d3, "dentist");
     await d3.goto(link3); await d3.fill("#pin", pin3); await d3.getByRole("button", { name: "Open file" }).click(); await d3.waitForURL(/\/view$/);
     await d3.getByRole("heading", { name: /Add to the patient's file/ }).waitFor();
-    // nothing can be added before identifying; an unsigned form does not submit
-    await d3.fill("#c_name", "Dr Sara Molar");
-    await d3.fill("#c_spec", "Dentist");
-    await d3.fill("#c_lic", "DEN-12345");
-    await d3.fill("#c_fac", "Smile Clinic");
-    await d3.check('input[name="attest"]');
-    await d3.getByRole("button", { name: "Continue", exact: true }).click();
-    await d3.waitForTimeout(500);
-    assert(await d3.locator("#c_name").isVisible(), "the identity form stays until a signature is drawn");
-    const pad = await d3.locator("canvas.sig-pad").boundingBox();
-    await d3.mouse.move(pad.x + 20, pad.y + 100); await d3.mouse.down();
-    for (const [dx, dy] of [[60, 40], [120, 120], [180, 50], [240, 110], [300, 70]]) await d3.mouse.move(pad.x + dx, pad.y + dy, { steps: 4 });
-    await d3.mouse.up();
-    await d3.getByRole("button", { name: "Continue", exact: true }).click();
+    // the doctor types none of their details: the link names them, they confirm with one click
+    await d3.getByText("This link is for").waitFor();
+    assert((await d3.locator("#c_name").count()) === 0 && (await d3.locator("canvas.sig-pad").count()) === 0, "no identity form, no signature pad");
+    await d3.locator(".clinician-confirm").getByText("Smile Clinic").waitFor();
+    await d3.getByRole("button", { name: "I am Dr Sara Molar — start" }).click();
     await d3.getByText("Adding as").waitFor();
     await d3.getByText("Dr Sara Molar").first().waitFor();
 
@@ -1160,8 +1168,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}${contribShareHref}`);
     await page.getByText("Doctors who added to your file").waitFor();
     await page.getByText("DEN-12345").first().waitFor();
-    const sigOk = await page.locator("img.sig-img").first().evaluate((img) => img.complete && img.naturalWidth > 0);
-    assert(sigOk, "the on-screen signature is shown to the patient");
+    await page.getByText("Confirmed being the doctor named on the link").first().waitFor();
+    await page.getByText("Riyadh").first().waitFor();
     await page.getByRole("button", { name: "I reviewed these additions" }).click();
     await page.getByText("Reviewed", { exact: true }).first().waitFor();
     await page.locator("summary", { hasText: "Invalidate everything this doctor added" }).click();

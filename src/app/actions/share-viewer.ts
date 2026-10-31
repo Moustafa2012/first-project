@@ -105,6 +105,20 @@ export async function identifyContributor(_: FormState, fd: FormData): Promise<F
   return { ok: true, message: t("تم. يمكنك الآن الإضافة إلى الملف.", "Done. You can now add to the file.") };
 }
 
+/** The doctor confirms, with one click, that they are the doctor the patient named on the link. */
+export async function confirmClinician(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const token = String(fd.get("_t") ?? "");
+  const session = validToken(token) ? getShareSession(token) : null;
+  if (!session) return { error: t("انتهت الجلسة. أدخل الرمز من جديد.", "Session ended. Enter the PIN again.") };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_confirm_clinician", { p_session_token: session, p_ip_hash: ipHash, p_user_agent: ua });
+  const status = (data as { status?: string } | null)?.status;
+  if (error || status !== "ok") return { error: error ? explainError(error, t) : t("الإضافة غير مسموحة في هذه المشاركة أو انتهت الجلسة.", "Adding is not allowed on this share, or the session ended.") };
+  revalidatePath(`/s/${token}/view`);
+  return { ok: true };
+}
+
 const CONTRIB_STATUS: Record<string, [string, string]> = {
   expired: ["انتهت الجلسة أو أُلغيت المشاركة. أدخل الرمز من جديد.", "The session ended or the share was revoked. Enter the PIN again."],
   forbidden: ["هذا النوع من الإضافة غير مسموح في هذه المشاركة.", "This kind of addition is not allowed on this share."],
@@ -136,6 +150,12 @@ export async function contributeRecord(_: FormState, fd: FormData): Promise<Form
     if (table === "medications" && !payload.prescriber_name) payload.prescriber_name = who;
     if (table === "procedures" && !payload.operator_name) payload.operator_name = who;
     if (table === "encounters" && !payload.practitioner_name) payload.practitioner_name = who;
+  }
+  // the clinic the patient named on the link: the doctor does not type it
+  if (["encounters", "procedures", "imaging_studies", "appointments"].includes(table) && !payload.facility_name) {
+    const { data: cl } = await createAdminClient().rpc("share_clinician", { p_session_token: session });
+    const facility = (cl as { status?: string; facility?: string | null } | null)?.facility;
+    if (facility) payload.facility_name = facility;
   }
   const { ipHash, ua } = clientMeta();
   const { data, error } = await createAdminClient().rpc("share_contribute", { p_session_token: session, p_table: table, p_payload: payload, p_ip_hash: ipHash, p_user_agent: ua });

@@ -440,7 +440,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByRole("link", { name: /Problems & diagnoses \(\d+ without a tooth\)/ }).waitFor();
     await un.locator('input[name="teeth"]').fill("13");
     await un.getByRole("button", { name: "Set the tooth" }).click();
-    await page.getByText("Tooth set; it is now on the chart.").waitFor();
+    await un.waitFor({ state: "detached" });                                          // it leaves the list once its tooth is known
     // a procedure and an image on tooth 13
     await page.goto(`${BASE}/patients/${pid}/dental?tab=care`);
     await openSummary(page, "Add a dental procedure");

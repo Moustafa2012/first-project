@@ -1,6 +1,6 @@
 import { i18n, type Lang } from "@/lib/i18n";
 import { DATE_PRECISION, SOURCE } from "@/lib/labels";
-import type { EntityDef, FieldDef } from "@/lib/entities";
+import type { EntityDef, FieldDef, FormContext } from "@/lib/entities";
 import type { Row, Specialty } from "@/lib/types";
 import { ActionForm, DateTimeField, SubmitButton } from "@/components/ui/client";
 import { saveEntity } from "@/app/actions/entities";
@@ -65,13 +65,19 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision }:
 }
 
 export function EntityForm({
-  entity, pid, row, specialties, returnPath, links = {}, defaults = {}, submitLabel,
+  entity, pid, row, specialties, returnPath, links = {}, defaults = {}, submitLabel, context,
 }: {
   entity: EntityDef; pid: string; row?: Row; specialties: Specialty[]; returnPath: string;
-  links?: Record<string, string>; defaults?: Record<string, string>; submitLabel?: string;
+  links?: Record<string, string>; defaults?: Record<string, string>; submitLabel?: string; context?: FormContext;
 }) {
   const { lang, t } = i18n();
   const prefix = `${entity.slug}_${row?.id ?? "new"}`;
+  // what the place already knows is sent, not asked; fields that do not belong here are not shown (and left untouched)
+  const fixed = context?.fixed ?? {};
+  const narrow = context?.options ?? {};
+  const fields = entity.fields
+    .filter((f) => !(f.only === "dental" && !context?.dental) && !(f.name in fixed))
+    .map((f) => (narrow[f.name] && f.options ? { ...f, options: f.options.filter((o) => narrow[f.name].includes(o.value)) } : f));
   return (
     <ActionForm action={saveEntity} className="stack" resetOnSuccess={!row}>
       <input type="hidden" name="_slug" value={entity.slug} />
@@ -79,8 +85,10 @@ export function EntityForm({
       <input type="hidden" name="_path" value={returnPath} />
       {row && <input type="hidden" name="_id" value={row.id} />}
       {Object.entries(links).map(([k, v]) => <input key={k} type="hidden" name={`_link_${k}`} value={v} />)}
+      <input type="hidden" name="_fields" value={[...fields.map((f) => f.name), ...Object.keys(fixed)].join(",")} />
+      {Object.entries(fixed).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       <div className="form-grid">
-        {entity.fields.map((fd) => (
+        {fields.map((fd) => (
           <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix}
             value={row ? row[fd.name] : defaults[fd.name]} precision={fd.precision && row ? row[fd.precision] : undefined} />
         ))}

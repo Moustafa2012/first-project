@@ -9,8 +9,10 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Parses and validates a submitted form against the entity definition. Unknown fields are ignored. */
 export function parseEntityForm(def: EntityDef, fd: FormData, t: (ar: string, en: string) => string): { row: Record<string, unknown> } | { error: string } {
   const row: Record<string, unknown> = {};
+  // a form says which fields it showed (`_fields`); the others are left as they are instead of being cleared
+  const shown = fd.has("_fields") ? new Set(String(fd.get("_fields")).split(",")) : null;
   const fields: FieldDef[] = [
-    ...def.fields,
+    ...def.fields.filter((x) => !shown || shown.has(x.name)),
     { name: "source", ar: "المصدر", en: "Source", kind: "select", options: SOURCE },
     { name: "source_detail", ar: "تفاصيل المصدر", en: "Source detail", kind: "text", maxLength: 300 },
   ];

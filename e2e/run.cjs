@@ -384,7 +384,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await cmp.locator("tr", { hasText: "16" }).getByText("Filling MO").waitFor();
     // a diagnosis naming its tooth (invalid numbers refused)
     await page.goto(`${BASE}/patients/${pid}/dental`);
-    await openSummary(page, "Add condition");
+    await openSummary(page, "Add a dental diagnosis");
+    // inside the dental file the form does not ask for the specialty or the category
+    assert((await page.locator("#conditions_new_specialty_id").count()) === 0 && (await page.locator("#conditions_new_category").count()) === 0, "dental diagnosis form asks only what it needs");
     await page.fill("#conditions_new_name", "Irreversible pulpitis");
     await page.fill("#conditions_new_teeth", "19");
     await page.locator("form", { has: page.locator("#conditions_new_teeth") }).getByRole("button", { name: "Save", exact: true }).click();
@@ -395,6 +397,35 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("#chart-36").click();
     await page.locator(".tooth-panel").getByText("Irreversible pulpitis").waitFor();
     await page.screenshot({ path: path.join(OUT, "dental-file.png"), fullPage: true });
+  });
+
+  await step("forms know where they are; a diagnosis changes status in one step and keeps its history", async () => {
+    // the general conditions form has no tooth field; the core file offers only chronic categories
+    await page.goto(`${BASE}/patients/${pid}/conditions`);
+    await openSummary(page, "Add condition");
+    assert((await page.locator("#conditions_new_teeth").count()) === 0, "no tooth field outside the dental file");
+    assert((await page.locator("#conditions_new_specialty_id").count()) === 1, "the general form lets the user pick the specialty");
+    await page.goto(`${BASE}/patients/${pid}/profile`);
+    const cats = await page.locator("#conditions #conditions_new_category option").allInnerTexts();
+    assert(cats.length === 4 && !cats.some((c) => /Diagnosis|Acute/.test(c)), "core file: chronic categories only: " + cats.join("|"));
+    // resolve, then a recurrence, each with its reason
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const card = () => page.locator("#diagnoses article.rec", { hasText: "Irreversible pulpitis" }).first();
+    await card().locator("summary", { hasText: "Change status" }).click();
+    await card().getByLabel("Resolved").check();
+    await card().locator('input[name="reason"]').fill("root canal treatment");
+    await card().getByRole("button", { name: "Save status" }).click();
+    await page.getByText("Status changed; the change is kept in its history.").first().waitFor();
+    await page.reload();
+    await card().locator("summary", { hasText: "Change status" }).click();
+    await card().getByLabel("Recurrence").check();
+    await card().locator('input[name="reason"]').fill("pain again");
+    await card().getByRole("button", { name: "Save status" }).click();
+    await page.getByText("Status changed; the change is kept in its history.").first().waitFor();
+    await page.reload();
+    await card().locator("summary", { hasText: "Status history (2 changes)" }).click();
+    await card().getByText(/Active → Resolved — root canal treatment/).waitFor();
+    await card().getByText(/Resolved → Recurrence — pain again/).waitFor();
   });
 
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {

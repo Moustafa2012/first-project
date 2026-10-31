@@ -26,6 +26,19 @@ export interface FieldDef {
   show?: boolean;
   /** date fields: name of the column that says how much of the date is known (day / month / year / approx) */
   precision?: string;
+  /** shown only where it makes sense (e.g. tooth numbers in the dental file) */
+  only?: "dental";
+}
+
+/**
+ * Where a form is opened from. Values the place already knows (the specialty of a specialty page, "diagnosis" in the
+ * dental file…) are sent as hidden fields and never asked; `dental` shows the dental-only fields; `options` narrows a
+ * select (e.g. chronic categories in the core file).
+ */
+export interface FormContext {
+  fixed?: Record<string, string>;
+  dental?: boolean;
+  options?: Record<string, string[]>;
 }
 
 export interface Chip { tone: "ok" | "warn" | "bad" | "info" | "muted"; text: string }
@@ -71,7 +84,7 @@ const tone = (v: string, map: Record<string, Chip["tone"]>): Chip["tone"] => map
 
 export const ENTITIES: Record<string, EntityDef> = {
   conditions: {
-    slug: "conditions", table: "conditions", ar: "الأمراض والتشخيصات", en: "Conditions & diagnoses", singular: { ar: "حالة", en: "condition" },
+    slug: "conditions", table: "conditions", ar: "الأمراض والتشخيصات", en: "Conditions & diagnoses", singular: { ar: "تشخيص أو مرض", en: "condition" },
     order: ["onset_date", "desc"], hasSpecialty: true, bodyField: "notes", dateOf: (r) => (r.onset_date as string) ?? null, datePrecision: PREC, links: ["encounter_id"],
     titleOf: (r) => s(r, "name"), dupKey: (r) => n(r, "name"),
     chipsOf: (r, lang) => [
@@ -85,16 +98,16 @@ export const ENTITIES: Record<string, EntityDef> = {
     fields: [
       f("name", "اسم المرض / التشخيص", "Condition / diagnosis", "text", { required: true, maxLength: 200, wide: true }),
       f("category", "التصنيف", "Category", "select", { options: L.CONDITION_CATEGORY, dflt: "chronic" }),
-      f("clinical_status", "الحالة الآن", "Current status", "select", { options: L.CLINICAL_STATUS, dflt: "active" }),
+      f("clinical_status", "وضعه الآن", "Current status", "select", { options: L.CLINICAL_STATUS, dflt: "active" }),
       f("certainty", "درجة التأكد", "Certainty", "select", { options: L.CERTAINTY, dflt: "unknown", hint: ["«مؤكد» فقط إن أكده مقدم رعاية. اتركه «غير معروف» عند الشك.", "Use “Confirmed” only when a care provider confirmed it."] }),
       f("severity", "الشدة", "Severity", "select", { options: L.SEVERITY3 }),
       f("onset_date", "تاريخ البداية", "Onset date", "date", { precision: PREC, hint: partialDate }),
       f("resolved_date", "تاريخ الشفاء / الانتهاء", "Resolved date", "date"),
       f("icd10_code", "رمز ICD-10 (اختياري)", "ICD-10 code (optional)", "text", { maxLength: 12 }),
       spec,
-      f("teeth", "الأسنان المعنية (للتشخيص السني)", "Teeth concerned (dental diagnosis)", "teeth", { hint: ["أرقام FDI مفصولة بفاصلة، مثل: 16، 26", "FDI numbers separated by commas, e.g. 16, 26"] }),
+      f("teeth", "الأسنان المعنية", "Teeth concerned", "teeth", { only: "dental", hint: ["أرقام FDI مفصولة بفاصلة، مثل: 16، 26", "FDI numbers separated by commas, e.g. 16, 26"] }),
       f("evidence", "أساس التشخيص", "Basis of the diagnosis", "select", { options: L.DIAGNOSIS_EVIDENCE }),
-      f("sensitive", "حالة حساسة (لا تُشارك إلا بإذن صريح)", "Sensitive (shared only when explicitly allowed)", "checkbox"),
+      f("sensitive", "تشخيص حساس (لا يُشارك إلا بإذن صريح)", "Sensitive (shared only when explicitly allowed)", "checkbox"),
       f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
     ],
   },

@@ -162,8 +162,9 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         </Card>
       )}
 
-      <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={base} title={t("تشخيصات الأسنان", "Dental diagnoses")}
-        filter={dent ? { specialty_id: dent.id } : {}} defaults={dent ? { specialty_id: dent.id, category: "diagnosis" } : {}} compact />
+      <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={base} title={t("تشخيصات الأسنان", "Dental diagnoses")} id="diagnoses"
+        filter={dent ? { specialty_id: dent.id } : {}} addLabel={t("إضافة تشخيص سني", "Add a dental diagnosis")} compact
+        context={{ fixed: dent ? { specialty_id: dent.id, category: "diagnosis" } : { category: "diagnosis" }, dental: true }} />
 
       <Card id="profile" title={t("الملف السني", "Dental profile")}>
         {access.canWrite ? (

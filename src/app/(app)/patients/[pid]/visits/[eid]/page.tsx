@@ -50,7 +50,8 @@ export default async function VisitPage({ params }: { params: { pid: string; eid
           <div className="fold-body"><EntityForm entity={ENTITIES.visits} pid={p.id} row={row} specialties={forSex(specs, p.sex)} returnPath={path} /></div>
         </details>
       </Card>
-      <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={path} filter={link} links={link} defaults={inherit} title={t("التشخيصات في هذه الزيارة", "Diagnoses made at this visit")} compact />
+      <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={path} filter={link} links={link} defaults={inherit} title={t("التشخيصات في هذه الزيارة", "Diagnoses made at this visit")} compact
+        context={{ dental: e.kind === "dental" }} addLabel={t("إضافة تشخيص", "Add a diagnosis")} />
       <EntitySection entity={ENTITIES.medications} pid={p.id} returnPath={path} filter={link} links={link} title={t("الأدوية الموصوفة", "Medications prescribed")} defaults={{ origin: "prescribed", ...inherit }} compact />
       <EntitySection entity={ENTITIES.procedures} pid={p.id} returnPath={path} filter={link} links={link} defaults={inherit} title={t("الإجراءات", "Procedures")} compact />
       <Card title={t("القياسات والنتائج المرتبطة", "Linked measurements & results")}>

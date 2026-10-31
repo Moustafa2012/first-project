@@ -121,10 +121,11 @@ export default async function ProfilePage({ params, searchParams }: { params: { 
       <EntitySection entity={ENTITIES.conditions} pid={p.id} returnPath={base} id="conditions" compact
         title={t("الأمراض المزمنة والخلقية والإعاقات", "Chronic & congenital conditions, disabilities")} addLabel={t("إضافة مرض مزمن", "Add a chronic condition")}
         filter={{ category: ["chronic", "congenital", "genetic", "disability"] }} defaults={{ category: "chronic" }}
+        context={{ options: { category: ["chronic", "congenital", "genetic", "disability"] } }}
         empty={noneForm("none_chronic_conditions", t("لا توجد أمراض مزمنة معروفة", "No known chronic conditions"), life?.none_chronic_conditions)} />
       <EntitySection entity={ENTITIES.medications} pid={p.id} returnPath={base} id="medications" compact
         title={t("الأدوية الدائمة", "Long-term medications")} addLabel={t("إضافة دواء دائم", "Add a long-term medication")}
-        filter={{ long_term: true }} defaults={{ long_term: "true", status: "active" }}
+        filter={{ long_term: true }} defaults={{ status: "active" }} context={{ fixed: { long_term: "on" } }}
         empty={noneForm("none_long_term_medications", t("لا يتناول أدوية دائمة", "Takes no long-term medications"), life?.none_long_term_medications)} />
       <EntitySection entity={ENTITIES.devices} pid={p.id} returnPath={base} id="devices" compact
         title={t("الأجهزة والزرعات", "Devices & implants")} addLabel={t("إضافة جهاز أو زرعة", "Add a device or implant")}

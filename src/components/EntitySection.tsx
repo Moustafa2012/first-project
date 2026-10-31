@@ -6,12 +6,14 @@ import { getAccess, getPatient, getSpecialties, specialtyName } from "@/lib/data
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import { lbl, SOURCE, VERIFICATION } from "@/lib/labels";
-import type { EntityDef } from "@/lib/entities";
+import type { EntityDef, FormContext } from "@/lib/entities";
+import { nextStatuses, STATUS_MODEL, statusLabel } from "@/lib/status";
+import { localDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { Chip, Empty, KV } from "@/components/ui";
-import { ActionForm, ConfirmButton } from "@/components/ui/client";
+import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { EntityForm } from "@/components/EntityForm";
-import { invalidateEntity } from "@/app/actions/entities";
+import { invalidateEntity, setRecordStatus } from "@/app/actions/entities";
 
 interface Props {
   entity: EntityDef;
@@ -31,9 +33,11 @@ interface Props {
   empty?: React.ReactNode;
   /** the add button's wording in this context (default: "Add <singular>") */
   addLabel?: string;
+  /** where the forms are opened from (fixed values, dental-only fields, narrowed choices) */
+  context?: FormContext;
 }
 
-export async function EntitySection({ entity, pid, returnPath, title, filter = {}, links = {}, defaults = {}, limit = 200, openForm = false, compact = false, id, empty, addLabel }: Props) {
+export async function EntitySection({ entity, pid, returnPath, title, filter = {}, links = {}, defaults = {}, limit = 200, openForm = false, compact = false, id, empty, addLabel, context }: Props) {
   const { lang, t } = i18n();
   const tz = getTz();
   const [access, specialties, patient] = await Promise.all([getAccess(pid), getSpecialties(), getPatient(pid)]);
@@ -42,6 +46,16 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
   for (const [k, v] of Object.entries(filter)) q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
   const { data, error } = await q.order(entity.order[0], { ascending: entity.order[1] === "asc", nullsFirst: false }).limit(limit);
   const rows = (data ?? []) as Row[];
+  // the status history of these records (diagnoses, medications, allergies)
+  const model = STATUS_MODEL[entity.table];
+  type Hist = { record_id: string; field: string; from_value: string | null; to_value: string; effective_date: string | null; reason: string | null; changed_at: string };
+  const history = new Map<string, Hist[]>();
+  if (model && rows.length) {
+    const { data: hs } = await createClient().from("status_history").select("record_id, field, from_value, to_value, effective_date, reason, changed_at")
+      .eq("patient_id", pid).eq("table_name", entity.table).in("record_id", rows.map((r) => r.id)).order("changed_at");
+    for (const h of (hs ?? []) as Hist[]) history.set(h.record_id, [...(history.get(h.record_id) ?? []), h]);
+  }
+  const today = localDate(new Date(), tz);
   const live = rows.filter((r) => r.record_status !== "entered_in_error");
   const dead = rows.filter((r) => r.record_status === "entered_in_error");
   const singular = lang === "ar" ? entity.singular.ar : entity.singular.en;
@@ -93,6 +107,39 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
           <Chip tone={verification === "reported" ? "muted" : "ok"}>{lbl(VERIFICATION, verification, lang)}</Chip>
         </div>
         {isDead && <p className="small muted">{t("سبب الإبطال", "Reason")}: {String(r.invalidated_reason ?? "")}</p>}
+        {model && (history.get(r.id)?.length ?? 0) > 1 && (
+          <details className="status-hist">
+            <summary className="small">{t(`سجل الحالة (${history.get(r.id)!.length - 1} تغيير)`, `Status history (${history.get(r.id)!.length - 1} change${history.get(r.id)!.length > 2 ? "s" : ""})`)}</summary>
+            <ol className="small">{history.get(r.id)!.map((h, i) => (
+              <li key={i}><span className="muted">{fmtDate(h.effective_date ?? h.changed_at, lang, tz)}</span>{" — "}
+                {h.from_value == null ? t(`سُجّل «${statusLabel(h.field, h.to_value, lang, entity.table)}»`, `recorded as “${statusLabel(h.field, h.to_value, lang, entity.table)}”`)
+                  : t(`من «${statusLabel(h.field, h.from_value, lang, entity.table)}» إلى «${statusLabel(h.field, h.to_value, lang, entity.table)}»`,
+                      `${statusLabel(h.field, h.from_value, lang, entity.table)} → ${statusLabel(h.field, h.to_value, lang, entity.table)}`)}
+                {h.reason && <span> — {h.reason}</span>}</li>
+            ))}</ol>
+          </details>
+        )}
+        {access.canWrite && !isDead && model && (() => {
+          const next = nextStatuses(entity.table, String(r[model.field] ?? ""), { certainty: r.certainty as string | undefined, contributed: Boolean(r.contributed_by) });
+          if (!next.length) return null;
+          return (
+            <details className="fold status-fold no-print" style={{ marginBlockStart: ".5rem" }}>
+              <summary>{t("تغيير الحالة", "Change status")} <span className="muted small">({t("الآن", "now")}: {statusLabel(model.field, String(r[model.field]), lang, entity.table)})</span></summary>
+              <div className="fold-body">
+                <ActionForm action={setRecordStatus} className="row status-form">
+                  <input type="hidden" name="_table" value={entity.table} /><input type="hidden" name="_pid" value={pid} />
+                  <input type="hidden" name="_id" value={r.id} /><input type="hidden" name="_path" value={returnPath} />
+                  <fieldset className="status-pick"><legend className="sr-only">{t("الحالة الجديدة", "New status")}</legend>
+                    {next.map((o, i) => <label key={o.value} className="pill"><input type="radio" name="status" value={o.value} required defaultChecked={i === 0} />{o[lang]}</label>)}
+                  </fieldset>
+                  <label className="small">{t("منذ", "Since")} <input type="date" name="effective_date" defaultValue={today} max={today} /></label>
+                  <input name="reason" maxLength={500} placeholder={t("السبب أو كيف (اختياري)", "Reason or how (optional)")} aria-label={t("السبب", "Reason")} style={{ flex: 1, minWidth: 180 }} />
+                  <SubmitButton className="btn sm primary">{t("حفظ الحالة", "Save status")}</SubmitButton>
+                </ActionForm>
+              </div>
+            </details>
+          );
+        })()}
         {access.canWrite && !isDead && (
           <div className="row no-print" style={{ marginBlockStart: ".5rem" }}>
             {r.contributed_by ? (
@@ -100,7 +147,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
             ) : (
               <details className="fold" style={{ flex: "1 1 100%" }}>
                 <summary><Pencil size={14} aria-hidden="true" />{t("تعديل", "Edit")}</summary>
-                <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} /></div>
+                <div className="fold-body"><EntityForm entity={entity} pid={pid} row={r} specialties={formSpecialties} returnPath={returnPath} links={links} context={context} /></div>
               </details>
             )}
             <details className="fold" style={{ flex: "1 1 100%" }}>
@@ -130,7 +177,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
       {access.canWrite && (
         <details className="fold no-print" open={openForm} style={{ marginBlockEnd: ".9rem" }}>
           <summary><Plus size={16} aria-hidden="true" />{addLabel ?? t(`إضافة ${singular}`, `Add ${singular}`)}</summary>
-          <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={formSpecialties} returnPath={returnPath} links={links} defaults={defaults} /></div>
+          <div className="fold-body"><EntityForm entity={entity} pid={pid} specialties={formSpecialties} returnPath={returnPath} links={links} defaults={defaults} context={context} /></div>
         </details>
       )}
       {live.length === 0 ? (empty ?? <Empty>{t("لا توجد سجلات بعد.", "No records yet.")}</Empty>) : live.map((r) => card(r))}

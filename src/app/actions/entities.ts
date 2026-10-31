@@ -6,6 +6,7 @@ import { requireUser, explainError } from "@/lib/auth";
 import { i18n } from "@/lib/i18n";
 import { ENTITIES } from "@/lib/entities";
 import { parseEntityForm } from "@/lib/entity-form";
+import { STATUS_MODEL } from "@/lib/status";
 import { UUID_RE } from "@/lib/data";
 import type { FormState } from "@/components/ui/client";
 import type { Row } from "@/lib/types";
@@ -90,4 +91,25 @@ export async function invalidateEntity(_: FormState, fd: FormData): Promise<Form
   revalidatePath(safePath(pid, String(fd.get("_path") ?? "")));
   revalidatePath(`/patients/${pid}`);
   return { ok: true, message: t("أُبطل السجل وبقي في التاريخ.", "Record invalidated and kept in the history.") };
+}
+
+/** Moves a diagnosis, medication or allergy to its next status in one step; the database keeps the history. */
+export async function setRecordStatus(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  await requireUser();
+  const pid = String(fd.get("_pid") ?? ""), id = String(fd.get("_id") ?? ""), table = String(fd.get("_table") ?? "");
+  const status = String(fd.get("status") ?? ""), date = String(fd.get("effective_date") ?? ""), reason = String(fd.get("reason") ?? "").trim().slice(0, 500);
+  const model = STATUS_MODEL[table];
+  if (!model || !UUID_RE.test(pid) || !UUID_RE.test(id)) return { error: t("طلب غير صالح.", "Invalid request.") };
+  if (!model.options.some((o) => o.value === status) && !(table === "conditions" && status === "refuted")) return { error: t("اختر الحالة الجديدة.", "Choose the new status.") };
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: t("تاريخ غير صالح.", "Invalid date.") };
+  const { error } = await createClient().rpc("record_set_status", { p_table: table, p_id: id, p_status: status, p_reason: reason || null, p_date: date || null });
+  if (error) {
+    if (/date_in_future/.test(error.message)) return { error: t("التاريخ في المستقبل.", "The date is in the future.") };
+    if (/not_found/.test(error.message)) return { error: t("لم يُعثر على السجل أو لا تملك صلاحية تعديله.", "Record not found or you may not edit it.") };
+    return { error: explainError(error, t) };
+  }
+  revalidatePath(safePath(pid, String(fd.get("_path") ?? "")));
+  revalidatePath(`/patients/${pid}`, "layout");
+  return { ok: true, message: t("تغيّرت الحالة وحُفظ التغيير في سجلها.", "Status changed; the change is kept in its history.") };
 }

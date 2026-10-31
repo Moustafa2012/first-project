@@ -23,13 +23,13 @@ export const VERIFICATION: Opt[] = [
 ];
 
 export const CONDITION_CATEGORY: Opt[] = [
-  o("chronic", "مرض مزمن", "Chronic condition"), o("congenital", "عيب خلقي", "Congenital condition"), o("genetic", "حالة وراثية", "Genetic condition"),
-  o("diagnosis", "تشخيص", "Diagnosis"), o("acute", "حالة حادة", "Acute condition"), o("mental_health", "صحة نفسية", "Mental health"),
+  o("chronic", "مرض مزمن", "Chronic condition"), o("congenital", "عيب خلقي", "Congenital condition"), o("genetic", "مرض وراثي", "Genetic condition"),
+  o("diagnosis", "تشخيص", "Diagnosis"), o("acute", "مرض حاد", "Acute condition"), o("mental_health", "صحة نفسية", "Mental health"),
   o("disability", "إعاقة", "Disability"), o("other", "أخرى", "Other"),
 ];
 export const CLINICAL_STATUS: Opt[] = [
-  o("active", "نشطة", "Active"), o("recurrence", "انتكاسة", "Recurrence"), o("inactive", "غير نشطة", "Inactive"),
-  o("remission", "هدأت", "In remission"), o("resolved", "شُفيت / منتهية", "Resolved"),
+  o("active", "نشط", "Active"), o("recurrence", "نكس (عاد)", "Recurrence"), o("inactive", "كامن (غير نشط)", "Inactive"),
+  o("remission", "هاجع (هدأ)", "In remission"), o("resolved", "شُفي / انتهى", "Resolved"),
 ];
 export const CERTAINTY: Opt[] = [
   o("confirmed", "مؤكد", "Confirmed"), o("suspected", "مشتبه به", "Suspected"), o("provisional", "مبدئي", "Provisional"),
@@ -113,7 +113,7 @@ export const DIAGNOSIS_EVIDENCE: Opt[] = [
 ];
 export const CONTRIB_MODULES: Opt[] = [
   o("encounters", "زيارة (سبب، فحص، تقييم، خطة)", "Visit (reason, exam, assessment, plan)"),
-  o("conditions", "تشخيص / حالة", "Diagnosis / condition"),
+  o("conditions", "تشخيص أو مرض", "Diagnosis / condition"),
   o("procedures", "إجراء منجز", "Procedure performed"),
   o("clinical_notes", "ملاحظة سريرية", "Clinical note"),
   o("medications", "دواء / وصفة", "Medication / prescription"),

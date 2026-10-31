@@ -64,7 +64,8 @@ export function ContributePanel({ token, st, uploaded, uploadError, dentition = 
           {uploadError && <Banner tone="bad">{UPLOAD_ERR[uploadError] ? t(...UPLOAD_ERR[uploadError]) : t("تعذر رفع المستند.", "The upload failed.")}</Banner>}
           {forms.map((table) => {
             const def = ENTITIES[CONTRIB_ENTITY[table]];
-            const fields = def.fields.filter((f) => f.kind !== "specialty" && !["practitioner_name", "author_name", "ordered_by", "prescriber_name", "operator_name"].includes(f.name));
+            const fields = def.fields.filter((f) => f.kind !== "specialty" && !(f.only === "dental" && !st.covers_dentistry)
+              && !["practitioner_name", "author_name", "ordered_by", "prescriber_name", "operator_name"].includes(f.name));
             const linkable = table !== "encounters" && encounters.length > 0;
             const defaults: Record<string, string> = table === "medications" ? { origin: "prescribed" } : table === "test_orders" ? { status: "requested" } : table === "encounters" ? { kind: "clinic" } : {};
             return (

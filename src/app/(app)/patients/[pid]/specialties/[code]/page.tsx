@@ -42,7 +42,8 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
       .or(typeIds.length ? `specialty_id.eq.${spec.id},type_id.in.(${typeIds.join(",")})` : `specialty_id.eq.${spec.id}`).order("effective_at", { ascending: false }).limit(15),
   ]);
   const f = { specialty_id: spec.id };
-  const sub = (key: string) => ({ entity: ENTITIES[key], pid: p.id, returnPath: base, filter: f, defaults: f });
+  // inside a specialty its forms never ask for the specialty; the dental-only fields appear in dentistry
+  const sub = (key: string) => ({ entity: ENTITIES[key], pid: p.id, returnPath: base, filter: f, context: { fixed: f, dental: spec.code === "dentistry" } });
   const support = SUPPORT[spec.code];
   return (
     <>

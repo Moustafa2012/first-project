@@ -13,6 +13,7 @@ import type { ObservationRow, ObservationType, PatientRow } from "@/lib/types";
 import type { Block, Cell, ReportMeta } from "@/lib/pdf/engine";
 import { bodyMetrics, contextPackYears, matchHighlights, type ClinicalContextData } from "@/lib/clinical-context";
 import { ALCOHOL_STATUS, DEVICE_KIND, PREGNANCY_STATUS, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
+import { calOf, comparePerio, siteName, summarize, type PerioExam, type PerioTooth } from "@/lib/perio";
 import { ITEM_STATUS, PLAN_STATUS, byPhase, costTotals, fmtMoney, planProgress, type TreatmentCost, type TreatmentPlan } from "@/lib/treatment";
 
 type Lang = "ar" | "en";
@@ -405,5 +406,93 @@ export function buildTreatmentPlanReport(p: PatientRow, plan: TreatmentPlan, o: 
       generatedAt: `${t("أُنشئ في", "Generated")} ${fmtDateTime(new Date(), lang, tz)}`, footerNote: SAFETY_NOTE(lang),
     },
     blocks, filename: `${p.mrn}-treatment-plan-v${plan.version}.pdf`,
+  };
+}
+
+/** The periodontal chart: the figures, then each tooth's six sites (in the stored order: distal → mesial on each side), and the change since the chart before. */
+export function buildPerioReport(p: PatientRow, exam: PerioExam, o: { lang: Lang; tz: string; previous?: PerioExam | null }): { meta: ReportMeta; blocks: Block[]; filename: string } {
+  const { lang, tz } = o;
+  const t = tx(lang);
+  const day = (v: string | null | undefined) => (v ? fmtPartialDate(v, "day", lang) : "");
+  const blocks: Block[] = [];
+  const sm = summarize(exam.teeth);
+  blocks.push({ t: "kv", rows: ([
+    [t("تاريخ الفحص", "Exam date"), day(exam.exam_date)],
+    [t("الحالة", "Status"), exam.status === "final" ? t("معتمد", "Final") : t("مسودة", "Draft")],
+    [t("الفاحص", "Examiner"), s(exam.examiner_name)],
+    [t("المنشأة", "Facility"), s(exam.facility_name)],
+    [t("ملاحظات", "Notes"), s(exam.notes)],
+  ] as [string, string][]).filter(([, v]) => v) });
+  blocks.push({ t: "h", text: t("الملخص", "Summary") });
+  const mm = t("مم", "mm");
+  blocks.push({ t: "table", cols: [{ label: t("المؤشر", "Measure"), w: 5 }, { label: t("القيمة", "Value"), w: 3, align: "end" }], rows: ([
+    [t("الأسنان المفحوصة / المفقودة", "Teeth charted / missing"), `${sm.teeth} / ${sm.missing}`],
+    [t("المواقع المسبورة", "Sites probed"), String(sm.sites)],
+    [t("النزف عند السبر", "Bleeding on probing"), sm.bopPct === null ? "—" : `${sm.bopPct}% (${sm.bop})`],
+    [t("البلاك", "Plaque"), sm.plaquePct === null ? "—" : `${sm.plaquePct}% (${sm.plaque})`],
+    [t("القيح", "Suppuration"), String(sm.suppuration)],
+    [t("جيوب بعمق 4 مم فأكثر", "Pockets of 4 mm or more"), String(sm.pd4)],
+    [t("جيوب بعمق 6 مم فأكثر", "Pockets of 6 mm or more"), String(sm.pd6)],
+    [t("متوسط العمق", "Mean depth"), sm.meanPd === null ? "—" : `${sm.meanPd} ${mm}`],
+    [t("متوسط الارتباط", "Mean CAL"), sm.meanCal === null ? "—" : `${sm.meanCal} ${mm}`],
+    [t("أقصى فقد ارتباط", "Max CAL"), sm.maxCal === null ? "—" : `${sm.maxCal} ${mm}`],
+    [t("أسنان متحركة", "Mobile teeth"), String(sm.mobile)],
+    [t("أسنان بانقسام جذور", "Teeth with furcation involvement"), String(sm.furcations)],
+  ] as [string, string][]).map(([a, b]): Cell[] => [a, b]) });
+  blocks.push({ t: "p", muted: true, text: t(
+    "حافة اللثة: موجب = فوق ملتقى المينا بالملاط (تضخم)، صفر = عنده، سالب = انحسار. الارتباط السريري = العمق ناقص الحافة. ترتيب المواقع في كل جهة: وحشي ثم وسط ثم أنسي.",
+    "Gingival margin: positive = coronal to the CEJ (overgrowth), 0 = at it, negative = recession. CAL = depth minus margin. Sites on each side: distal, mid, mesial.") });
+
+  const by = new Map(exam.teeth.map((x) => [x.tooth, x]));
+  const trio = (a: (number | boolean | null)[] | null | undefined, from: number) => (a ? [0, 1, 2].map((k) => {
+    const v = a[from + k];
+    return v === null || v === undefined || v === false ? "·" : v === true ? "+" : String(v);
+  }).join(" ") : "");
+  const deep = (a: (number | null)[] | null | undefined, from: number) => (a ? a.slice(from, from + 3).some((v) => (v ?? 0) >= 6) ? "bad" : a.slice(from, from + 3).some((v) => (v ?? 0) >= 4) ? "warn" : undefined : undefined);
+  const quads: [string, number[]][] = [
+    [t("الربع العلوي الأيمن (1)", "Upper right (1)"), [11, 12, 13, 14, 15, 16, 17, 18]], [t("الربع العلوي الأيسر (2)", "Upper left (2)"), [21, 22, 23, 24, 25, 26, 27, 28]],
+    [t("الربع السفلي الأيسر (3)", "Lower left (3)"), [31, 32, 33, 34, 35, 36, 37, 38]], [t("الربع السفلي الأيمن (4)", "Lower right (4)"), [41, 42, 43, 44, 45, 46, 47, 48]],
+  ];
+  for (const [title, list] of quads) {
+    const rows = list.map((n) => by.get(n)).filter((x): x is PerioTooth => !!x);
+    if (!rows.length) continue;
+    blocks.push({ t: "h", text: title });
+    blocks.push({ t: "table", cols: [
+      { label: t("السن", "Tooth"), w: 1.4 }, { label: t("حركة", "Mob"), w: 1.1 }, { label: t("انقسام", "Furc"), w: 1.6 },
+      { label: t("دهليزي عمق", "B depth"), w: 2.2 }, { label: t("حافة", "Margin"), w: 2.2 }, { label: "CAL", w: 2.2 }, { label: t("نزف", "BOP"), w: 1.8 },
+      { label: t("لساني عمق", "L depth"), w: 2.2 }, { label: t("حافة", "Margin"), w: 2.2 }, { label: "CAL", w: 2.2 }, { label: t("نزف", "BOP"), w: 1.8 },
+    ], rows: rows.map((x): Cell[] => {
+      if (x.missing) return [{ text: String(x.tooth), bold: true }, { text: t("مفقود", "missing"), tone: "muted" }, "", "", "", "", "", "", "", "", ""];
+      const cal = calOf(x);
+      const furc = (["b", "l", "m", "d"] as const).map((f) => (x[`furcation_${f}`] ? `${f.toUpperCase()}${x[`furcation_${f}`]}` : "")).filter(Boolean).join(" ");
+      return [
+        { text: `${x.tooth}${x.implant ? "*" : ""}`, bold: true }, x.mobility ? String(x.mobility) : "", furc,
+        { text: trio(x.pd, 0), tone: deep(x.pd, 0) }, trio(x.gm, 0), trio(cal, 0), trio(x.bop, 0),
+        { text: trio(x.pd, 3), tone: deep(x.pd, 3) }, trio(x.gm, 3), trio(cal, 3), trio(x.bop, 3),
+      ];
+    }) });
+  }
+  blocks.push({ t: "p", muted: true, text: t("في أعمدة النزف: + = نزف عند السبر، · = لا نزف أو لم يُسجَّل.", "In the BOP columns: + = bleeding on probing, · = none or not recorded.")
+    + (exam.teeth.some((x) => x.implant) ? t(" * = زرعة.", " * = implant.") : "") });
+
+  if (o.previous) {
+    const c = comparePerio(o.previous.teeth, exam.teeth);
+    blocks.push({ t: "h", text: t(`التغيّر منذ ${day(o.previous.exam_date)}`, `Change since ${day(o.previous.exam_date)}`) });
+    blocks.push({ t: "p", text: t(
+      `مواقع فقدت ارتباطاً 2 مم فأكثر: ${c.worse.length}. مواقع قلّ عمقها 2 مم فأكثر: ${c.better.length}.${c.lostTeeth.length ? ` أسنان فُقدت: ${c.lostTeeth.join("، ")}.` : ""} النزف: كان ${c.before.bopPct ?? "—"}% وصار ${c.after.bopPct ?? "—"}%.`,
+      `Sites with 2 mm or more attachment loss: ${c.worse.length}. Sites 2 mm or more shallower: ${c.better.length}.${c.lostTeeth.length ? ` Teeth lost: ${c.lostTeeth.join(", ")}.` : ""} Bleeding: ${c.before.bopPct ?? "—"}% then ${c.after.bopPct ?? "—"}%.`) });
+    if (c.worse.length) {
+      blocks.push({ t: "table", cols: [{ label: t("السن", "Tooth"), w: 1.5 }, { label: t("الموقع", "Site"), w: 4 }, { label: t("العمق", "Depth"), w: 2.5 }, { label: "CAL", w: 2.5 }], rows:
+        c.worse.map((w): Cell[] => [{ text: String(w.tooth), bold: true }, siteName(w.site, w.tooth, lang), `${w.pdBefore} > ${w.pdAfter}`, { text: `${w.calBefore} > ${w.calAfter} (+${w.dCal})`, tone: "bad" }]) });
+    }
+  }
+  const name = lang === "en" && p.full_name_en ? p.full_name_en : p.full_name;
+  return {
+    meta: {
+      lang, title: t("مخطط اللثة", "Periodontal chart"), subtitle: day(exam.exam_date), brand: t("بوابة شفاء", "Shifa Portal"),
+      headline: { name, lines: identityLines(lang, tz, { mrn: p.mrn, date_of_birth: p.date_of_birth, sex: p.sex, nationality: p.nationality, blood: p.blood_abo ? `${p.blood_abo}${p.blood_rh ?? ""}` : null, verified: p.blood_group_verified, phone: p.phone }) },
+      generatedAt: `${t("أُنشئ في", "Generated")} ${fmtDateTime(new Date(), lang, tz)}`, footerNote: SAFETY_NOTE(lang),
+    },
+    blocks, filename: `${p.mrn}-perio-${exam.exam_date}.pdf`,
   };
 }

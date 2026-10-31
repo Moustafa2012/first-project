@@ -8,7 +8,7 @@ import { fmtPartialDate, localDate } from "@/lib/format";
 import { ENTITIES } from "@/lib/entities";
 import { SOURCE, lbl } from "@/lib/labels";
 import {
-  ANXIETY, BRUSHING, DENTITION, EXAM_KIND, FINDING_KIND, FLOSSING, ORAL_HYGIENE, TOOTH_STATUS, chartDentition, compareExams, fmtSurfaces,
+  ABSENT_STATUSES, ANXIETY, BRUSHING, DENTITION, EXAM_KIND, FINDING_KIND, FLOSSING, ORAL_HYGIENE, TOOTH_STATUS, chartDentition, compareExams, deriveChart, fmtSurfaces,
   type ExamRow, type FindingRow,
 } from "@/lib/dental";
 import { Card, Chip, Empty, PageHead } from "@/components/ui";
@@ -19,6 +19,7 @@ import { DentalChart, type DentalDiagnosis, type ToothAddForm } from "@/componen
 import { DENTAL_DIAGNOSES, OPEN_PROBLEM, type ToothImage, type ToothProcedure } from "@/lib/dental";
 import { setConditionTeeth } from "@/app/actions/dental";
 import { ExamEditor } from "@/components/dental/ExamEditor";
+import { PerioSection } from "@/components/dental/PerioSection";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import { getClinicalContext } from "@/lib/clinical-context-server";
 import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actions/dental";
@@ -31,7 +32,7 @@ import { RECALL_KIND } from "@/lib/labels";
 
 type Profile = Record<string, string | boolean | null>;
 
-export default async function DentalPage({ params, searchParams }: { params: { pid: string }; searchParams: { asof?: string; a?: string; b?: string; tab?: string } }) {
+export default async function DentalPage({ params, searchParams }: { params: { pid: string }; searchParams: { asof?: string; a?: string; b?: string; tab?: string; pv?: string; pa?: string; pb?: string; pnew?: string } }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const p = await getPatient(params.pid);
@@ -72,7 +73,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const diagnoses = allConds.filter((c) => Array.isArray(c.teeth) && c.teeth.length > 0);
   // dental problems that do not name a tooth yet (they cannot be drawn until they do)
   const unassigned = allConds.filter((c) => c.specialty_id === dent?.id && !(c.teeth?.length) && OPEN_PROBLEM.has(c.clinical_status ?? "active") && c.certainty !== "refuted");
-  const tab = ["chart", "problems", "treatment", "followup", "care", "imaging", "profile"].includes(searchParams.tab ?? "") ? searchParams.tab! : "chart";
+  const tab = ["chart", "problems", "treatment", "perio", "followup", "care", "imaging", "profile"].includes(searchParams.tab ?? "") ? searchParams.tab! : "chart";
   const contributors = Object.fromEntries((ctrRows ?? []).map((c) => [c.id as string, c.full_name as string]));
   const pr = (profile ?? null) as Profile | null;
   const dentition = chartDentition(pr as { dentition?: string } | null, exams);
@@ -257,6 +258,11 @@ export default async function DentalPage({ params, searchParams }: { params: { p
             "Each treatment moves: proposed → accepted → scheduled → completed. Nothing is completed before it was accepted, and a surgical one needs an explicit confirmation. Completing it adds the procedure, updates the chart and closes the problem it treated.")}</p>
           <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors} />
         </Card>
+      )}
+
+      {tab === "perio" && (
+        <PerioSection pid={p.id} canWrite={access.canWrite} lang={lang} today={today} q={searchParams}
+          seedMissing={[...deriveChart(exams, findings).values()].filter((v) => v.status && ABSENT_STATUSES.has(v.status) && v.tooth < 50).map((v) => v.tooth)} />
       )}
 
       {tab === "followup" && (await (async () => {

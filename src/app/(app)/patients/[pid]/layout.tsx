@@ -16,7 +16,7 @@ export default async function PatientLayout({ children, params }: { children: Re
   // one wave of round trips instead of three in a row
   const dentId = (await getSpecialties()).find((x) => x.code === "dentistry")?.id ?? "00000000-0000-0000-0000-000000000000";
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }, { count: overdue }] = await Promise.all([
+  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }, { count: overdue }, { count: perioDraft }] = await Promise.all([
     getPatient(params.pid),
     getAccess(params.pid),
     getSpecialtyUsage(params.pid),
@@ -31,6 +31,7 @@ export default async function PatientLayout({ children, params }: { children: Re
       .in("status", ["draft", "proposed", "accepted", "in_progress"]),
     createClient().from("recalls").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active")
       .eq("status", "active").lt("due_on", todayIso),
+    createClient().from("perio_exams").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active").eq("status", "draft"),
   ]);
   const admin = profile?.role === "admin";
   const base = `/patients/${p.id}`;
@@ -69,6 +70,7 @@ export default async function PatientLayout({ children, params }: { children: Re
             { href: `${P("dental")}?tab=problems`, tab: "problems", icon: "problems",
               label: unassigned ? t(`المشكلات والتشخيصات (${unassigned} بلا سن)`, `Problems & diagnoses (${unassigned} without a tooth)`) : t("المشكلات والتشخيصات", "Problems & diagnoses") },
             { href: `${P("dental")}?tab=treatment`, tab: "treatment", icon: "treatment", label: t("العلاج", "Treatment"), badge: openPlans ? String(openPlans) : undefined },
+            { href: `${P("dental")}?tab=perio`, tab: "perio", icon: "perio", label: t("مخطط اللثة", "Periodontal chart"), badge: perioDraft ? t("مسودة", "draft") : undefined },
             { href: `${P("dental")}?tab=followup`, tab: "followup", icon: "followup", label: t("المتابعة والفحص الدوري", "Follow-up & recalls"), badge: overdue ? String(overdue) : undefined },
             { href: `${P("dental")}?tab=care`, tab: "care", icon: "care", label: t("الزيارات والإجراءات", "Visits & procedures") },
             { href: `${P("dental")}?tab=imaging`, tab: "imaging", icon: "images", label: t("الصور والأشعة", "Images & X-rays") },

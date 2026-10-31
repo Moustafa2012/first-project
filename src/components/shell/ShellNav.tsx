@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import {
   Activity, AlertTriangle, ArrowLeftRight, CalendarDays, ClipboardList, FileText, FlaskConical, FolderHeart, FolderOpen, HeartPulse, History, Home, Layers,
   Link2, Menu, NotebookPen, Pill, ScanLine, Scissors, Settings, Share2, ShieldCheck, Smile, Stethoscope, Syringe, TestTube2, UserRound, Users, X,
-  LayoutGrid, Stethoscope as Visit, Image as ImageIcon, ListChecks, Wrench, Trash2, BellRing, PanelLeft, type LucideIcon,
+  LayoutGrid, Stethoscope as Visit, Image as ImageIcon, ListChecks, Wrench, Trash2, BellRing, PanelLeft, Ruler, type LucideIcon,
 } from "lucide-react";
 import { SpecialtyIcon } from "@/components/Icon";
 import { activeProduct, groupVisible, itemActive, type ShellItem, type ShellNav as Nav, type ShellProduct } from "./nav";
@@ -18,7 +18,7 @@ const ICONS: Record<string, LucideIcon> = {
   vitals: Activity, labs: FlaskConical, "test-orders": TestTube2, "care-plans": ClipboardList, conditions: HeartPulse, allergies: AlertTriangle,
   medications: Pill, visits: Stethoscope, procedures: Scissors, imaging: ScanLine, appointments: CalendarDays, notes: NotebookPen,
   immunizations: Syringe, "family-history": Users, documents: FileText, sharing: Share2, audit: ShieldCheck, dental: Smile, other: LayoutGrid,
-  chart: Smile, problems: HeartPulse, treatment: ListChecks, followup: BellRing, care: Visit, images: ImageIcon, profile: Wrench, delete: Trash2,
+  chart: Smile, problems: HeartPulse, treatment: ListChecks, perio: Ruler, followup: BellRing, care: Visit, images: ImageIcon, profile: Wrench, delete: Trash2,
 };
 
 function ItemIcon({ it, size = 16 }: { it: Pick<ShellItem, "icon" | "specialtyIcon">; size?: number }) {

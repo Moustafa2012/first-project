@@ -633,6 +633,59 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.screenshot({ path: path.join(OUT, "pending.png"), fullPage: true });
   });
 
+  await step("periodontal chart: quick entry moves on after each digit, CAL is computed, a draft resumes, finalising locks it, the PDF, a second chart compared", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    await page.getByText("No periodontal chart yet").waitFor();
+    await page.getByRole("link", { name: "New periodontal chart" }).click();
+    await page.locator('#perio-form input[name="exam_date"]').fill(new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10));
+    // tooth 16 is the third tooth of the upper arch: its buccal sites are inputs 6..8, distal first
+    const pd = (i) => page.locator(`input[data-row="upper-buccal-pd"][data-i="${i}"]`);
+    await pd(6).click();
+    await page.keyboard.type("325");
+    assert((await pd(6).inputValue()) === "3" && (await pd(7).inputValue()) === "2" && (await pd(8).inputValue()) === "5", "each digit fills one site and moves on");
+    assert(await page.evaluate(() => document.activeElement?.getAttribute("data-i")) === "9", "the cursor is on the next tooth");
+    await page.keyboard.type("1");
+    assert(await page.evaluate(() => document.activeElement?.getAttribute("data-i")) === "9", "after 1 the depth waits for a second digit");
+    await page.keyboard.type("2");
+    assert((await pd(9).inputValue()) === "12", "two digits make 12");
+    await pd(9).fill("");
+    await page.locator('input[data-row="upper-buccal-gm"][data-i="8"]').fill("-2");
+    await page.getByRole("button", { name: "16 mesiobuccal: bleeding" }).click();
+    await page.getByRole("checkbox", { name: "46: missing" }).check();
+    const calCell = page.locator("table.perio-chart").first().locator("tr.pc-cal").first().locator("td").nth(8);
+    assert((await calCell.innerText()).trim() === "7", "CAL = 5 − (−2) = 7, shown as it is typed");
+    await page.locator("#perio").screenshot({ path: path.join(OUT, "perio-edit.png") });
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    // the draft resumes after a reload, and the menu shows it
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
+    assert((await pd(8).inputValue()) === "5" && await page.getByRole("checkbox", { name: "46: missing" }).isChecked(), "the draft keeps what was typed");
+    await page.locator("nav.product-menu .pm-badge", { hasText: "draft" }).waitFor();
+    page.once("dialog", (dl) => dl.accept());
+    await page.getByRole("button", { name: "Finalise the chart" }).click();
+    await page.waitForURL(/[?&]pv=/);
+    await page.locator("#perio .chip", { hasText: "Final" }).waitFor();
+    assert((await page.locator("#perio input[data-row]").count()) === 0, "a final chart is shown without inputs");
+    const pdfHref = await page.locator("#perio a", { hasText: "PDF" }).first().getAttribute("href");
+    const pdf = await page.request.get(`${BASE}${pdfHref}`);
+    assert(pdf.ok() && (pdf.headers()["content-type"] ?? "").includes("pdf"), "the chart prints as a PDF");
+    fs.writeFileSync(path.join(OUT, "perio.pdf"), await pdf.body());
+    // a later chart where 16 MB lost attachment: the comparison finds it
+    await page.getByRole("link", { name: "New periodontal chart" }).click();
+    await pd(6).click();
+    await page.keyboard.type("328");
+    await page.locator('input[data-row="upper-buccal-gm"][data-i="8"]').fill("-2");
+    page.once("dialog", (dl) => dl.accept());
+    await page.getByRole("button", { name: "Finalise the chart" }).click();
+    await page.waitForURL(/[?&]pv=/);
+    const pdf2 = await page.request.get(`${BASE}${await page.locator("#perio a", { hasText: "PDF" }).first().getAttribute("href")}`);
+    fs.writeFileSync(path.join(OUT, "perio-2.pdf"), await pdf2.body());
+    await page.locator("#perio-compare").getByRole("button", { name: "Compare" }).click();
+    await page.locator("table.perio-cmp-worse tr", { hasText: "mesiobuccal" }).getByText("7 → 10 (+3)").waitFor();
+    await page.locator("#perio").screenshot({ path: path.join(OUT, "perio.png") });
+  });
+
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
     await page.goto(`${BASE}/patients/${pid}/documents`);
     const up = async (name, buf, mime, title, spec) => {

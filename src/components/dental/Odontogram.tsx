@@ -12,14 +12,14 @@ export interface ChartTooth {
   status: string | null;
   findings: Pick<FindingRow, "kind" | "surfaces">[];
   /** open diagnoses on this tooth, and how many procedures and images name it */
-  links?: { problems: { name: string; code: string }[]; procedures: number; images: number };
+  links?: { problems: { name: string; code: string }[]; procedures: number; images: number; planned?: number };
 }
 
 /** What a tooth shows, in words (screen readers; the same text for every chart view). */
 export function toothAriaLabel(tooth: number, data: ChartTooth | undefined, lang: Lang): string {
   const ar = lang === "ar";
   const fs = data?.findings ?? [], problems = data?.links?.problems ?? [];
-  const nProc = data?.links?.procedures ?? 0, nImg = data?.links?.images ?? 0;
+  const nProc = data?.links?.procedures ?? 0, nImg = data?.links?.images ?? 0, nPlan = data?.links?.planned ?? 0;
   return [
     `${tooth} ${toothName(tooth, lang)}`,
     data?.status ? lbl(TOOTH_STATUS, data.status, lang) : (ar ? "لا بيانات فحص" : "no exam data"),
@@ -27,6 +27,7 @@ export function toothAriaLabel(tooth: number, data: ChartTooth | undefined, lang
     ...problems.map((p) => (ar ? `مشكلة: ${p.name}` : `problem: ${p.name}`)),
     ...(nProc ? [ar ? `إجراءات: ${nProc}` : `procedures: ${nProc}`] : []),
     ...(nImg ? [ar ? `صور: ${nImg}` : `images: ${nImg}`] : []),
+    ...(nPlan ? [ar ? `علاج مخطط: ${nPlan}` : `planned treatments: ${nPlan}`] : []),
   ].join(" — ");
 }
 
@@ -171,6 +172,7 @@ export function Odontogram({
                   </text>
                 )}
                 {nProc > 0 && <circle cx={x + 6} cy={upper ? y0 + 7 : y0 + 62} r="3" className="mk-proc" />}
+                {(data?.links?.planned ?? 0) > 0 && <path d={`M ${x + 11},${upper ? y0 + 10 : y0 + 65} l 3.5,-6 l 3.5,6 z`} className="mk-plan" />}
                 {nImg > 0 && <rect x={x + CELL - 9} y={upper ? y0 + 4 : y0 + 59} width="6" height="6" rx="1" className="mk-img" />}
               </g>
             );

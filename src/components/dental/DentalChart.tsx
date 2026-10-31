@@ -5,9 +5,10 @@ import type { Lang } from "@/lib/i18n";
 import {
   DISEASE_KINDS, EVIDENCE, FINDING_KIND, FINDING_SEVERITY, MATERIAL, SURFACES, TOOTH_STATUS, WHOLE_TOOTH_KINDS, chartSummary, deriveChart,
   fmtSurfaces, surfaceCode, surfaceName, toothName, toothLinks, OPEN_PROBLEM, type Dentition, type ExamRow, type FindingRow,
-  type ToothDiagnosis, type ToothImage, type ToothProcedure,
+  type ToothDiagnosis, type ToothImage, type ToothPlanned, type ToothProcedure,
 } from "@/lib/dental";
 import { CERTAINTY, CLINICAL_STATUS, DATE_PRECISION, IMAGING_MODALITY, lbl } from "@/lib/labels";
+import { ITEM_STATUS } from "@/lib/treatment";
 import { fmtPartialDate } from "@/lib/format";
 import { Chip } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
@@ -26,16 +27,18 @@ export interface ToothAddForm { id: string; label: string; node: ReactNode }
 
 /** The current chart (or the chart as it was on a past date), with a panel for the chosen tooth. */
 export function DentalChart({
-  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref, toothAdd = [], toothAddTitle,
+  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref, toothAdd = [], toothAddTitle, planned = [], treatmentHref,
 }: {
   dentition: Dentition; exams: ExamRow[]; findings: FindingRow[]; diagnoses: DentalDiagnosis[]; contributors: Record<string, string>;
   procedures?: ToothProcedure[]; images?: ToothImage[]; problemsHref?: string; toothAdd?: ToothAddForm[]; toothAddTitle?: string;
+  /** treatments still to happen (current plans), and where the plans are */
+  planned?: ToothPlanned[]; treatmentHref?: string;
   lang: Lang; pid?: string; canWrite: boolean; today: string; asOf?: string | null; specialtyId?: string | null;
 }) {
   const ar = lang === "ar";
   const t = (a: string, e: string) => (ar ? a : e);
   const chart = useMemo(() => deriveChart(exams, findings, asOf ?? undefined), [exams, findings, asOf]);
-  const links = useMemo(() => (asOf ? new Map() : toothLinks(diagnoses, procedures, images)), [diagnoses, procedures, images, asOf]);
+  const links = useMemo(() => (asOf ? new Map() : toothLinks(diagnoses, procedures, images, planned)), [diagnoses, procedures, images, planned, asOf]);
   const teeth = useMemo(() => {
     const out: Record<number, ChartTooth> = Object.fromEntries([...chart].map(([k, v]) => [k, { status: v.status, findings: v.findings } as ChartTooth]));
     for (const [k, l] of links) out[k] = { ...(out[k] ?? { status: null, findings: [] }), links: l };
@@ -55,6 +58,7 @@ export function DentalChart({
   const dx = sel ? diagnoses.filter((d) => d.teeth?.includes(sel)).sort((a, b) => Number(OPEN_PROBLEM.has(b.clinical_status ?? "active")) - Number(OPEN_PROBLEM.has(a.clinical_status ?? "active"))) : [];
   const px = sel ? procedures.filter((p) => p.teeth?.includes(sel)) : [];
   const ix = sel ? images.filter((i) => i.teeth?.includes(sel)) : [];
+  const tx = sel && !asOf ? planned.filter((p) => p.teeth?.includes(sel)) : [];
   const examOf = (id: string | null) => exams.find((e) => e.id === id);
   const day = (v: string | null | undefined) => fmtPartialDate(v ?? null, "day", lang);
 
@@ -148,6 +152,14 @@ export function DentalChart({
             })}</ul>
           )}
           {problemsHref && canWrite && !asOf && <p className="small"><a href={problemsHref}>{toothAdd.length ? t("تغيير حالة تشخيص ←", "Change a diagnosis status →") : t("تغيير حالة تشخيص أو إضافة تشخيص لهذا السن ←", "Change a diagnosis status or add one for this tooth →")}</a></p>}
+
+          {tx.length > 0 && (<>
+            <h4>{t("العلاج المخطط", "Planned treatment")}</h4>
+            <ul className="tooth-list">{tx.map((p) => (
+              <li key={p.id} className="planned"><strong>{p.name}</strong> <Chip tone="warn">{lbl(ITEM_STATUS, p.status, lang)}</Chip>
+                <span className="muted small"> · {treatmentHref ? <a href={`${treatmentHref}#plan-${p.plan_id}`}>{p.plan}</a> : p.plan}</span></li>
+            ))}</ul>
+          </>)}
 
           {px.length > 0 && (<>
             <h4>{t("الإجراءات", "Procedures")}</h4>

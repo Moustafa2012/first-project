@@ -319,7 +319,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/timeline?kind=visit`);
     await page.getByRole("link", { name: /Dental check/ }).first().click();
     await page.waitForURL(/\/visits\/[0-9a-f-]{36}$/);
-    await openSummary(page, "Add condition");
+    await openSummary(page, "Add a diagnosis");
     await page.fill("#conditions_new_name", "Dental caries");
     await page.selectOption("#conditions_new_category", "diagnosis");
     await submit(page, "Save");
@@ -412,14 +412,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/dental`);
     const card = () => page.locator("#diagnoses article.rec", { hasText: "Irreversible pulpitis" }).first();
     await card().locator("summary", { hasText: "Change status" }).click();
-    await card().getByLabel("Resolved").check();
-    await card().locator('input[name="reason"]').fill("root canal treatment");
+    await card().getByRole("radio", { name: "Resolved" }).check();
+    await card().locator('input[name="status_reason"]').fill("root canal treatment");
     await card().getByRole("button", { name: "Save status" }).click();
     await page.getByText("Status changed; the change is kept in its history.").first().waitFor();
     await page.reload();
     await card().locator("summary", { hasText: "Change status" }).click();
-    await card().getByLabel("Recurrence").check();
-    await card().locator('input[name="reason"]').fill("pain again");
+    await card().getByRole("radio", { name: "Recurrence" }).check();
+    await card().locator('input[name="status_reason"]').fill("pain again");
     await card().getByRole("button", { name: "Save status" }).click();
     await page.getByText("Status changed; the change is kept in its history.").first().waitFor();
     await page.reload();

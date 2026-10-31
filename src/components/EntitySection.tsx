@@ -133,7 +133,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
                     {next.map((o, i) => <label key={o.value} className="pill"><input type="radio" name="status" value={o.value} required defaultChecked={i === 0} />{o[lang]}</label>)}
                   </fieldset>
                   <label className="small">{t("منذ", "Since")} <input type="date" name="effective_date" defaultValue={today} max={today} /></label>
-                  <input name="reason" maxLength={500} placeholder={t("السبب أو كيف (اختياري)", "Reason or how (optional)")} aria-label={t("السبب", "Reason")} style={{ flex: 1, minWidth: 180 }} />
+                  <input name="status_reason" maxLength={500} placeholder={t("السبب أو كيف (اختياري)", "Reason or how (optional)")} aria-label={t("سبب تغيير الحالة", "Reason for the change")} style={{ flex: 1, minWidth: 180 }} />
                   <SubmitButton className="btn sm primary">{t("حفظ الحالة", "Save status")}</SubmitButton>
                 </ActionForm>
               </div>

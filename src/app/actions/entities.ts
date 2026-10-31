@@ -98,7 +98,7 @@ export async function setRecordStatus(_: FormState, fd: FormData): Promise<FormS
   const { t } = i18n();
   await requireUser();
   const pid = String(fd.get("_pid") ?? ""), id = String(fd.get("_id") ?? ""), table = String(fd.get("_table") ?? "");
-  const status = String(fd.get("status") ?? ""), date = String(fd.get("effective_date") ?? ""), reason = String(fd.get("reason") ?? "").trim().slice(0, 500);
+  const status = String(fd.get("status") ?? ""), date = String(fd.get("effective_date") ?? ""), reason = String(fd.get("status_reason") ?? "").trim().slice(0, 500);
   const model = STATUS_MODEL[table];
   if (!model || !UUID_RE.test(pid) || !UUID_RE.test(id)) return { error: t("طلب غير صالح.", "Invalid request.") };
   if (!model.options.some((o) => o.value === status) && !(table === "conditions" && status === "refuted")) return { error: t("اختر الحالة الجديدة.", "Choose the new status.") };

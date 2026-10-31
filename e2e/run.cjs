@@ -595,7 +595,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.fill("#visits_new_follow_up_date", new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10));
     await page.locator("form", { has: page.locator("#visits_new_reason") }).getByRole("button", { name: "Save", exact: true }).click();
     const visit = page.locator("article.rec", { hasText: "Filling 36 (phase C)" }).first();
-    await visit.getByText("Local infiltration").waitFor();
+    await visit.locator(".chip", { hasText: "Local infiltration" }).waitFor();
 
     // a note from a template: a draft, then signed (fixed), then amended (the original kept)
     await openSummary(page, "Add note");

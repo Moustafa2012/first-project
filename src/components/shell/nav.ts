@@ -8,6 +8,8 @@ export interface ShellItem { href: string; label: string; icon?: string; special
 export interface ShellGroup { label?: string; items: ShellItem[]; onlyOn?: string }
 export interface ShellProduct {
   key: string; label: string; icon: string; href: string;
+  /** products of the same group sit together; a separator divides groups (Studio's sidebar) */
+  group?: number;
   /** paths that make this product active (prefix match; "=" prefix means exact) */
   match: string[];
   menu?: { title: string; groups: ShellGroup[] };

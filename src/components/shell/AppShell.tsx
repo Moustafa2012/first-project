@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronsUpDown, Plus } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { getTheme } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
@@ -21,7 +21,8 @@ export function AppShell({ nav, crumbs, switcher, user, children }: { nav: Shell
   const dark = getTheme() === "dark";
   return (
     <div className="shell">
-      <Suspense fallback={<nav className="rail no-print" />}><ShellRail nav={nav} label={t("الأقسام الرئيسية", "Main sections")} /></Suspense>
+      <Suspense fallback={<nav className="rail no-print" />}><ShellRail nav={nav} label={t("الأقسام الرئيسية", "Main sections")}
+        behaviourLabels={{ title: t("الشريط الجانبي", "Sidebar"), open: t("مفتوح دائماً", "Expanded"), closed: t("مطوي", "Collapsed"), hover: t("يتوسع عند المرور", "Expand on hover") }} /></Suspense>
       <div className="shell-col">
         <header className="shell-top no-print">
           <Suspense fallback={null}><ShellMobile nav={nav} label={t("التنقل", "Navigation")} openLabel={t("فتح القائمة", "Open the menu")} closeLabel={t("إغلاق", "Close")} /></Suspense>
@@ -33,7 +34,7 @@ export function AppShell({ nav, crumbs, switcher, user, children }: { nav: Shell
             {switcher && (
               <li className="crumb-switch">
                 <details className="switcher">
-                  <summary aria-label={t("تبديل المريض", "Switch patient")}><strong>{switcher.current}</strong><ChevronDown size={14} aria-hidden="true" /></summary>
+                  <summary aria-label={t("تبديل المريض", "Switch patient")}><strong>{switcher.current}</strong><ChevronsUpDown size={14} aria-hidden="true" /></summary>
                   <div className="switcher-menu" role="menu">
                     {switcher.items.map((it) => (
                       <Link key={it.href} href={it.href} role="menuitem"><span>{it.label}</span>{it.sub && <span className="muted small ltr">{it.sub}</span>}</Link>
@@ -50,6 +51,7 @@ export function AppShell({ nav, crumbs, switcher, user, children }: { nav: Shell
             patients: t("المرضى", "Patients"), shares: t("سجل المشاركات", "Share register"), account: t("حسابي", "My account"), admin: t("الإدارة", "Admin"), signOut: t("تسجيل الخروج", "Sign out"), menu: t("قائمة الحساب", "Account menu"), sectionAccount: t("الحساب", "Account"), sectionPrefs: t("التفضيلات", "Preferences"), roleLabel: user.admin ? t("مدير النظام", "Administrator") : t("مستخدم", "Member"), langCode: lang === "ar" ? "AR" : "EN",
             langLabel: lang === "ar" ? "English" : "العربية", nextLang: lang === "ar" ? "en" : "ar",
             themeLabel: dark ? t("المظهر الفاتح", "Light mode") : t("المظهر الداكن", "Dark mode"), nextTheme: dark ? "light" : "dark", dark,
+              lang, theme: getTheme(), themeTitle: t("المظهر", "Theme"), themeDark: t("داكن", "Dark"), themeLight: t("فاتح", "Light"), themeSystem: t("حسب النظام", "System"), langTitle: t("اللغة", "Language"),
           }} />
         </header>
         <Suspense fallback={null}><ShellSubnav nav={nav} /></Suspense>

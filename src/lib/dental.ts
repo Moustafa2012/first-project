@@ -349,3 +349,53 @@ export function parseExamForm(fd: FormData, t: (ar: string, en: string) => strin
   if (states.length === 0 && findings.length === 0) return { error: t("سجّل حالة سن واحد أو موجوداً واحداً على الأقل.", "Record at least one tooth state or finding.") };
   return { exam, states, findings };
 }
+
+// ---------------------------------------------------------------- dental diagnoses and the other records linked to teeth
+/** Common dental diagnoses: offered as suggestions in the dental diagnosis form and used to label the chart. */
+export const DENTAL_DIAGNOSES: { code: string; ar: string; en: string; keys: string[] }[] = [
+  { code: "ABS", ar: "خراج سني", en: "Dental abscess", keys: ["abscess", "خراج"] },
+  { code: "PA", ar: "التهاب ما حول الذروة", en: "Apical periodontitis", keys: ["apical", "periapical", "الذروة", "ذروي"] },
+  { code: "PULP", ar: "التهاب لب غير عكوس", en: "Irreversible pulpitis", keys: ["pulpitis", "التهاب لب", "التهاب اللب"] },
+  { code: "PULP", ar: "التهاب لب عكوس", en: "Reversible pulpitis", keys: [] },
+  { code: "NEC", ar: "تموّت اللب", en: "Pulp necrosis", keys: ["necrosis", "تموت", "متموت"] },
+  { code: "CAR", ar: "نخر (تسوس)", en: "Dental caries", keys: ["caries", "نخر", "نخور", "تسوس"] },
+  { code: "GING", ar: "التهاب اللثة", en: "Gingivitis", keys: ["gingivitis", "التهاب اللثة"] },
+  { code: "PERIO", ar: "التهاب دواعم السن", en: "Periodontitis", keys: ["periodontitis", "دواعم", "نسج داعمة"] },
+  { code: "PERI", ar: "التهاب حول التاج", en: "Pericoronitis", keys: ["pericoronitis", "حول التاج"] },
+  { code: "CRK", ar: "سن مشروخ", en: "Cracked tooth", keys: ["crack", "شرخ", "مشروخ"] },
+  { code: "FX", ar: "كسر سن", en: "Fractured tooth", keys: ["fracture", "كسر"] },
+  { code: "IMPD", ar: "سن مطمور", en: "Impacted tooth", keys: ["impacted", "مطمور"] },
+  { code: "WEAR", ar: "سحل / تآكل الأسنان", en: "Tooth wear", keys: ["wear", "erosion", "attrition", "سحل", "تآكل"] },
+  { code: "SENS", ar: "حساسية العاج", en: "Dentine hypersensitivity", keys: ["hypersensitivity", "حساسية العاج", "حساسية الأسنان"] },
+  { code: "MOB", ar: "حركة السن", en: "Tooth mobility", keys: ["mobility", "مهتز", "حركة السن", "متحرك"] },
+  { code: "PIMP", ar: "التهاب ما حول الزرعة", en: "Peri-implantitis", keys: ["peri-implant", "حول الزرعة"] },
+  { code: "DRY", ar: "التهاب السنخ الجاف", en: "Dry socket", keys: ["dry socket", "السنخ الجاف"] },
+  { code: "MAL", ar: "سوء إطباق", en: "Malocclusion", keys: ["malocclusion", "سوء إطباق"] },
+  { code: "TMD", ar: "اضطراب المفصل الفكي الصدغي", en: "Temporomandibular disorder", keys: ["tmd", "temporomandibular", "المفصل الفكي"] },
+];
+
+/** A short label for the chart from a diagnosis name (first known keyword wins), "DX" when it is not one of the common ones. */
+export function diagnosisCode(name: string): string {
+  const x = name.toLowerCase().normalize("NFKD").replace(/[ً-ْـ]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
+  const norm = (k: string) => k.toLowerCase().normalize("NFKD").replace(/[ً-ْـ]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
+  for (const d of DENTAL_DIAGNOSES) if ([d.ar, d.en, ...d.keys].some((k) => k && x.includes(norm(k)))) return d.code;
+  return "DX";
+}
+
+export const OPEN_PROBLEM = new Set(["active", "recurrence"]);
+export interface ToothDiagnosis { id: string; name: string; teeth: number[] | null; clinical_status?: string | null; certainty?: string | null; contributed_by?: string | null; resolved_date?: string | null; onset_date?: string | null }
+export interface ToothProcedure { id: string; name: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; kind?: string | null; operator_name?: string | null; contributed_by?: string | null }
+export interface ToothImage { id: string; modality: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; impression?: string | null; body_site?: string | null; documents?: { id: string; title: string }[] }
+
+/** For each tooth: its open problems (with a chart label), and how many procedures and images name it. */
+export function toothLinks(diagnoses: ToothDiagnosis[], procedures: ToothProcedure[], images: ToothImage[]) {
+  const out = new Map<number, { problems: { name: string; code: string }[]; procedures: number; images: number }>();
+  const get = (t: number) => { let v = out.get(t); if (!v) { v = { problems: [], procedures: 0, images: 0 }; out.set(t, v); } return v; };
+  for (const d of diagnoses) {
+    if (!OPEN_PROBLEM.has(d.clinical_status ?? "active") || d.certainty === "refuted") continue;
+    for (const t of d.teeth ?? []) get(t).problems.push({ name: d.name, code: diagnosisCode(d.name) });
+  }
+  for (const p of procedures) for (const t of p.teeth ?? []) get(t).procedures++;
+  for (const i of images) for (const t of i.teeth ?? []) get(t).images++;
+  return out;
+}

@@ -4,35 +4,47 @@ import { useMemo, useState } from "react";
 import type { Lang } from "@/lib/i18n";
 import {
   DISEASE_KINDS, EVIDENCE, FINDING_KIND, FINDING_SEVERITY, MATERIAL, SURFACES, TOOTH_STATUS, WHOLE_TOOTH_KINDS, chartSummary, deriveChart,
-  fmtSurfaces, surfaceCode, surfaceName, toothName, type Dentition, type ExamRow, type FindingRow,
+  fmtSurfaces, surfaceCode, surfaceName, toothName, toothLinks, OPEN_PROBLEM, type Dentition, type ExamRow, type FindingRow,
+  type ToothDiagnosis, type ToothImage, type ToothProcedure,
 } from "@/lib/dental";
-import { CERTAINTY, CLINICAL_STATUS, DATE_PRECISION, lbl } from "@/lib/labels";
+import { CERTAINTY, CLINICAL_STATUS, DATE_PRECISION, IMAGING_MODALITY, lbl } from "@/lib/labels";
 import { fmtPartialDate } from "@/lib/format";
 import { Chip } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { addDentalFinding, invalidateDental, resolveDentalFinding } from "@/app/actions/dental";
 import { Odontogram, OdontoLegend, type ChartTooth } from "./Odontogram";
 
-export interface DentalDiagnosis { id: string; name: string; teeth: number[] | null; certainty?: string | null; clinical_status?: string | null; contributed_by?: string | null }
+export type DentalDiagnosis = ToothDiagnosis;
 
 /** The current chart (or the chart as it was on a past date), with a panel for the chosen tooth. */
 export function DentalChart({
-  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId,
+  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref,
 }: {
   dentition: Dentition; exams: ExamRow[]; findings: FindingRow[]; diagnoses: DentalDiagnosis[]; contributors: Record<string, string>;
+  procedures?: ToothProcedure[]; images?: ToothImage[]; problemsHref?: string;
   lang: Lang; pid?: string; canWrite: boolean; today: string; asOf?: string | null; specialtyId?: string | null;
 }) {
   const ar = lang === "ar";
   const t = (a: string, e: string) => (ar ? a : e);
   const chart = useMemo(() => deriveChart(exams, findings, asOf ?? undefined), [exams, findings, asOf]);
-  const teeth = useMemo(() => Object.fromEntries([...chart].map(([k, v]) => [k, { status: v.status, findings: v.findings } as ChartTooth])), [chart]);
+  const links = useMemo(() => (asOf ? new Map() : toothLinks(diagnoses, procedures, images)), [diagnoses, procedures, images, asOf]);
+  const teeth = useMemo(() => {
+    const out: Record<number, ChartTooth> = Object.fromEntries([...chart].map(([k, v]) => [k, { status: v.status, findings: v.findings } as ChartTooth]));
+    for (const [k, l] of links) out[k] = { ...(out[k] ?? { status: null, findings: [] }), links: l };
+    return out;
+  }, [chart, links]);
   const [sel, setSel] = useState<number | null>(null);
   const sum = chartSummary(chart);
+  // a tooth "has a problem" from an exam finding or from an open diagnosis that names it
+  sum.disease = new Set([...[...chart.values()].filter((v) => v.findings.some((f) => DISEASE_KINDS.has(f.kind))).map((v) => v.tooth),
+    ...[...links].filter(([, l]) => l.problems.length).map(([k]) => k)]).size;
   const v = sel ? chart.get(sel) : undefined;
   const history = sel ? findings.filter((f) => f.tooth === sel).sort((a, b) => b.observed_on.localeCompare(a.observed_on)) : [];
   const stateHistory = sel ? exams.flatMap((e) => e.states.filter((s) => s.tooth === sel).map((s) => ({ ...s, date: e.exam_date, exam: e })))
     .sort((a, b) => b.date.localeCompare(a.date)) : [];
-  const dx = sel ? diagnoses.filter((d) => d.teeth?.includes(sel)) : [];
+  const dx = sel ? diagnoses.filter((d) => d.teeth?.includes(sel)).sort((a, b) => Number(OPEN_PROBLEM.has(b.clinical_status ?? "active")) - Number(OPEN_PROBLEM.has(a.clinical_status ?? "active"))) : [];
+  const px = sel ? procedures.filter((p) => p.teeth?.includes(sel)) : [];
+  const ix = sel ? images.filter((i) => i.teeth?.includes(sel)) : [];
   const examOf = (id: string | null) => exams.find((e) => e.id === id);
   const day = (v: string | null | undefined) => fmtPartialDate(v ?? null, "day", lang);
 
@@ -103,11 +115,38 @@ export function DentalChart({
             </ul>
           )}
 
-          {dx.length > 0 && (<>
-            <h4>{t("تشخيصات تخص هذا السن", "Diagnoses naming this tooth")}</h4>
-            <ul className="tooth-list">{dx.map((d) => (
-              <li key={d.id}><strong>{d.name}</strong> <Chip tone="muted">{lbl(CLINICAL_STATUS, d.clinical_status, lang)}</Chip> <Chip tone={d.certainty === "confirmed" ? "ok" : "muted"}>{lbl(CERTAINTY, d.certainty, lang)}</Chip>
-                {d.contributed_by && <Chip tone="info">{t("أضافه طبيب عبر رابط", "Added by a doctor via a link")}</Chip>}</li>
+          <h4>{t("التشخيصات والمشكلات", "Diagnoses & problems")}</h4>
+          {dx.length === 0 ? <p className="muted small">{t("لا تشخيص يسمّي هذا السن.", "No diagnosis names this tooth.")}</p> : (
+            <ul className="tooth-list">{dx.map((d) => {
+              const open = OPEN_PROBLEM.has(d.clinical_status ?? "active") && d.certainty !== "refuted";
+              return (
+                <li key={d.id} className={open ? "disease" : ""}><strong>{d.name}</strong>{" "}
+                  <Chip tone={open ? "bad" : "ok"}>{d.certainty === "refuted" ? lbl(CERTAINTY, "refuted", lang) : lbl(CLINICAL_STATUS, d.clinical_status, lang)}</Chip>
+                  {d.certainty !== "confirmed" && d.certainty !== "refuted" && <Chip tone="muted">{lbl(CERTAINTY, d.certainty, lang)}</Chip>}
+                  {d.contributed_by && <Chip tone="info">{t("أضافه طبيب عبر رابط", "Added by a doctor via a link")}</Chip>}
+                  {d.resolved_date && !open && <span className="muted small"> · {fmtPartialDate(d.resolved_date, "day", lang)}</span>}
+                </li>
+              );
+            })}</ul>
+          )}
+          {problemsHref && canWrite && !asOf && <p className="small"><a href={problemsHref}>{t("تغيير حالة تشخيص أو إضافة تشخيص لهذا السن ←", "Change a diagnosis status or add one for this tooth →")}</a></p>}
+
+          {px.length > 0 && (<>
+            <h4>{t("الإجراءات", "Procedures")}</h4>
+            <ul className="tooth-list">{px.map((p) => (
+              <li key={p.id} className="work"><strong>{p.name}</strong>
+                <span className="muted small"> · {p.performed_on ? fmtPartialDate(p.performed_on, p.date_precision ?? "day", lang) : t("التاريخ غير معروف", "date unknown")}{p.operator_name ? ` · ${p.operator_name}` : ""}</span>
+                {p.contributed_by && <Chip tone="info">{t("أضافه طبيب عبر رابط", "Added by a doctor via a link")}</Chip>}</li>
+            ))}</ul>
+          </>)}
+
+          {ix.length > 0 && (<>
+            <h4>{t("الصور والأشعة", "Images & X-rays")}</h4>
+            <ul className="tooth-list">{ix.map((i) => (
+              <li key={i.id}><strong>{lbl(IMAGING_MODALITY, i.modality, lang)}</strong>{i.body_site ? ` — ${i.body_site}` : ""}
+                <span className="muted small"> · {i.performed_on ? fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang) : t("التاريخ غير معروف", "date unknown")}</span>
+                {i.impression && <div className="small">{i.impression}</div>}
+                {(i.documents ?? []).map((d) => <div key={d.id} className="small"><a href={`/api/documents/${d.id}`} target="_blank" rel="noopener noreferrer">{d.title}</a></div>)}</li>
             ))}</ul>
           </>)}
 

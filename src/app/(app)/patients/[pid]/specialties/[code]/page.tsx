@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { appliesToSex, forSex } from "@/lib/sex";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Share2 } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
@@ -32,6 +32,8 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
   const specs = await getSpecialties();
   const spec = specs.find((s) => s.code === params.code && appliesToSex(s.applicable_sex, p.sex));
   if (!spec) notFound();
+  // dentistry has one workspace: the dental file (chart, problems, visits & procedures, images, profile)
+  if (spec.code === "dentistry") redirect(`/patients/${p.id}/dental`);
   const [access, types] = await Promise.all([getAccess(p.id), getObsTypes()]);
   const supabase = createClient();
   const base = `/patients/${p.id}/specialties/${spec.code}`;
@@ -53,7 +55,6 @@ export default async function SpecialtyPage({ params }: { params: { pid: string;
         actions={access.canShare ? <Link className="btn primary" href={`/patients/${p.id}/sharing/new?specialty=${spec.code}`}><Share2 size={16} aria-hidden="true" />{t("شارك هذا الملف مع طبيب", "Share this file with a doctor")}</Link> : undefined}
       />
       {support && <Banner tone="info"><Link href={`/patients/${p.id}/${support[0]}`}>{t(support[1], support[2])}</Link></Banner>}
-      {spec.code === "dentistry" && <Banner tone="info"><Link href={`/patients/${p.id}/dental`}>{t("افتح مخطط الأسنان والفحوص (ملف الأسنان)", "Open the tooth chart and exams (dental file)")}</Link></Banner>}
 
       <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={[spec.code]} coreHref={`/patients/${p.id}/profile`} />
 

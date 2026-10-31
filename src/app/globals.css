@@ -556,3 +556,12 @@ body.no-print-share .print-only { display: block; }
 .status-hist ol { margin: .3rem 0 0; padding-inline-start: 1.2rem; display: grid; gap: .15rem; }
 .status-form { gap: .5rem; align-items: center; }
 .status-form .status-pick { display: flex; flex-wrap: wrap; gap: .1rem; border: 0; padding: 0; margin: 0; }
+.tooth-problem { fill: none; stroke: var(--bad); stroke-width: 2.4; }
+.tooth.problem .tooth-num { fill: var(--bad); }
+.tooth-badge tspan.bad, .tooth-badge-txt.bad { fill: var(--bad); color: var(--bad); }
+.mk-proc { fill: var(--info); }
+.mk-img { fill: var(--muted); }
+.dental-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-block-end: 1rem; }
+.dental-tabs a { padding: .45rem .9rem; border-radius: 999px; border: 1px solid var(--border); text-decoration: none; color: var(--text); background: var(--surface); font-size: .92rem; }
+.dental-tabs a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.unassigned li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; padding: .5rem .7rem; background: var(--surface-2); border-radius: var(--radius-sm); margin-block-end: .4rem; }

@@ -16,5 +16,7 @@ export interface ShareDental {
   profile: Record<string, unknown> | null;
   exams: import("@/lib/dental").ExamRow[];
   findings: import("@/lib/dental").FindingRow[];
-  diagnoses: { id: string; name: string; icd10_code: string | null; teeth: number[] | null; evidence: string | null; certainty: string | null; clinical_status: string | null; onset_date: string | null; date_precision: string | null }[];
+  diagnoses: { id: string; name: string; icd10_code: string | null; teeth: number[] | null; evidence: string | null; certainty: string | null; clinical_status: string | null; onset_date: string | null; date_precision: string | null; resolved_date?: string | null; contributed_by?: string | null }[];
+  procedures?: import("@/lib/dental").ToothProcedure[];
+  imaging?: import("@/lib/dental").ToothImage[];
 }

@@ -125,3 +125,23 @@ describe("whole-tooth work", () => {
     expect(surfaceTone([finding("r", 36, "root_canal", [], "2024-01-01")], "O")).toBeNull();
   });
 });
+
+describe("dental links", () => {
+  it("labels diagnoses for the chart, in Arabic or English, ignoring diacritics", async () => {
+    const { diagnosisCode } = await import("@/lib/dental");
+    expect(diagnosisCode("خراج سني مستمر (ناب مهتز) مع نخور")).toBe("ABS");
+    expect(diagnosisCode("Irreversible pulpitis")).toBe("PULP");
+    expect(diagnosisCode("تسوّس عميق")).toBe("CAR");
+    expect(diagnosisCode("something rare")).toBe("DX");
+  });
+  it("puts open problems, procedures and images on their teeth", async () => {
+    const { toothLinks } = await import("@/lib/dental");
+    const m = toothLinks(
+      [{ id: "a", name: "Abscess", teeth: [13], clinical_status: "active" }, { id: "b", name: "Caries", teeth: [13, 14], clinical_status: "resolved" },
+       { id: "c", name: "Pulpitis", teeth: [36], clinical_status: "active", certainty: "refuted" }, { id: "d", name: "Pain", teeth: null }],
+      [{ id: "p", name: "Root canal", teeth: [13] }], [{ id: "i", modality: "dental_xray", teeth: [13, 14] }]);
+    expect(m.get(13)).toEqual({ problems: [{ name: "Abscess", code: "ABS" }], procedures: 1, images: 1 });
+    expect(m.get(14)).toEqual({ problems: [], procedures: 0, images: 1 });
+    expect(m.has(36)).toBe(false);
+  });
+});

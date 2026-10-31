@@ -333,8 +333,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Penicillin").first().waitFor();
     await page.getByText("Hypertension").first().waitFor();
     assert((await page.locator("summary", { hasText: "Dental finding / treatment" }).count()) === 0, "the retired free-text dental form is gone");
-    await page.getByRole("link", { name: /Open the tooth chart and exams/ }).click();
-    await page.waitForURL(/\/dental$/);
+    // dentistry has a single workspace: the specialty page opens the dental file
+    assert(/\/dental$/.test(page.url()), "the dentistry specialty opens the dental file: " + page.url());
   });
 
   await step("dental file: two exams on the chart (keyboard surfaces), tooth panel + history, resolve, compare, tooth-linked diagnosis", async () => {
@@ -383,7 +383,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await cmp.locator("tr", { hasText: "18" }).getByText("Extracted").waitFor();
     await cmp.locator("tr", { hasText: "16" }).getByText("Filling MO").waitFor();
     // a diagnosis naming its tooth (invalid numbers refused)
-    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=problems`);
     await openSummary(page, "Add a dental diagnosis");
     // inside the dental file the form does not ask for the specialty or the category
     assert((await page.locator("#conditions_new_specialty_id").count()) === 0 && (await page.locator("#conditions_new_category").count()) === 0, "dental diagnosis form asks only what it needs");
@@ -394,6 +394,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.fill("#conditions_new_teeth", "36");
     await page.locator("form", { has: page.locator("#conditions_new_teeth") }).getByRole("button", { name: "Save", exact: true }).click();
     await page.getByText("Teeth: 36").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    assert(/problem: Irreversible pulpitis/.test(await page.locator("#chart-36").getAttribute("aria-label")), "the open diagnosis is drawn on its tooth");
     await page.locator("#chart-36").click();
     await page.locator(".tooth-panel").getByText("Irreversible pulpitis").waitFor();
     await page.screenshot({ path: path.join(OUT, "dental-file.png"), fullPage: true });
@@ -409,7 +411,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const cats = await page.locator("#conditions #conditions_new_category option").allInnerTexts();
     assert(cats.length === 4 && !cats.some((c) => /Diagnosis|Acute/.test(c)), "core file: chronic categories only: " + cats.join("|"));
     // resolve, then a recurrence, each with its reason
-    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=problems`);
     const card = () => page.locator("#diagnoses article.rec", { hasText: "Irreversible pulpitis" }).first();
     await card().locator("summary", { hasText: "Change status" }).click();
     await card().getByRole("radio", { name: "Resolved" }).check();
@@ -426,6 +428,43 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await card().locator("summary", { hasText: "Status history (2 changes)" }).click();
     await card().getByText(/Active → Resolved — root canal treatment/).waitFor();
     await card().getByText(/Resolved → Recurrence — pain again/).waitFor();
+  });
+
+  await step("one dental file: a problem without a tooth gets its tooth; procedures and images on the same tooth show on the chart and in its panel", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=problems`);
+    await openSummary(page, "Add a dental diagnosis");
+    await page.fill("#conditions_new_name", "Dental abscess (loose canine)");
+    await page.locator("form", { has: page.locator("#conditions_new_name") }).getByRole("button", { name: "Save", exact: true }).click();
+    const un = page.locator("#unassigned li", { hasText: "Dental abscess (loose canine)" });
+    await un.waitFor();
+    await page.getByRole("link", { name: /Problems & diagnoses \(\d+ without a tooth\)/ }).waitFor();
+    await un.locator('input[name="teeth"]').fill("13");
+    await un.getByRole("button", { name: "Set the tooth" }).click();
+    await page.getByText("Tooth set; it is now on the chart.").waitFor();
+    // a procedure and an image on tooth 13
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=care`);
+    await openSummary(page, "Add a dental procedure");
+    assert((await page.locator("#procedures_new_specialty_id").count()) === 0, "no specialty question inside the dental file");
+    await page.fill("#procedures_new_name", "Abscess drainage");
+    await page.fill("#procedures_new_teeth", "13");
+    await page.locator("form", { has: page.locator("#procedures_new_name") }).getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Teeth: 13").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+    await openSummary(page, "Add an image or X-ray");
+    await page.fill("#imaging_new_teeth", "13, 14");
+    await page.fill("#imaging_new_impression", "Periapical radiolucency at 13");
+    await page.locator("form", { has: page.locator("#imaging_new_teeth") }).getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Teeth: 13, 14").first().waitFor();
+    // the chart and the tooth panel bring them together
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const label = await page.locator("#chart-13").getAttribute("aria-label");
+    assert(/problem: Dental abscess/.test(label) && /procedures: 1/.test(label) && /images: 1/.test(label), "tooth 13 carries the problem, the procedure and the image: " + label);
+    await page.locator("#chart-13").click();
+    const panel = page.locator(".tooth-panel");
+    await panel.getByText("Dental abscess (loose canine)").waitFor();
+    await panel.getByText("Abscess drainage").waitFor();
+    await panel.getByText("Periapical radiolucency at 13").waitFor();
+    await page.screenshot({ path: path.join(OUT, "dental-linked.png"), fullPage: true });
   });
 
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {

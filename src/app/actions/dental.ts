@@ -7,7 +7,7 @@ import { i18n } from "@/lib/i18n";
 import { UUID_RE } from "@/lib/uuid";
 import { isPrecision, localDate, normalizePartialDate } from "@/lib/format";
 import {
-  ANXIETY, BRUSHING, DENTITION, EVIDENCE, FINDING_KIND, FINDING_SEVERITY, FLOSSING, MATERIAL, SURFACES, WHOLE_TOOTH_KINDS, isFdi, parseExamForm,
+  ANXIETY, BRUSHING, DENTITION, EVIDENCE, FINDING_KIND, FINDING_SEVERITY, FLOSSING, MATERIAL, SURFACES, WHOLE_TOOTH_KINDS, isFdi, parseExamForm, parseTeeth,
   type Surface,
 } from "@/lib/dental";
 import type { Opt } from "@/lib/labels";
@@ -119,4 +119,19 @@ export async function saveDentalProfile(_: FormState, fd: FormData): Promise<For
   if (error) return { error: explainError(error, t) };
   revalidatePath(pathOf(pid));
   return { ok: true, message: t("حُفظ الملف السني.", "Dental profile saved.") };
+}
+
+/** Names the teeth of a dental problem recorded without them, so it appears on the chart. */
+export async function setConditionTeeth(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  await requireUser();
+  const pid = String(fd.get("_pid") ?? ""), id = String(fd.get("_id") ?? "");
+  if (!UUID_RE.test(pid) || !UUID_RE.test(id)) return { error: t("طلب غير صالح.", "Invalid request.") };
+  const teeth = parseTeeth(String(fd.get("teeth") ?? ""));
+  if (!teeth || teeth.length === 0) return { error: t("أرقام أسنان غير صالحة (FDI: 11–48، اللبنية 51–85).", "Invalid tooth numbers (FDI: 11–48, primary 51–85).") };
+  const { data, error } = await createClient().from("conditions").update({ teeth }).eq("id", id).eq("patient_id", pid).select("id");
+  if (error) return { error: explainError(error, t) };
+  if (!data?.length) return { error: t("لم يُعثر على السجل.", "Record not found.") };
+  revalidatePath(pathOf(pid));
+  return { ok: true, message: t("حُدد السن، وصار على المخطط.", "Tooth set; it is now on the chart.") };
 }

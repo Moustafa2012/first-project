@@ -198,7 +198,13 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
       {dental && (
         <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
           <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
-            diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)} />
+            diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
+            procedures={dental.procedures ?? []} images={dental.imaging ?? []} />
+          {dental.diagnoses.some((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence")) && (<>
+            <h3>{t("مشكلات سنية بلا سن محدد", "Dental problems without a tooth")}</h3>
+            <ul>{dental.diagnoses.filter((x) => !(x.teeth?.length) && (x.clinical_status === "active" || x.clinical_status === "recurrence"))
+              .map((x) => <li key={x.id}>{x.name} <Chip tone="muted">{lbl(CLINICAL_STATUS, x.clinical_status, lang)}</Chip></li>)}</ul>
+          </>)}
           {dental.exams.length > 0 && (<>
             <h3>{t("الفحوص", "Exams")}</h3>
             {dental.exams.map((e) => (

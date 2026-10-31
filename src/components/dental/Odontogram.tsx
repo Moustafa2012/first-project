@@ -8,7 +8,12 @@ import {
 } from "@/lib/dental";
 import { lbl } from "@/lib/labels";
 
-export interface ChartTooth { status: string | null; findings: Pick<FindingRow, "kind" | "surfaces">[] }
+export interface ChartTooth {
+  status: string | null;
+  findings: Pick<FindingRow, "kind" | "surfaces">[];
+  /** open diagnoses on this tooth, and how many procedures and images name it */
+  links?: { problems: { name: string; code: string }[]; procedures: number; images: number };
+}
 
 const CELL = 46, S = 34, K = 11, GAP = 16, ROW_H = 78;
 const PAD = (CELL - S) / 2;
@@ -113,17 +118,24 @@ export function Odontogram({
             const absent = status != null && ABSENT_STATUSES.has(status);
             const hidden = status != null && HIDDEN_STATUSES.has(status);
             const reg = regions(tx, dy);
-            const badges = [...new Set(fs.map((f) => KIND_BADGE[f.kind]).filter(Boolean))].slice(0, 2).join("·");
+            const problems = data?.links?.problems ?? [];
+            const probCodes = [...new Set(problems.map((p) => p.code))];
+            const workCodes = [...new Set(fs.map((f) => KIND_BADGE[f.kind]).filter(Boolean))];
+            const badgeList = [...probCodes.map((c) => ({ c, bad: true })), ...workCodes.map((c) => ({ c, bad: false }))].slice(0, 2);
+            const nProc = data?.links?.procedures ?? 0, nImg = data?.links?.images ?? 0;
             const isSel = selected === tooth;
             const label = [
               `${tooth} ${toothName(tooth, lang)}`,
               status ? lbl(TOOTH_STATUS, status, lang) : (ar ? "لا بيانات فحص" : "no exam data"),
               ...fs.map((f) => `${lbl(FINDING_KIND, f.kind, lang)}${f.surfaces.length ? " " + fmtSurfaces(f.surfaces, tooth) : ""}`),
+              ...problems.map((p) => (ar ? `مشكلة: ${p.name}` : `problem: ${p.name}`)),
+              ...(nProc ? [ar ? `إجراءات: ${nProc}` : `procedures: ${nProc}`] : []),
+              ...(nImg ? [ar ? `صور: ${nImg}` : `images: ${nImg}`] : []),
             ].join(" — ");
             return (
               <g key={tooth} ref={(el) => { if (el) refs.current.set(tooth, el); else refs.current.delete(tooth); }}
                 id={`${idPrefix}-${tooth}`} data-tooth={tooth}
-                className={`tooth${absent ? " absent" : ""}${hidden ? " hidden" : ""}${status == null ? " nodata" : ""}${isSel ? " sel" : ""}`}
+                className={`tooth${absent ? " absent" : ""}${hidden ? " hidden" : ""}${status == null && !problems.length && !fs.length ? " nodata" : ""}${problems.length ? " problem" : ""}${isSel ? " sel" : ""}`}
                 role="button" tabIndex={tooth === focusable ? 0 : -1} aria-pressed={isSel} aria-label={label}
                 onClick={() => onSelect?.(tooth)} onKeyDown={onKey(tooth)}>
                 <rect x={x + 1} y={y0 + 1} width={CELL - 2} height={ROW_H - 4} rx="6" className="tooth-ring" />
@@ -144,7 +156,14 @@ export function Odontogram({
                   );
                 })}
                 {absent && <path d={`M${tx + 3},${dy + 3} L${tx + S - 3},${dy + S - 3} M${tx + S - 3},${dy + 3} L${tx + 3},${dy + S - 3}`} className="tooth-x" />}
-                {badges && <text x={x + CELL / 2} y={upper ? y0 + 61 : y0 + 13} className="tooth-badge">{badges}</text>}
+                {problems.length > 0 && <rect x={tx - 2} y={dy - 2} width={S + 4} height={S + 4} rx="5" className="tooth-problem" />}
+                {badgeList.length > 0 && (
+                  <text x={x + CELL / 2} y={upper ? y0 + 61 : y0 + 13} className="tooth-badge">
+                    {badgeList.map((b, i) => <tspan key={i} className={b.bad ? "bad" : undefined}>{i > 0 ? "·" : ""}{b.c}</tspan>)}
+                  </text>
+                )}
+                {nProc > 0 && <circle cx={x + 6} cy={upper ? y0 + 7 : y0 + 62} r="3" className="mk-proc" />}
+                {nImg > 0 && <rect x={x + CELL - 9} y={upper ? y0 + 4 : y0 + 59} width="6" height="6" rx="1" className="mk-img" />}
               </g>
             );
           }))}
@@ -164,6 +183,9 @@ export function OdontoLegend({ lang }: { lang: Lang }) {
       <li><svg width="18" height="14" aria-hidden="true"><rect x="1" y="1" width="16" height="12" className="surf legend-hidden" /></svg>{ar ? "لم يبزغ / مطمور" : "Unerupted / impacted"}</li>
       <li><svg width="18" height="14" aria-hidden="true"><rect x="1" y="1" width="16" height="12" className="surf legend-nodata" /></svg>{ar ? "لا بيانات فحص (لا يعني سليماً)" : "No exam data (not the same as healthy)"}</li>
       <li><span className="tooth-badge-txt">CR RCT IMP</span>{ar ? "تاج، علاج عصب، زرعة…" : "Crown, root canal, implant…"}</li>
+      <li><svg width="18" height="14" aria-hidden="true"><rect x="1" y="1" width="16" height="12" rx="3" className="tooth-problem" /></svg><span className="tooth-badge-txt bad">ABS</span>{ar ? "مشكلة نشطة (تشخيص)" : "Open problem (diagnosis)"}</li>
+      <li><svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.5" className="mk-proc" /></svg>{ar ? "إجراء مسجل" : "Procedure recorded"}</li>
+      <li><svg width="10" height="10" aria-hidden="true"><rect x="1" y="1" width="8" height="8" rx="1" className="mk-img" /></svg>{ar ? "صورة / أشعة" : "Image / X-ray"}</li>
     </ul>
   );
 }

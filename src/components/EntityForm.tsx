@@ -5,7 +5,7 @@ import type { Row, Specialty } from "@/lib/types";
 import { ActionForm, DateTimeField, SubmitButton } from "@/components/ui/client";
 import { saveEntity } from "@/app/actions/entities";
 
-export function FieldInput({ def, value, lang, specialties, prefix, precision }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string; precision?: unknown }) {
+export function FieldInput({ def, value, lang, specialties, prefix, precision, suggest }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string; precision?: unknown; suggest?: string[] }) {
   const id = `${prefix}_${def.name}`;
   const label = lang === "ar" ? def.ar : def.en;
   // a NOT NULL date with a database default ("today") is prefilled, never sent empty
@@ -60,7 +60,10 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision }:
       }
       return wrap(<input id={id} name={def.name} type="date" defaultValue={v} required={def.required} />);
     default:
-      return wrap(<input id={id} name={def.name} type="text" defaultValue={v} required={def.required} maxLength={def.maxLength ?? 300} />);
+      return wrap(<>
+        <input id={id} name={def.name} type="text" defaultValue={v} required={def.required} maxLength={def.maxLength ?? 300} list={suggest?.length ? `${id}_list` : undefined} />
+        {suggest?.length ? <datalist id={`${id}_list`}>{suggest.map((x) => <option key={x} value={x} />)}</datalist> : null}
+      </>);
   }
 }
 
@@ -89,7 +92,7 @@ export function EntityForm({
       {Object.entries(fixed).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       <div className="form-grid">
         {fields.map((fd) => (
-          <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix}
+          <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix} suggest={context?.suggest?.[fd.name]}
             value={row ? row[fd.name] : defaults[fd.name]} precision={fd.precision && row ? row[fd.precision] : undefined} />
         ))}
       </div>

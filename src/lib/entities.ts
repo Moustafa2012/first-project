@@ -39,7 +39,13 @@ export interface FormContext {
   fixed?: Record<string, string>;
   dental?: boolean;
   options?: Record<string, string[]>;
+  /** suggestions offered while typing a text field (e.g. common dental diagnoses) */
+  suggest?: Record<string, string[]>;
 }
+const teethChip = (r: Row, lang: Lang): Chip[] =>
+  Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info", text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : [];
+const teethField = (): FieldDef => ({ name: "teeth", ar: "الأسنان المعنية", en: "Teeth concerned", kind: "teeth", only: "dental",
+  hint: ["أرقام FDI مفصولة بفاصلة، مثل: 16، 26", "FDI numbers separated by commas, e.g. 16, 26"] });
 
 export interface Chip { tone: "ok" | "warn" | "bad" | "info" | "muted"; text: string }
 
@@ -93,7 +99,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       { tone: s(r, "certainty") === "confirmed" ? "ok" : "muted", text: L.lbl(L.CERTAINTY, s(r, "certainty"), lang) },
       ...(r.severity ? [{ tone: "muted" as const, text: L.lbl(L.SEVERITY3, s(r, "severity"), lang) }] : []),
       ...(r.sensitive ? [{ tone: "warn" as const, text: lang === "ar" ? "حساس" : "Sensitive" }] : []),
-      ...(Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info" as const, text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : []),
+      ...teethChip(r, lang),
     ],
     fields: [
       f("name", "اسم المرض / التشخيص", "Condition / diagnosis", "text", { required: true, maxLength: 200, wide: true }),
@@ -105,7 +111,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("resolved_date", "تاريخ الشفاء / الانتهاء", "Resolved date", "date"),
       f("icd10_code", "رمز ICD-10 (اختياري)", "ICD-10 code (optional)", "text", { maxLength: 12 }),
       spec,
-      f("teeth", "الأسنان المعنية", "Teeth concerned", "teeth", { only: "dental", hint: ["أرقام FDI مفصولة بفاصلة، مثل: 16، 26", "FDI numbers separated by commas, e.g. 16, 26"] }),
+      teethField(),
       f("evidence", "أساس التشخيص", "Basis of the diagnosis", "select", { options: L.DIAGNOSIS_EVIDENCE }),
       f("sensitive", "تشخيص حساس (لا يُشارك إلا بإذن صريح)", "Sensitive (shared only when explicitly allowed)", "checkbox"),
       f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
@@ -199,12 +205,13 @@ export const ENTITIES: Record<string, EntityDef> = {
     slug: "procedures", table: "procedures", ar: "العمليات والإجراءات", en: "Surgeries & procedures", singular: { ar: "إجراء", en: "procedure" },
     order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, datePrecision: PREC, bodyField: "notes", links: ["encounter_id"],
     titleOf: (r) => s(r, "name"), dupKey: (r) => `${n(r, "name")}|${day(r.performed_on)}`,
-    chipsOf: (r, lang) => [{ tone: "info", text: L.lbl(L.PROCEDURE_KIND, s(r, "kind"), lang) }, ...(r.body_site ? [{ tone: "muted" as const, text: s(r, "body_site") }] : [])],
+    chipsOf: (r, lang) => [{ tone: "info", text: L.lbl(L.PROCEDURE_KIND, s(r, "kind"), lang) }, ...(r.body_site ? [{ tone: "muted" as const, text: s(r, "body_site") }] : []), ...teethChip(r, lang)],
     fields: [
       f("kind", "النوع", "Type", "select", { options: L.PROCEDURE_KIND, dflt: "procedure" }),
       f("name", "اسم الإجراء", "Procedure", "text", { required: true, wide: true }),
       f("performed_on", "تاريخ الإجراء", "Date", "date", { precision: PREC, hint: unknownDate }),
-      f("body_site", "الموضع (عضو / رقم السن)", "Site (organ / tooth no.)", "text"),
+      teethField(),
+      f("body_site", "الموضع (العضو)", "Body site", "text"),
       spec,
       f("facility_name", "المنشأة", "Facility", "text"),
       f("operator_name", "الجراح / المنفذ", "Surgeon / operator", "text"),
@@ -220,9 +227,11 @@ export const ENTITIES: Record<string, EntityDef> = {
     order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, datePrecision: PREC, bodyField: "impression",
     dupKey: (r) => `${s(r, "modality")}|${n(r, "body_site")}|${day(r.performed_on)}`,
     titleOf: (r, lang) => [L.lbl(L.IMAGING_MODALITY, s(r, "modality"), lang), s(r, "body_site")].filter(Boolean).join(" — "),
+    chipsOf: (r, lang) => teethChip(r, lang),
     fields: [
       f("modality", "نوع الفحص", "Modality", "select", { options: L.IMAGING_MODALITY, dflt: "xray" }),
       f("body_site", "المنطقة", "Body site", "text"),
+      teethField(),
       f("performed_on", "تاريخ الفحص", "Date", "date", { precision: PREC, hint: unknownDate }),
       spec,
       f("facility_name", "المنشأة", "Facility", "text"),

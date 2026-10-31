@@ -776,7 +776,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await doc.getByRole("button", { name: "Send" }).click();
     await doc.getByText("Your note was sent to the patient.").waitFor();
     await page.goto(`${BASE}/patients/${pid}/sharing`);
-    await page.getByRole("link", { name: /Dentistry/ }).first().click();
+    await page.locator('a[href*="/sharing/"]', { hasText: /Dentistry/ }).first().click();     // the share, not the menu's Dentistry
     await page.getByText("Please bring the latest panoramic film.").waitFor();
     await page.getByRole("button", { name: "Mark reviewed" }).click();
     await page.getByText("Reviewed", { exact: true }).waitFor();
@@ -923,8 +923,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.locator(".tooth-panel li", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
     await d3.locator("#contribute article.rec", { hasText: "Fractured cusp 47 (dentist)" }).waitFor();
     // the summary of additions comes after the clinical content
-    const order = await d3.evaluate(() => ["#contributor", "#dental", "#contribute"].map((q) => document.querySelector(q)?.getBoundingClientRect().top ?? -1));
-    assert(order[0] > 0 && order[0] < order[1] && order[1] < order[2], "identity, then the dental workspace, then the summary: " + order);
+    const order = await d3.evaluate(() => ["#contributor", "#dental", "#contribute"].map((q) => { const el = document.querySelector(q); return el ? el.getBoundingClientRect().top + window.scrollY : NaN; }));
+    assert(order[0] < order[1] && order[1] < order[2], "identity, then the dental workspace, then the summary: " + order);
     await d3.screenshot({ path: path.join(OUT, "dentist-contribute.png"), fullPage: true });
     // the dentist withdraws the misplaced note
     const noteRec = d3.locator("#contribute article.rec", { hasText: "Note typed in the wrong file" }).first();
@@ -1042,7 +1042,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const opts = await page.locator("#f_specialty_id option, select[name=specialty_id] option").allInnerTexts();
     assert(opts.length > 3 && !opts.some((o) => /Obstetrics/.test(o)), "visit form hides obstetrics: " + opts.slice(0, 5));
     await page.goto(`${BASE}/patients/${pid}/specialties`);
-    const fem = (await page.locator("main").innerText());
+    const fem = (await page.locator("main").textContent()) ?? "";                              // unused specialties sit in a folded list
     if (/Female/.test(await page.locator("header.patient-head").innerText())) assert(/Obstetrics/.test(fem) && !/Men's health/.test(fem), "female file view");
   });
 

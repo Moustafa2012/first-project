@@ -185,12 +185,12 @@ export function DentalChart({
           {toothAdd.length > 0 && !asOf && (
             <div className="tooth-add">
               <h4>{toothAddTitle ?? t(`أضف للسن ${sel}`, `Add for tooth ${sel}`)}</h4>
+              <p className="small muted">{t("السن والقسم معروفان من المخطط، فلا يُسأل عنهما.", "The tooth and the specialty are known from the chart, so they are not asked.")}</p>
               {toothAdd.map((a) => (
                 <details className="fold" key={a.id} id={`${a.id}-fold`}>
                   <summary>{a.label}</summary>
                   <div className="fold-body">
                     <input type="hidden" name="teeth" form={a.id} value={sel} />
-                    <p className="small muted">{t("السن", "Tooth")}: <strong className="ltr">{sel}</strong> — {toothName(sel, lang)}</p>
                     {a.node}
                   </div>
                 </details>

@@ -40,7 +40,7 @@
   --ok: hsl(var(--sb-brand-600)); --ok-bg: hsl(var(--sb-brand-default) / .1); --ok-border: hsl(var(--sb-brand-500));
   --warn: hsl(var(--sb-warning-600)); --warn-bg: hsl(var(--sb-warning-200)); --warn-border: hsl(var(--sb-warning-400));
   --bad: hsl(var(--sb-destructive-600)); --bad-bg: hsl(var(--sb-destructive-200)); --bad-border: hsl(var(--sb-destructive-400));
-  --info: var(--sb-foreground); --info-bg: oklch(from var(--sb-muted) l c h / 0.25); --info-border: var(--sb-border);
+  --info: var(--sb-foreground); --info-bg: var(--sb-card); --info-border: var(--sb-border);
   --sand: hsl(var(--sb-warning-600)); --sand-soft: hsl(var(--sb-warning-200));
 
   /* shape, depth, rhythm (Supabase: radius-md 6px, cards rounded-lg 8px) */
@@ -967,3 +967,4 @@ hr { border-block-start-color: var(--sb-border); }
 
 .btn.shell-burger { display: none; }
 @media (max-width: 900px) { .btn.shell-burger { display: inline-flex; } }
+.banner.info { background: var(--sb-card); border-color: var(--sb-border); color: var(--text); }

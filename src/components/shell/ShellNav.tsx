@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import {
   Activity, AlertTriangle, ArrowLeftRight, CalendarDays, ClipboardList, FileText, FlaskConical, FolderHeart, FolderOpen, HeartPulse, History, Home, Layers,
   Link2, Menu, NotebookPen, Pill, ScanLine, Scissors, Settings, Share2, ShieldCheck, Smile, Stethoscope, Syringe, TestTube2, UserRound, Users, X,
-  LayoutGrid, Stethoscope as Visit, Image as ImageIcon, ListChecks, Wrench, Trash2, BellRing, type LucideIcon,
+  LayoutGrid, Stethoscope as Visit, Image as ImageIcon, ListChecks, Wrench, Trash2, BellRing, PanelLeft, type LucideIcon,
 } from "lucide-react";
 import { SpecialtyIcon } from "@/components/Icon";
 import { activeProduct, groupVisible, itemActive, type ShellItem, type ShellNav as Nav, type ShellProduct } from "./nav";
@@ -33,24 +33,74 @@ function useNav(nav: Nav) {
   return { path, tab, active: activeProduct(nav, path) };
 }
 
-/** The product rail: icons only, widening on hover or keyboard focus to show the names (it overlays the page, nothing moves). */
-export function ShellRail({ nav, label }: { nav: Nav; label: string }) {
+type Behaviour = "hover" | "open" | "closed";
+const BEHAVIOUR_KEY = "shifa-sidebar";
+
+/**
+ * The product rail (Studio's Sidebar): icons in groups divided by separators, 48px wide; it widens to 208px on hover
+ * or keyboard focus (overlaying the page), or stays open / closed — the choice is in the footer, as in Studio.
+ */
+export function ShellRail({ nav, label, behaviourLabels }: { nav: Nav; label: string; behaviourLabels?: { title: string; open: string; closed: string; hover: string } }) {
   const { active } = useNav(nav);
+  const [mode, setMode] = useState<Behaviour>("hover");
+  const [menu, setMenu] = useState(false);
+  useEffect(() => {
+    let m: Behaviour = "hover";
+    try { const v = localStorage.getItem(BEHAVIOUR_KEY); if (v === "open" || v === "closed") m = v; } catch { /* storage may be blocked */ }
+    setMode(m);
+  }, []);
+  useEffect(() => { document.documentElement.dataset.sidebar = mode; }, [mode]);
+  const choose = (m: Behaviour) => { setMode(m); setMenu(false); try { localStorage.setItem(BEHAVIOUR_KEY, m); } catch { /* ignore */ } };
   const link = (p: ShellProduct) => (
     <Link key={p.key} href={p.href} className="rail-link" aria-current={active?.key === p.key ? "page" : undefined} title={p.label} data-product={p.key}>
-      <ItemIcon it={{ icon: p.icon }} size={19} /><span className="rail-label">{p.label}</span>
+      <ItemIcon it={{ icon: p.icon }} size={18} /><span className="rail-label">{p.label}</span>
     </Link>
   );
+  const groups: ShellProduct[][] = [];
+  for (const p of nav.products) {
+    const g = p.group ?? 0;
+    const last = groups[groups.length - 1];
+    if (last && (last[0].group ?? 0) === g) last.push(p); else groups.push([p]);
+  }
   return (
     <nav className="rail no-print" aria-label={label}>
       <div className="rail-in">
         {nav.home && (
-          <Link href={nav.home.href} className="rail-link rail-home" title={nav.home.label}>
-            <ItemIcon it={{ icon: "patients" }} size={19} /><span className="rail-label">{nav.home.label}</span>
-          </Link>
+          <>
+            <Link href={nav.home.href} className="rail-link" title={nav.home.label}>
+              <ItemIcon it={{ icon: "patients" }} size={18} /><span className="rail-label">{nav.home.label}</span>
+            </Link>
+            <div className="rail-sep" role="separator" />
+          </>
         )}
-        <div className="rail-items">{nav.products.map(link)}</div>
-        <div className="rail-foot">{nav.footer.map(link)}</div>
+        <div className="rail-items">
+          {groups.map((g, i) => (
+            <div key={i} className="rail-group">
+              {i > 0 && <div className="rail-sep" role="separator" />}
+              {g.map(link)}
+            </div>
+          ))}
+        </div>
+        <div className="rail-foot">
+          {nav.footer.map(link)}
+          {behaviourLabels && (
+            <div className="rail-behaviour">
+              <button type="button" className="rail-link" aria-haspopup="menu" aria-expanded={menu} title={behaviourLabels.title} onClick={() => setMenu((v) => !v)}>
+                <PanelLeft size={18} aria-hidden="true" /><span className="rail-label">{behaviourLabels.title}</span>
+              </button>
+              {menu && (
+                <div className="menu dm rail-behaviour-menu" role="menu" aria-label={behaviourLabels.title}>
+                  <div className="dm-label" role="presentation">{behaviourLabels.title}</div>
+                  {([["open", behaviourLabels.open], ["closed", behaviourLabels.closed], ["hover", behaviourLabels.hover]] as const).map(([m, l]) => (
+                    <button key={m} type="button" role="menuitemradio" aria-checked={mode === m} className="dm-item dm-radio-item" onClick={() => choose(m)}>
+                      <span className={`dm-radio${mode === m ? " on" : ""}`} aria-hidden="true" />{l}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );
@@ -77,14 +127,14 @@ function MenuGroups({ product, path, tab, onNavigate }: { product: ShellProduct;
   );
 }
 
-/** The menu of the active product, next to the rail (desktop); nothing when the product is a single page. */
+/** The menu of the active product (Studio's ProductMenuBar): a header strip with the title, then groups of text items. */
 export function ShellProductMenu({ nav }: { nav: Nav }) {
   const { path, tab, active } = useNav(nav);
   if (!active?.menu) return null;
   return (
     <nav className="product-menu no-print" aria-label={active.menu.title}>
-      <div className="pm-title">{active.menu.title}</div>
-      <MenuGroups product={active} path={path} tab={tab} />
+      <div className="pm-head"><h4 className="pm-title">{active.menu.title}</h4></div>
+      <div className="pm-body"><MenuGroups product={active} path={path} tab={tab} /></div>
     </nav>
   );
 }

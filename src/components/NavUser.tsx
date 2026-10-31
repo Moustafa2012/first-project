@@ -11,6 +11,7 @@ import { setLang, setTheme } from "@/app/actions/prefs";
 export interface NavUserText {
   patients: string; shares: string; account: string; admin: string; signOut: string; menu: string;
   sectionAccount: string; sectionPrefs: string; roleLabel: string; langCode: string; langLabel: string; nextLang: "ar" | "en"; themeLabel: string; nextTheme: "light" | "dark"; dark: boolean;
+  lang?: "ar" | "en"; theme?: "light" | "dark" | null; themeTitle?: string; themeDark?: string; themeLight?: string; themeSystem?: string; langTitle?: string;
 }
 
 const initials = (n: string) => Array.from(n.trim().split(/\s+/).slice(0, 2).map((w) => Array.from(w)[0] ?? "").join("") || "?").join("").toUpperCase();
@@ -46,47 +47,47 @@ export function NavUser({ name, email, admin, text, avatar }: { name: string; em
     else if (e.key === "Tab") setOpen(false);
   };
 
+  // Studio's UserDropdown: a round 32px avatar; the menu: name and e-mail, the account links, theme and language as
+  // radio groups, sign out. Items are 12px text with 14px icons in the lighter foreground, like Supabase's dropdown-menu.
   const face = (cls: string) => <span className={`avatar ${cls}`} aria-hidden="true">{avatar ? <img src={avatar} alt="" className="avatar-img" /> : initials(name || email)}</span>;
+  const radio = (on: boolean) => <span className={`dm-radio${on ? " on" : ""}`} aria-hidden="true" />;
   return (
     <div className="navuser" ref={root} onKeyDown={onKey}>
       <button ref={trigger} type="button" className="navuser-btn" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
-        aria-label={`${text.menu}: ${name}`} onClick={() => setOpen((v) => !v)}>
+        aria-label={`${text.menu}: ${name || email}`} title={name || email} onClick={() => setOpen((v) => !v)}>
         {face("sm")}
-        <span className="navuser-id">
-          <span className="navuser-name">{name || email}</span>
-          <span className="navuser-sub">{text.roleLabel}</span>
-        </span>
-        <ChevronDown size={16} aria-hidden="true" className="navuser-chev" />
       </button>
       {open && <div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
       {open && (
-        <div className="menu" id={menuId} role="menu" aria-label={text.menu}>
-          <div className="menu-grab" aria-hidden="true" />
-          <div className="menu-head" role="presentation">
-            {face("lg-ring")}
-            <div style={{ minWidth: 0 }}>
-              <strong className="menu-name">{name || email}</strong>
-              <div className="menu-mail"><span className="ltr">{email}</span></div>
-              <span className="chip info menu-role">{admin ? <ShieldCheck size={12} aria-hidden="true" /> : null}{text.roleLabel}</span>
-            </div>
+        <div className="menu dm" id={menuId} role="menu" aria-label={text.menu}>
+          <div className="dm-head" role="presentation">
+            <span className="dm-name" title={name || email}>{name || email}</span>
+            {name && <span className="dm-mail ltr" title={email}>{email}</span>}
+            <span className="dm-role">{admin ? <ShieldCheck size={12} aria-hidden="true" /> : null}{text.roleLabel}</span>
           </div>
-          <div className="menu-label" role="presentation">{text.sectionAccount}</div>
-          <Link role="menuitem" href="/patients" className="menu-item" tabIndex={-1}><span className="mi"><Users size={16} aria-hidden="true" /></span><span className="mt">{text.patients}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>
-          <Link role="menuitem" href="/shares" className="menu-item" tabIndex={-1}><span className="mi"><Link2 size={16} aria-hidden="true" /></span><span className="mt">{text.shares}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>
-          <Link role="menuitem" href="/account" className="menu-item" tabIndex={-1}><span className="mi"><Settings size={16} aria-hidden="true" /></span><span className="mt">{text.account}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>
-          {admin && <Link role="menuitem" href="/admin/specialties" className="menu-item" tabIndex={-1}><span className="mi"><ShieldCheck size={16} aria-hidden="true" /></span><span className="mt">{text.admin}</span><ChevronRight size={15} aria-hidden="true" className="mgo" /></Link>}
-          <div className="menu-label" role="presentation">{text.sectionPrefs}</div>
-          <form action={setLang} role="none">
-            <input type="hidden" name="lang" value={text.nextLang} />
-            <button role="menuitem" className="menu-item" tabIndex={-1}><span className="mi"><Languages size={16} aria-hidden="true" /></span><span className="mt">{text.langLabel}</span><span className="chip menu-badge">{text.langCode}</span></button>
-          </form>
-          <form action={setTheme} role="none">
-            <input type="hidden" name="theme" value={text.nextTheme} />
-            <button role="menuitem" className="menu-item" tabIndex={-1}><span className="mi">{text.dark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</span><span className="mt">{text.themeLabel}</span><span className={`switch${text.dark ? " on" : ""}`} aria-hidden="true" /></button>
-          </form>
-          <div className="menu-sep" role="separator" />
+          <div className="dm-sep" role="separator" />
+          <Link role="menuitem" href="/patients" className="dm-item" tabIndex={-1}><Users size={14} strokeWidth={1.5} aria-hidden="true" />{text.patients}</Link>
+          <Link role="menuitem" href="/shares" className="dm-item" tabIndex={-1}><Link2 size={14} strokeWidth={1.5} aria-hidden="true" />{text.shares}</Link>
+          <Link role="menuitem" href="/account" className="dm-item" tabIndex={-1}><Settings size={14} strokeWidth={1.5} aria-hidden="true" />{text.account}</Link>
+          {admin && <Link role="menuitem" href="/admin/specialties" className="dm-item" tabIndex={-1}><ShieldCheck size={14} strokeWidth={1.5} aria-hidden="true" />{text.admin}</Link>}
+          <div className="dm-sep" role="separator" />
+          <div className="dm-label" role="presentation">{text.themeTitle}</div>
+          {([["dark", text.themeDark], ["light", text.themeLight], ["system", text.themeSystem]] as const).map(([v, l]) => (
+            <form action={setTheme} role="none" key={v}>
+              <input type="hidden" name="theme" value={v} />
+              <button role="menuitemradio" aria-checked={(text.theme ?? "system") === v} className="dm-item dm-radio-item" tabIndex={-1}>{radio((text.theme ?? "system") === v)}{l}</button>
+            </form>
+          ))}
+          <div className="dm-label" role="presentation">{text.langTitle}</div>
+          {([["ar", "العربية"], ["en", "English"]] as const).map(([v, l]) => (
+            <form action={setLang} role="none" key={v}>
+              <input type="hidden" name="lang" value={v} />
+              <button role="menuitemradio" aria-checked={text.lang === v} className="dm-item dm-radio-item" tabIndex={-1} lang={v}>{radio(text.lang === v)}{l}</button>
+            </form>
+          ))}
+          <div className="dm-sep" role="separator" />
           <form action={async () => { await logout(); window.location.assign("/login"); }} role="none">
-            <button role="menuitem" className="menu-item danger" tabIndex={-1}><span className="mi"><LogOut size={16} aria-hidden="true" /></span><span className="mt">{text.signOut}</span></button>
+            <button role="menuitem" className="dm-item" tabIndex={-1}><LogOut size={14} strokeWidth={1.5} aria-hidden="true" />{text.signOut}</button>
           </form>
         </div>
       )}

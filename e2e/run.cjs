@@ -397,7 +397,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/dental`);
     assert(/problem: Irreversible pulpitis/.test(await page.locator("#chart-36").getAttribute("aria-label")), "the open diagnosis is drawn on its tooth");
     await page.locator("#chart-36").click();
-    await page.locator(".tooth-panel").getByText("Irreversible pulpitis").waitFor();
+    await page.locator(".tooth-panel .tooth-list").getByText("Irreversible pulpitis").first().waitFor();
     await page.screenshot({ path: path.join(OUT, "dental-file.png"), fullPage: true });
   });
 
@@ -461,9 +461,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert(/problem: Dental abscess/.test(label) && /procedures: 1/.test(label) && /images: 1/.test(label), "tooth 13 carries the problem, the procedure and the image: " + label);
     await page.locator("#chart-13").click();
     const panel = page.locator(".tooth-panel");
-    await panel.getByText("Dental abscess (loose canine)").waitFor();
-    await panel.getByText("Abscess drainage").waitFor();
-    await panel.getByText("Periapical radiolucency at 13").waitFor();
+    await panel.locator(".tooth-list").getByText("Dental abscess (loose canine)").first().waitFor();
+    await panel.locator(".tooth-list").getByText("Abscess drainage").first().waitFor();
+    await panel.locator(".tooth-list").getByText("Periapical radiolucency at 13").first().waitFor();
     // the panoramic view is the default; the five-surface view is one click away and shows the same tooth
     await page.locator(".pano-svg").waitFor();
     await page.locator(".pano-svg .lesion").first().waitFor();                                 // the abscess drawn at the apex of 13
@@ -523,11 +523,12 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
     const plan = page.locator("article.plan-card").first();
     await plan.getByText("Dental treatment plan").first().waitFor();
-    await plan.locator("summary", { hasText: "Add a treatment to this plan" }).click();
-    await plan.locator('select[name="catalog_code"]').selectOption("extraction_simple");
-    await plan.locator('input[name="teeth"]').fill("38");
-    await plan.locator('input[name="phase"]').fill("2");
-    await plan.getByRole("button", { name: "Add the treatment" }).click();
+    const addBox = plan.locator("details", { hasText: "Add a treatment to this plan" });
+    await addBox.locator("summary").click();
+    await addBox.locator('select[name="catalog_code"]').selectOption("extraction_simple");
+    await addBox.locator('input[name="teeth"]').fill("38");
+    await addBox.locator('input[name="phase"]').fill("2");
+    await addBox.getByRole("button", { name: "Add the treatment" }).click();
     await plan.locator("li.treat-item", { hasText: "Simple extraction" }).waitFor();
     await plan.locator("li.treat-item", { hasText: "Simple extraction" }).getByText("Surgical").waitFor();
 

@@ -107,10 +107,15 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
           <Chip tone={verification === "reported" ? "muted" : "ok"}>{lbl(VERIFICATION, verification, lang)}</Chip>
         </div>
         {isDead && <p className="small muted">{t("سبب الإبطال", "Reason")}: {String(r.invalidated_reason ?? "")}</p>}
-        {model && (history.get(r.id)?.length ?? 0) > 1 && (
+        {model && (() => {
+          // the first entry of the main status opens the history; later entries are the changes
+          const hs = (history.get(r.id) ?? []).filter((h) => h.from_value != null || h.field === model.field);
+          const changes = hs.filter((h) => h.from_value != null).length;
+          if (!changes) return null;
+          return (
           <details className="status-hist">
-            <summary className="small">{t(`سجل الحالة (${history.get(r.id)!.length - 1} تغيير)`, `Status history (${history.get(r.id)!.length - 1} change${history.get(r.id)!.length > 2 ? "s" : ""})`)}</summary>
-            <ol className="small">{history.get(r.id)!.map((h, i) => (
+            <summary className="small">{t(`سجل الحالة (${changes} تغيير)`, `Status history (${changes} change${changes > 1 ? "s" : ""})`)}</summary>
+            <ol className="small">{hs.map((h, i) => (
               <li key={i}><span className="muted">{fmtDate(h.effective_date ?? h.changed_at, lang, tz)}</span>{" — "}
                 {h.from_value == null ? t(`سُجّل «${statusLabel(h.field, h.to_value, lang, entity.table)}»`, `recorded as “${statusLabel(h.field, h.to_value, lang, entity.table)}”`)
                   : t(`من «${statusLabel(h.field, h.from_value, lang, entity.table)}» إلى «${statusLabel(h.field, h.to_value, lang, entity.table)}»`,
@@ -118,7 +123,8 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
                 {h.reason && <span> — {h.reason}</span>}</li>
             ))}</ol>
           </details>
-        )}
+          );
+        })()}
         {access.canWrite && !isDead && model && (() => {
           const next = nextStatuses(entity.table, String(r[model.field] ?? ""), { certainty: r.certainty as string | undefined, contributed: Boolean(r.contributed_by) });
           if (!next.length) return null;

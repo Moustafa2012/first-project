@@ -25,10 +25,11 @@ export interface ReportMeta {
   brand: string;
 }
 
-const C = { ink: "#0f2229", muted: "#546a72", line: "#d5dfe0", brand: "#0b6b63", brandDark: "#073e47", soft: "#eef3f3",
-  ok: ["#dcf4e3", "#17612f"], warn: ["#fcebc7", "#7c4500"], bad: ["#fde3e3", "#9b1c1c"], info: ["#dfecfb", "#1b4a85"], muted_: ["#eef3f3", "#546a72"] } as const;
+// Supabase identity (light theme): neutral ink and greys, brand green, status scales 200 / 600
+const C = { ink: "#171717", muted: "#6b6b6b", line: "#e2e2e2", brand: "#097244", brandDark: "#0b3d2a", soft: "#f6f6f6",
+  ok: ["#e9f8f0", "#097244"], warn: ["#fef6e6", "#a5530a"], bad: ["#fff3f1", "#ca3214"], info: ["#f3f3f3", "#404040"], muted_: ["#f6f6f6", "#6b6b6b"] } as const;
 const tonePair = (t: Tone) => (t === "muted" ? C.muted_ : C[t]);
-const SERIES = ["#0b6b63", "#b45309", "#1d4ed8", "#9d174d"];
+const SERIES = ["#24b47e", "#dc7b18", "#5b6ee8", "#c2417a"];
 
 export function renderPdf(meta: ReportMeta, blocks: Block[]): Promise<Buffer> {
   const rtl = meta.lang === "ar";

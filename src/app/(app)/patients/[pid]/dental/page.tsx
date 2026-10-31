@@ -14,7 +14,8 @@ import {
 import { Card, Chip, Empty, PageHead } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { EntitySection } from "@/components/EntitySection";
-import { DentalChart, type DentalDiagnosis } from "@/components/dental/DentalChart";
+import { EntityForm } from "@/components/EntityForm";
+import { DentalChart, type DentalDiagnosis, type ToothAddForm } from "@/components/dental/DentalChart";
 import { DENTAL_DIAGNOSES, OPEN_PROBLEM, type ToothImage, type ToothProcedure } from "@/lib/dental";
 import { setConditionTeeth } from "@/app/actions/dental";
 import { ExamEditor } from "@/components/dental/ExamEditor";
@@ -63,6 +64,21 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const ea = exams.find((e) => e.id === searchParams.a), eb = exams.find((e) => e.id === searchParams.b);
   const changes = ea && eb && ea.id !== eb.id ? compareExams(ea, eb, findings) : null;
   const base = `/patients/${p.id}/dental`;
+  // added from the panel of the chosen tooth: the tooth (and the specialty) are known, so they are not asked
+  const fixedSpec: Record<string, string> = dent ? { specialty_id: dent.id } : {};
+  const toothAdd: ToothAddForm[] = access.canWrite ? [
+    { id: "tooth-dx", label: t("تشخيص لهذا السن", "A diagnosis for this tooth"), node: (
+      <EntityForm entity={ENTITIES.conditions} pid={p.id} specialties={specs} returnPath={base} formId="tooth-dx" submitLabel={t("إضافة التشخيص", "Add the diagnosis")}
+        context={{ fixed: { ...fixedSpec, category: "diagnosis" }, dental: true, external: ["teeth"],
+          pick: ["name", "clinical_status", "certainty", "evidence", "onset_date", "notes"],
+          suggest: { name: DENTAL_DIAGNOSES.map((d) => (lang === "ar" ? d.ar : d.en)) } }} />) },
+    { id: "tooth-px", label: t("إجراء على هذا السن", "A procedure on this tooth"), node: (
+      <EntityForm entity={ENTITIES.procedures} pid={p.id} specialties={specs} returnPath={base} formId="tooth-px" submitLabel={t("إضافة الإجراء", "Add the procedure")}
+        context={{ fixed: { ...fixedSpec, kind: "dental" }, dental: true, external: ["teeth"], pick: ["name", "performed_on", "operator_name", "facility_name", "outcome", "notes"] }} />) },
+    { id: "tooth-img", label: t("صورة أو أشعة لهذا السن", "An image or X-ray of this tooth"), node: (
+      <EntityForm entity={ENTITIES.imaging} pid={p.id} specialties={specs} returnPath={base} formId="tooth-img" submitLabel={t("إضافة الصورة", "Add the image")}
+        defaults={{ modality: "dental_xray" }} context={{ fixed: fixedSpec, dental: true, external: ["teeth"], pick: ["modality", "performed_on", "findings", "impression"] }} />) },
+  ] : [];
   const examLabel = (e: ExamRow) => `${fmtPartialDate(e.exam_date, "day", lang)} — ${lbl(EXAM_KIND, e.kind, lang)}${e.examiner_name ? ` — ${e.examiner_name}` : ""}`;
   const day = (v: string) => fmtPartialDate(v, "day", lang);
   const yn = (v: unknown) => (v === true ? "yes" : v === false ? "no" : "");
@@ -105,7 +121,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         )}
         <DentalChart dentition={dentition} exams={exams} findings={findings} diagnoses={diagnoses} contributors={contributors} lang={lang}
           pid={p.id} canWrite={access.canWrite} today={today} asOf={asExam?.exam_date ?? null} specialtyId={dent?.id ?? null}
-          procedures={procedures} images={images} problemsHref={`${base}?tab=problems#diagnoses`} />
+          procedures={procedures} images={images} problemsHref={`${base}?tab=problems#diagnoses`} toothAdd={toothAdd} />
       </Card>
 
       {access.canWrite && (

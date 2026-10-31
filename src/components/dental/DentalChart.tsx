@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Lang } from "@/lib/i18n";
 import {
   DISEASE_KINDS, EVIDENCE, FINDING_KIND, FINDING_SEVERITY, MATERIAL, SURFACES, TOOTH_STATUS, WHOLE_TOOTH_KINDS, chartSummary, deriveChart,
@@ -17,12 +17,19 @@ import { Panoramic, PanoLegend } from "./Panoramic";
 
 export type DentalDiagnosis = ToothDiagnosis;
 
+/**
+ * A form offered in the panel of the chosen tooth ("add a diagnosis for this tooth"…). The form is rendered by the page
+ * (server side, with its own action); the chart only supplies the tooth, through a hidden `teeth` input bound to the
+ * form by its id.
+ */
+export interface ToothAddForm { id: string; label: string; node: ReactNode }
+
 /** The current chart (or the chart as it was on a past date), with a panel for the chosen tooth. */
 export function DentalChart({
-  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref,
+  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref, toothAdd = [], toothAddTitle,
 }: {
   dentition: Dentition; exams: ExamRow[]; findings: FindingRow[]; diagnoses: DentalDiagnosis[]; contributors: Record<string, string>;
-  procedures?: ToothProcedure[]; images?: ToothImage[]; problemsHref?: string;
+  procedures?: ToothProcedure[]; images?: ToothImage[]; problemsHref?: string; toothAdd?: ToothAddForm[]; toothAddTitle?: string;
   lang: Lang; pid?: string; canWrite: boolean; today: string; asOf?: string | null; specialtyId?: string | null;
 }) {
   const ar = lang === "ar";
@@ -140,7 +147,7 @@ export function DentalChart({
               );
             })}</ul>
           )}
-          {problemsHref && canWrite && !asOf && <p className="small"><a href={problemsHref}>{t("تغيير حالة تشخيص أو إضافة تشخيص لهذا السن ←", "Change a diagnosis status or add one for this tooth →")}</a></p>}
+          {problemsHref && canWrite && !asOf && <p className="small"><a href={problemsHref}>{toothAdd.length ? t("تغيير حالة تشخيص ←", "Change a diagnosis status →") : t("تغيير حالة تشخيص أو إضافة تشخيص لهذا السن ←", "Change a diagnosis status or add one for this tooth →")}</a></p>}
 
           {px.length > 0 && (<>
             <h4>{t("الإجراءات", "Procedures")}</h4>
@@ -173,6 +180,22 @@ export function DentalChart({
                   <span className="muted small"> · {day(s.date)}{s.exam.examiner_name ? ` · ${s.exam.examiner_name}` : ""}</span></>
               ) }))].sort((a, b) => b.date.localeCompare(a.date)).map((x) => <li key={x.key}>{x.node}</li>)}
             </ol>
+          )}
+
+          {toothAdd.length > 0 && !asOf && (
+            <div className="tooth-add">
+              <h4>{toothAddTitle ?? t(`أضف للسن ${sel}`, `Add for tooth ${sel}`)}</h4>
+              {toothAdd.map((a) => (
+                <details className="fold" key={a.id} id={`${a.id}-fold`}>
+                  <summary>{a.label}</summary>
+                  <div className="fold-body">
+                    <input type="hidden" name="teeth" form={a.id} value={sel} />
+                    <p className="small muted">{t("السن", "Tooth")}: <strong className="ltr">{sel}</strong> — {toothName(sel, lang)}</p>
+                    {a.node}
+                  </div>
+                </details>
+              ))}
+            </div>
           )}
 
           {canWrite && pid && !asOf && (

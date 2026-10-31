@@ -41,6 +41,10 @@ export interface FormContext {
   options?: Record<string, string[]>;
   /** suggestions offered while typing a text field (e.g. common dental diagnoses) */
   suggest?: Record<string, string[]>;
+  /** fields filled by a control outside the form (`form="…"`), e.g. the tooth chosen on the chart */
+  external?: string[];
+  /** only these fields are asked (a short form in a tight place); the rest keep their defaults */
+  pick?: string[];
 }
 const teethChip = (r: Row, lang: Lang): Chip[] =>
   Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info", text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : [];

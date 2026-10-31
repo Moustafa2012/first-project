@@ -119,11 +119,6 @@ export default async function DentalPage({ params, searchParams }: { params: { p
 
       <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={["dentistry"]} coreHref={`/patients/${p.id}/profile`} />
 
-      <nav className="dental-tabs" aria-label={t("أقسام ملف الأسنان", "Dental file sections")}>
-        {([["chart", "المخطط والفحوص", "Chart & exams"], ["problems", `المشكلات والتشخيصات${unassigned.length ? ` (${unassigned.length} بلا سن)` : ""}`, `Problems & diagnoses${unassigned.length ? ` (${unassigned.length} without a tooth)` : ""}`],
-          ["treatment", `العلاج${openPlans.length ? ` (${openPlans.length})` : ""}`, `Treatment${openPlans.length ? ` (${openPlans.length})` : ""}`], ["care", "الزيارات والإجراءات", "Visits & procedures"], ["imaging", "الصور والأشعة", "Images & X-rays"], ["profile", "الملف السني", "Dental profile"]] as const)
-          .map(([k, ar, en]) => <Link key={k} href={`${base}?tab=${k}`} aria-current={tab === k ? "page" : undefined}>{t(ar, en)}</Link>)}
-      </nav>
 
       {tab === "chart" && (<>
 

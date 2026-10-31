@@ -565,3 +565,47 @@ body.no-print-share .print-only { display: block; }
 .dental-tabs a { padding: .45rem .9rem; border-radius: 999px; border: 1px solid var(--border); text-decoration: none; color: var(--text); background: var(--surface); font-size: .92rem; }
 .dental-tabs a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .unassigned li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; padding: .5rem .7rem; background: var(--surface-2); border-radius: var(--radius-sm); margin-block-end: .4rem; }
+
+/* ---------------------------------------------------------------- panoramic chart (radiograph-like in both themes) */
+.pano { direction: ltr; }
+.pano-svg { display: block; width: 100%; min-width: 680px; height: auto; user-select: none; }
+.pano-bg { fill: #121d23; }
+.pano-bone { fill: #22323a; }
+.pano-mid { stroke: #3d5560; stroke-dasharray: 3 5; }
+.ptooth { cursor: pointer; outline: none; }
+.ptooth-ring { fill: transparent; stroke: transparent; stroke-width: 2; }
+.ptooth:hover .ptooth-ring { fill: rgba(255, 255, 255, .05); }
+.ptooth:focus-visible .ptooth-ring, .ptooth.sel .ptooth-ring { stroke: #5fd4c6; stroke-width: 2.5; fill: rgba(95, 212, 198, .08); }
+.ptooth-problem { fill: none; stroke: #ff6b6b; stroke-width: 2.2; stroke-dasharray: 5 3; }
+.ptooth .root { fill: #b9c6cc; stroke: #8fa1a9; stroke-width: .8; }
+.ptooth .crown { fill: #eef2f4; stroke: #9fb0b8; stroke-width: .9; }
+.ptooth .pulp { fill: #6f8a95; opacity: .55; }
+.ptooth .canal { stroke: #6f8a95; stroke-width: 1.4; stroke-linecap: round; opacity: .7; }
+.ptooth .canal.rct { stroke: #ffffff; stroke-width: 3.2; opacity: 1; }
+.ptooth .post { stroke: #ffffff; stroke-width: 4.5; stroke-linecap: round; }
+.ptooth .implant path { fill: #dfe7ea; stroke: #ffffff; stroke-width: .8; }
+.ptooth .implant .thread { stroke: #8fa1a9; stroke-width: 1.2; }
+.ptooth .psurf.disease { fill: #ff5a5a; opacity: .9; }
+.pano-work-bg { fill: #ffffff; }
+.pano-work-line { stroke: #7cc4ff; stroke-width: 1.6; }
+.ptooth .lesion, .pano-legend .lesion { fill: rgba(255, 90, 90, .25); stroke: #ff6b6b; stroke-width: 1.8; }
+.ptooth .gum, .pano-legend .gum { fill: none; stroke: #d98c98; stroke-width: 2; }
+.ptooth .gum.receded, .pano-legend .gum.receded { stroke: #ffb067; stroke-width: 2.4; }
+.ptooth .mobility { fill: none; stroke: #ffd166; stroke-width: 1.6; }
+.ptooth .bracket { fill: #c9d4d9; stroke: #ffffff; stroke-width: .6; }
+.ptooth .ghost path { fill: none; stroke: #8fa1a9; stroke-width: 1.2; stroke-dasharray: 3 3; opacity: .7; }
+.ptooth.nodata .crown, .ptooth.nodata .root { opacity: .45; }
+.ptooth-num { font-size: 11px; text-anchor: middle; fill: #cfdbe0; font-weight: 600; }
+.ptooth.problem .ptooth-num, .ptooth-code { fill: #ff8a8a; }
+.ptooth-code { font-size: 8.5px; text-anchor: middle; font-weight: 700; }
+.pano-legend .pano-legend-svg { background: #121d23; border-radius: 4px; }
+.pano-legend .psurf.disease { fill: #ff5a5a; }
+.pano-legend .pano-work-legend { fill: #ffffff; stroke: #7cc4ff; stroke-width: 2; stroke-dasharray: 2 2; }
+.pano-legend .canal.rct { stroke: #ffffff; stroke-width: 3; }
+.pano-legend .ghost-legend { fill: none; stroke: #8fa1a9; stroke-dasharray: 3 2; }
+.pano-legend .implant-legend { fill: #dfe7ea; }
+.pano-legend .nodata-legend { fill: #eef2f4; opacity: .4; }
+.pano-legend .ptooth-problem { stroke-dasharray: 4 2; }
+.chart-views { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.chart-views button { border: 0; background: var(--surface); padding: .35rem .85rem; font: inherit; font-size: .88rem; cursor: pointer; color: var(--text); }
+.chart-views button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }

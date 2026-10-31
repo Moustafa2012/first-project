@@ -13,6 +13,7 @@ import { Chip } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { addDentalFinding, invalidateDental, resolveDentalFinding } from "@/app/actions/dental";
 import { Odontogram, OdontoLegend, type ChartTooth } from "./Odontogram";
+import { Panoramic, PanoLegend } from "./Panoramic";
 
 export type DentalDiagnosis = ToothDiagnosis;
 
@@ -34,6 +35,8 @@ export function DentalChart({
     return out;
   }, [chart, links]);
   const [sel, setSel] = useState<number | null>(null);
+  // the panoramic (anatomical) view by default; the five-surface view for detail
+  const [view, setView] = useState<"pano" | "surfaces">("pano");
   const sum = chartSummary(chart);
   // a tooth "has a problem" from an exam finding or from an open diagnosis that names it
   sum.disease = new Set([...[...chart.values()].filter((v) => v.findings.some((f) => DISEASE_KINDS.has(f.kind))).map((v) => v.tooth),
@@ -65,12 +68,20 @@ export function DentalChart({
 
   return (
     <div className="dental-chart">
-      <Odontogram dentition={dentition} teeth={teeth} lang={lang} selected={sel} onSelect={setSel} idPrefix="chart" />
+      <div className="row between" style={{ marginBlockEnd: ".5rem" }}>
+        <div className="chart-views" role="group" aria-label={t("طريقة العرض", "View")}>
+          <button type="button" aria-pressed={view === "pano"} onClick={() => setView("pano")}>{t("بانوراما", "Panoramic")}</button>
+          <button type="button" aria-pressed={view === "surfaces"} onClick={() => setView("surfaces")}>{t("الأسطح", "Surfaces")}</button>
+        </div>
+      </div>
+      {view === "pano"
+        ? <Panoramic dentition={dentition} teeth={teeth} lang={lang} selected={sel} onSelect={setSel} idPrefix="chart" />
+        : <Odontogram dentition={dentition} teeth={teeth} lang={lang} selected={sel} onSelect={setSel} idPrefix="chart" />}
       <p className="small muted">
         {t(`أسنان لها بيانات فحص: ${sum.examined} · مفقودة/مخلوعة: ${sum.absent} · بها مشكلة: ${sum.disease} · بها علاج موجود: ${sum.work}`,
           `Teeth with exam data: ${sum.examined} · missing/extracted: ${sum.absent} · with a problem: ${sum.disease} · with existing work: ${sum.work}`)}
       </p>
-      <OdontoLegend lang={lang} />
+      {view === "pano" ? <PanoLegend lang={lang} /> : <OdontoLegend lang={lang} />}
 
       {!sel ? <p className="hint">{t("اختر سناً لعرض تفاصيله وتاريخه.", "Choose a tooth to see its details and history.")}</p> : (
         <section className="tooth-panel" aria-live="polite" aria-label={t(`السن ${sel}`, `Tooth ${sel}`)}>

@@ -15,6 +15,21 @@ export interface ChartTooth {
   links?: { problems: { name: string; code: string }[]; procedures: number; images: number };
 }
 
+/** What a tooth shows, in words (screen readers; the same text for every chart view). */
+export function toothAriaLabel(tooth: number, data: ChartTooth | undefined, lang: Lang): string {
+  const ar = lang === "ar";
+  const fs = data?.findings ?? [], problems = data?.links?.problems ?? [];
+  const nProc = data?.links?.procedures ?? 0, nImg = data?.links?.images ?? 0;
+  return [
+    `${tooth} ${toothName(tooth, lang)}`,
+    data?.status ? lbl(TOOTH_STATUS, data.status, lang) : (ar ? "لا بيانات فحص" : "no exam data"),
+    ...fs.map((f) => `${lbl(FINDING_KIND, f.kind, lang)}${f.surfaces.length ? " " + fmtSurfaces(f.surfaces, tooth) : ""}`),
+    ...problems.map((p) => (ar ? `مشكلة: ${p.name}` : `problem: ${p.name}`)),
+    ...(nProc ? [ar ? `إجراءات: ${nProc}` : `procedures: ${nProc}`] : []),
+    ...(nImg ? [ar ? `صور: ${nImg}` : `images: ${nImg}`] : []),
+  ].join(" — ");
+}
+
 const CELL = 46, S = 34, K = 11, GAP = 16, ROW_H = 78;
 const PAD = (CELL - S) / 2;
 
@@ -124,14 +139,7 @@ export function Odontogram({
             const badgeList = [...probCodes.map((c) => ({ c, bad: true })), ...workCodes.map((c) => ({ c, bad: false }))].slice(0, 2);
             const nProc = data?.links?.procedures ?? 0, nImg = data?.links?.images ?? 0;
             const isSel = selected === tooth;
-            const label = [
-              `${tooth} ${toothName(tooth, lang)}`,
-              status ? lbl(TOOTH_STATUS, status, lang) : (ar ? "لا بيانات فحص" : "no exam data"),
-              ...fs.map((f) => `${lbl(FINDING_KIND, f.kind, lang)}${f.surfaces.length ? " " + fmtSurfaces(f.surfaces, tooth) : ""}`),
-              ...problems.map((p) => (ar ? `مشكلة: ${p.name}` : `problem: ${p.name}`)),
-              ...(nProc ? [ar ? `إجراءات: ${nProc}` : `procedures: ${nProc}`] : []),
-              ...(nImg ? [ar ? `صور: ${nImg}` : `images: ${nImg}`] : []),
-            ].join(" — ");
+            const label = toothAriaLabel(tooth, data, lang);
             return (
               <g key={tooth} ref={(el) => { if (el) refs.current.set(tooth, el); else refs.current.delete(tooth); }}
                 id={`${idPrefix}-${tooth}`} data-tooth={tooth}

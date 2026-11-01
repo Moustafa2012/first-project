@@ -7,7 +7,7 @@ import { i18n } from "@/lib/i18n";
 import { UUID_RE } from "@/lib/uuid";
 import { getObsTypes } from "@/lib/data";
 import { parseLocaleNumber } from "@/lib/clinical/number";
-import { ACTIVITY_LEVEL, ALCOHOL_STATUS, PREGNANCY_STATUS, TOBACCO_STATUS, TOBACCO_TYPE, type Opt } from "@/lib/labels";
+import { ACTIVITY_LEVEL, ALCOHOL_STATUS, DIET_PATTERN, LIVING_SITUATION, PREGNANCY_STATUS, SLEEP_QUALITY, SUBSTANCE_STATUS, SUBSTANCE_TYPE, TOBACCO_STATUS, TOBACCO_TYPE, type Opt } from "@/lib/labels";
 import type { FormState } from "@/components/ui/client";
 
 const str = (fd: FormData, k: string, max = 2000) => String(fd.get(k) ?? "").trim().slice(0, max);
@@ -65,6 +65,15 @@ export async function saveHealthProfile(_: FormState, fd: FormData): Promise<For
   const units = alcohol === "regular" || alcohol === "occasional" ? num("alcohol_units_per_week", 0, 300) : null;
   if ([cpd, wpw, start, quit, units].some((x) => Number.isNaN(x))) return { error: t("رقم غير صالح.", "Invalid number.") };
   if (start && quit && quit < start) return { error: t("سنة الإقلاع قبل سنة البدء.", "The quit year is before the start year.") };
+  // structured social history: activity per week, diet pattern, sleep, living situation, other substance use
+  const pick = (k: string, list: Opt[]) => { const v = str(fd, k); return !v ? null : has(list, v) ? v : undefined; };
+  const dietPattern = pick("diet_pattern", DIET_PATTERN), sleepQuality = pick("sleep_quality", SLEEP_QUALITY), living = pick("living_situation", LIVING_SITUATION);
+  const substance = str(fd, "substance_use_status") || "unknown";
+  if (dietPattern === undefined || sleepQuality === undefined || living === undefined || !has(SUBSTANCE_STATUS, substance)) return { error: t("اختيار غير صالح.", "Invalid choice.") };
+  const usesSubstances = substance === "current" || substance === "former";
+  const substanceTypes = usesSubstances ? fd.getAll("substance_types").map(String).filter((x) => has(SUBSTANCE_TYPE, x)) : [];
+  const actMin = num("activity_minutes_per_week", 0, 5040), actDays = num("activity_days_per_week", 0, 7), sleepHours = num("sleep_hours", 0, 24);
+  if ([actMin, actDays, sleepHours].some((x) => Number.isNaN(x))) return { error: t("رقم غير صالح في النشاط أو النوم.", "Invalid number in activity or sleep.") };
   const edd = preg === "pregnant" ? str(fd, "pregnancy_edd", 10) : "";
   if (edd && !/^\d{4}-\d{2}-\d{2}$/.test(edd)) return { error: t("تاريخ غير صالح.", "Invalid date.") };
   const bf = str(fd, "breastfeeding");
@@ -72,7 +81,12 @@ export async function saveHealthProfile(_: FormState, fd: FormData): Promise<For
     patient_id: pid, tobacco_status: tobacco, tobacco_types: types, cigarettes_per_day: cpd, waterpipe_per_week: wpw,
     tobacco_start_year: start ? Math.round(start) : null, tobacco_quit_year: quit ? Math.round(quit) : null,
     alcohol_status: alcohol, alcohol_units_per_week: units, activity_level: activity || null,
-    occupation: str(fd, "occupation", 200) || null, exposures: str(fd, "exposures", 1000) || null, diet: str(fd, "diet", 500) || null,
+    occupation: str(fd, "occupation", 200) || null, diet: str(fd, "diet", 500) || null,
+    // the old free-text exposures note is only sent when the form still shows it (the list of exposures replaces it)
+    ...(fd.has("exposures") ? { exposures: str(fd, "exposures", 1000) || null } : {}),
+    activity_minutes_per_week: actMin != null ? Math.round(actMin) : null, activity_days_per_week: actDays != null ? Math.round(actDays) : null,
+    diet_pattern: dietPattern, sleep_hours: sleepHours, sleep_quality: sleepQuality, living_situation: living,
+    substance_use_status: substance, substance_types: substanceTypes, substance_notes: usesSubstances ? str(fd, "substance_notes", 500) || null : null,
     pregnancy_status: preg, pregnancy_edd: edd || null, breastfeeding: bf === "yes" ? true : bf === "no" ? false : null,
   }, { onConflict: "patient_id" });
   if (error) return { error: explainError(error, t) };

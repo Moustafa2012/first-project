@@ -29,6 +29,19 @@ export function SignaturePad({ name, label, clear, hint }: { name: string; label
     ctx.strokeStyle = "#0d1f2d";
   }, []);
 
+  // a form reset (after a successful save) also empties the drawing
+  useEffect(() => {
+    const form = canvas.current?.closest("form");
+    const clearAll = () => {
+      const c = canvas.current;
+      const ctx = c?.getContext("2d");
+      if (c && ctx) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height); ctx.restore(); }
+      setValue("");
+    };
+    form?.addEventListener("reset", clearAll);
+    return () => form?.removeEventListener("reset", clearAll);
+  }, []);
+
   const point = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };

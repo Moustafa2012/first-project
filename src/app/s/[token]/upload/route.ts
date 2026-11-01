@@ -6,6 +6,7 @@ import { clientMeta, getShareSession, validToken } from "@/lib/share";
 import { contribState } from "@/lib/share-contrib";
 import { EXT, MAX_DOC_BYTES, pdfHasActiveContent, safeFilename, sniffMime } from "@/lib/files";
 import { DOC_TYPE } from "@/lib/labels";
+import { UUID_RE } from "@/lib/uuid";
 
 export const runtime = "nodejs";
 
@@ -38,6 +39,8 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
   if (!DOC_TYPE.some((d) => d.value === docType)) return back(token, { upload_error: "bad_form" });
   const title = String(form.get("title") ?? "").trim().slice(0, 200) || safeFilename(file.name);
   const date = String(form.get("document_date") ?? "");
+  // the study the file belongs to (the database checks that the link covers it)
+  const imaging = String(form.get("imaging_id") ?? "");
 
   const admin = createAdminClient();
   const path = `${st.patient_id}/${randomUUID()}.${EXT[mime]}`;
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     p_size: file.size, p_sha256: createHash("sha256").update(bytes).digest("hex"),
     p_description: String(form.get("description") ?? "").slice(0, 1000) || null,
     p_document_date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null, p_ip_hash: ipHash, p_user_agent: ua,
+    p_imaging: UUID_RE.test(imaging) ? imaging : null,
   });
   const status = (data as { status?: string } | null)?.status;
   if (error || status !== "ok") {

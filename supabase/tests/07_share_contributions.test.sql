@@ -15,11 +15,16 @@ select public.share_create(p_patient => :'pc', p_title => 'Read only', p_scope_k
   p_expires_at => now() + interval '2 days') as ro \gset
 select public.share_create(p_patient => :'pc', p_title => 'Dentist may add', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_dent'::uuid],
   p_expires_at => now() + interval '2 days', p_allow_contribute => true,
-  p_contribute_modules => array['encounters', 'conditions', 'clinical_notes', 'medical_documents']) as rw \gset
+  p_contribute_modules => array['encounters', 'conditions', 'clinical_notes', 'medical_documents'],
+  p_clinician => '{"name":"Dr Molar","specialty":"Dentist","license":"LIC-1","facility":"Smile Clinic","city":"Riyadh"}') as rw \gset
 select (:'ro'::jsonb ->> 'token') as ro_tok, (:'ro'::jsonb ->> 'pin') as ro_pin, (:'rw'::jsonb ->> 'token') as rw_tok, (:'rw'::jsonb ->> 'pin') as rw_pin,
        (:'rw'::jsonb ->> 'share_id') as rw_id \gset
 select test.throws(format($$select public.share_create(p_patient => %L, p_title => 'x', p_scope_kind => 'full', p_allow_contribute => true)$$, :'pc'),
   'choose what the clinician may add', 'a contributing share must say what may be added');
+select test.throws(format($$select public.share_create(p_patient => %L, p_title => 'x', p_scope_kind => 'full', p_allow_contribute => true, p_contribute_modules => array['conditions'])$$, :'pc'),
+  'clinician_name_required', 'a link that lets the doctor add names the doctor');
+select test.ok((select clinician_name = 'Dr Molar' and clinician_facility = 'Smile Clinic' and clinician_city = 'Riyadh' and recipient_label = 'Dr Molar'
+                from public.medical_shares where id = :'rw_id'), 'the patient names the doctor, clinic and city on the link');
 select test.ok((select allow_contribute and contribute_modules @> array['conditions'] from public.medical_shares where id = :'rw_id'), 'the owner sees the contribution settings');
 select test.throws(format($$select public.share_identify('x', 'Dr X', null, null, null, null, 'x', null, null)$$), 'permission denied|42501',
   'an account cannot call the clinician functions directly');
@@ -31,12 +36,15 @@ select test.ok(public.share_identify(:'ro_sess', 'Dr Read Only', null, null, nul
   'a read-only share cannot take additions');
 select test.ok(public.share_contribute(:'rw_sess', 'conditions', '{"name":"Too early"}') ->> 'status' = 'identify_first',
   'the clinician must identify before adding');
-select test.throws(format($$select public.share_identify(%L, 'Dr Molar', 'Dentist', 'LIC-1', 'Smile Clinic', null, 'elsewhere/x.png')$$, :'rw_sess'),
-  'check constraint|violates', 'the signature must be stored under this patient');
-select (public.share_identify(:'rw_sess', 'Dr Molar', 'Dentist', 'LIC-1', 'Smile Clinic', null, :'pc' || '/signatures/sig1.png', 'ip-c2', 'UA') ->> 'contributor_id') as ctr \gset
-select test.ok(:'ctr' is not null, 'the clinician identifies with a signature');
+select test.ok(public.share_clinician(:'rw_sess') ->> 'name' = 'Dr Molar', 'the doctor sees whom the link is for');
+select test.ok(public.share_confirm_clinician(:'ro_sess') ->> 'status' = 'forbidden', 'a read-only link has nothing to confirm');
+select (public.share_confirm_clinician(:'rw_sess', 'ip-c2', 'UA') ->> 'contributor_id') as ctr \gset
+select test.ok((select full_name = 'Dr Molar' and specialty = 'Dentist' and license_no = 'LIC-1' and facility = 'Smile Clinic' and city = 'Riyadh'
+                       and named_by_patient and signature_path is null from public.share_contributors where id = :'ctr'),
+  'one click: the doctor takes the details the patient gave, typing nothing');
+select test.ok(exists (select 1 from public.medical_share_access_logs where share_id = :'rw_id' and event = 'contributor_identified'), 'the confirmation is logged');
 select test.ok(public.share_identify(:'rw_sess', 'Somebody Else', null, null, null, null, :'pc' || '/signatures/sig2.png') ->> 'contributor_id' = :'ctr',
-  'one identity per session');
+  'one identity per session (and a typed name never replaces the one the patient gave)');
 
 select (public.share_contribute(:'rw_sess', 'conditions',
   jsonb_build_object('name', 'CONTRIB-CARIES-16', 'category', 'diagnosis', 'certainty', 'confirmed', 'specialty_id', :'s_card',
@@ -110,6 +118,20 @@ select test.ok((select count(*) from public.conditions where contributed_by = :'
 select public.share_revoke(:'rw_id'::uuid, 'done');
 select test.as_service();
 select test.ok(public.share_contribute(:'rw_sess', 'conditions', '{"name":"After revoke"}') ->> 'status' = 'expired', 'a revoked share takes no more additions');
+
+-- a contributing link made before links named the clinician still opens, counts wrong PINs and can be revoked
+select test.as_user(:'alice'::uuid);
+select public.share_create(p_patient => :'pc', p_title => 'Legacy', p_scope_kind => 'full', p_expires_at => now() + interval '1 day',
+  p_allow_contribute => true, p_contribute_modules => array['conditions'], p_clinician => '{"name":"Dr Legacy"}') as lg \gset
+select (:'lg'::jsonb ->> 'token') as lg_tok, (:'lg'::jsonb ->> 'pin') as lg_pin, (:'lg'::jsonb ->> 'share_id') as lg_id \gset
+select test.as_super();
+update public.medical_shares set clinician_name = null where id = :'lg_id';
+select test.as_service();
+select test.ok(public.share_open(:'lg_tok', :'lg_pin', 'ip-lg', 'UA') ->> 'session_token' is not null, 'a legacy contributing link still opens');
+select test.ok(public.share_open(:'lg_tok', '000000', 'ip-lg', 'UA') ->> 'status' = 'invalid_pin', 'a wrong PIN on a legacy link is counted');
+select test.as_user(:'alice'::uuid);
+select public.share_revoke(:'lg_id'::uuid, 'old link');
+select test.ok((select revoked_at is not null from public.medical_shares where id = :'lg_id'), 'a legacy contributing link can be revoked');
 
 -- a file with clinician additions can still be erased completely
 select test.as_user(:'alice'::uuid);

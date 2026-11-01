@@ -3,7 +3,14 @@
 const { chromium } = require("playwright");
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
+// The admin step talks to the test backend directly: its settings come from the stack's env file (scripts/dev-backend/start.sh writes it),
+// which wins over whatever the shell happens to export, so this suite can never reach a real project by accident.
+{
+  const envFile = path.join(process.env.WORK || "/tmp/shifa-dev-backend", "env");
+  if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").split("\n")) { const m = /^([A-Z_]+)=(.*)$/.exec(line); if (m) process.env[m[1]] = m[2]; }
+}
 const BASE = process.env.E2E_BASE || "http://localhost:3000";
 const OUT = process.env.E2E_OUT || "/tmp/shifa-e2e";
 fs.mkdirSync(OUT, { recursive: true });
@@ -27,6 +34,17 @@ function watch(page, label) {
 }
 
 const pdf = (extra = "") => Buffer.from(`%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n${extra}%%EOF\n`);
+
+// a real, valid PNG (w × h, grey gradient) for the image viewer steps; every size is a different file
+function makePng(w, h) {
+  const zlib = require("node:zlib");
+  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) { c ^= b; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; } return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type), data]); const sum = Buffer.alloc(4); sum.writeUInt32BE(crc(body)); return Buffer.concat([len, body, sum]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+  const raw = Buffer.alloc((w + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw[y * (w + 1) + 1 + x] = Math.floor(40 + 160 * (x / w) * (0.5 + y / (2 * h)));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
 const localInput = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const daysAgo = (n) => new Date(Date.now() - n * 86_400_000);
 
@@ -649,6 +667,16 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.keyboard.type("2");
     assert((await pd(9).inputValue()) === "12", "two digits make 12");
     await pd(9).fill("");
+    // a negative margin can be typed (text keypad) and waits for a second digit after "-1" (down to -15)
+    const gmIn = (i) => page.locator(`input[data-row="upper-buccal-gm"][data-i="${i}"]`);
+    assert((await gmIn(6).getAttribute("inputmode")) === "text", "the site inputs show a keypad with a minus sign");
+    await gmIn(6).click();
+    await page.keyboard.type("-1");
+    assert(await page.evaluate(() => document.activeElement?.getAttribute("data-i")) === "6", "after -1 the margin waits for a second digit");
+    await page.keyboard.type("0");
+    assert((await gmIn(6).inputValue()) === "-10" && await page.evaluate(() => document.activeElement?.getAttribute("data-i")) === "7", "-10 is typed in sequence and moves on");
+    await gmIn(6).fill("");
+    assert((await page.locator("#perio .perio-wrap").first().getAttribute("dir")) === "ltr", "the chart scrolls left-to-right inside an RTL page");
     await page.locator('input[data-row="upper-buccal-gm"][data-i="8"]').fill("-2");
     await page.getByRole("button", { name: "16 mesiobuccal: bleeding" }).click();
     await page.getByRole("checkbox", { name: "46: missing" }).check();
@@ -662,6 +690,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
     assert((await pd(8).inputValue()) === "5" && await page.getByRole("checkbox", { name: "46: missing" }).isChecked(), "the draft keeps what was typed");
     await page.locator("nav.product-menu .pm-badge", { hasText: "draft" }).waitFor();
+    // clearing persists: un-ticking "missing" and saving, then reloading, keeps it un-ticked
+    await page.getByRole("checkbox", { name: "46: missing" }).uncheck();
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
+    assert(!(await page.getByRole("checkbox", { name: "46: missing" }).isChecked()), "un-ticking missing and saving persists");
+    await page.getByRole("checkbox", { name: "46: missing" }).check();
     page.once("dialog", (dl) => dl.accept());
     await page.getByRole("button", { name: "Finalise the chart" }).click();
     await page.waitForURL(/[?&]pv=/);
@@ -684,6 +720,30 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("#perio-compare").getByRole("button", { name: "Compare" }).click();
     await page.locator("table.perio-cmp-worse tr", { hasText: "mesiobuccal" }).getByText("7 → 10 (+3)").waitFor();
     await page.locator("#perio").screenshot({ path: path.join(OUT, "perio.png") });
+    // a chosen final chart shows even while a draft is open
+    await page.getByRole("link", { name: "New periodontal chart" }).click();
+    await pd(6).click();
+    await page.keyboard.type("3");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    await page.locator("#perio-history a", { hasText: "View" }).last().click();
+    await page.waitForURL(/[?&]pv=/);
+    await page.locator("#perio .chip", { hasText: "Final" }).first().waitFor();
+    assert((await page.locator("#perio input[data-row]").count()) === 0, "the chosen final chart is shown, not the open draft");
+    // discarding the draft while a new chart is requested, then saving again, starts a fresh draft (no stale id)
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio&pnew=1#perio`);
+    await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
+    page.once("dialog", (dl) => dl.accept());
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await page.locator("#perio .perio-draft-bar").waitFor({ state: "detached" });
+    await pd(6).click();
+    await page.keyboard.type("4");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    await page.locator("#perio .perio-draft-bar").waitFor();
+    page.once("dialog", (dl) => dl.accept());
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await page.locator("#perio .perio-draft-bar").waitFor({ state: "detached" });
   });
 
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
@@ -880,10 +940,149 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Recent out-of-range results").waitFor();
   });
 
+
+  await step("social history: weekly activity, sleep, diet, living, other substances (sensitive) and the exposure list", async () => {
+    await page.goto(`${BASE}/patients/${pid}/profile`);
+    await page.fill("#hp_actmin", "150");
+    await page.fill("#hp_actdays", "4");
+    await page.selectOption("#hp_diet_pattern", "balanced");
+    await page.fill("#hp_sleep", "7.5");
+    await page.selectOption("#hp_sleep_quality", "fair");
+    await page.selectOption("#hp_living_situation", "with_family");
+    await page.fill("#hp_occ", "Quarry worker");
+    await page.selectOption("#hp_substance_use_status", "former");
+    await page.locator('#lifestyle input[name="substance_types"][value="cannabis"]').check();
+    await page.locator("form:has(#hp_tobacco_status)").getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#lifestyle").getByText("Saved.").waitFor();
+    await page.reload();
+    assert((await page.inputValue("#hp_actmin")) === "150" && (await page.inputValue("#hp_sleep")) === "7.5", "social history reloads");
+    // tobacco and pregnancy entered earlier are untouched by the new fields
+    assert((await page.inputValue("#hp_tobacco_status")) === "current" && (await page.inputValue("#hp_cpd")) === "10", "tobacco kept");
+    // an exposure with years and protective equipment
+    await page.locator("#exposures summary", { hasText: "Add an exposure" }).click();
+    await page.selectOption("#exposures_new_kind", "silica");
+    await page.fill("#exposures_new_agent", "Quarry dust");
+    await page.fill("#exposures_new_years", "12");
+    await page.selectOption("#exposures_new_protective_equipment", "sometimes");
+    await page.locator("form:has(#exposures_new_agent)").getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#exposures").getByText("Silica — Quarry dust").waitFor();
+    await page.locator("#exposures").getByText("Protection: Sometimes").waitFor();
+    // the context shows it, with the other substances only on the patient's side
+    await page.goto(`${BASE}/patients/${pid}`);
+    const ctx = page.locator("section.ctx");
+    await ctx.getByText("Occupation: Quarry worker").waitFor();
+    await ctx.getByText(/Silica \(Quarry dust\)/).waitFor();
+    await ctx.getByText(/150 min\/week/).waitFor();
+    await ctx.getByText(/Other substances: Former \(Cannabis\)/).waitFor();
+  });
+
+  await step("symptom log: two entries of one symptom are charted over time; filter, edit fields, invalidate", async () => {
+    await page.goto(`${BASE}/patients/${pid}/symptoms`);
+    await page.getByRole("heading", { name: "Symptom log" }).waitFor();
+    const quick = page.locator("#quick");
+    for (const [sev, ago] of [["7", 3], ["4", 1]]) {
+      await quick.locator("#quick_symptoms_new_symptom").fill("Throbbing headache");
+      await quick.locator("#quick_symptoms_new_severity").fill(sev);
+      await quick.locator("input[type=datetime-local]").first().fill(localInput(daysAgo(ago)));
+      await quick.getByRole("button", { name: "Log symptom" }).click();
+      await page.getByText("Saved.").first().waitFor();
+      await page.reload();
+    }
+    await quick.locator("#quick_symptoms_new_symptom").fill("Cough");
+    await quick.locator("#quick_symptoms_new_severity").fill("2");
+    await quick.getByRole("button", { name: "Log symptom" }).click();
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    await page.locator("nav.tabs a", { hasText: "Throbbing headache" }).click();
+    await page.getByText("Severity of “Throbbing headache” over time").waitFor();
+    assert((await page.locator("svg.chart circle.dot").count()) === 2, "two points on the severity chart");
+    assert(await page.locator("svg.chart").first().getAttribute("aria-label").then((x) => /Throbbing/.test(x)), "chart is labelled");
+    await page.locator(".tile", { hasText: "Latest severity" }).getByText("4").first().waitFor();
+    await page.locator(".tile", { hasText: "Highest" }).getByText("7").first().waitFor();
+    // the list follows the symptom filter
+    await page.locator("#log").getByText("Throbbing headache").first().waitFor();
+    assert((await page.locator("#log article.rec").count()) === 2, "log filtered to the symptom");
+    assert((await page.locator("#log .rec-title", { hasText: "Cough" }).count()) === 0, "other symptom not in the filtered log");
+    // invalidate one entry: it leaves the chart but stays in the history
+    await page.locator("#log article.rec").first().locator("summary", { hasText: "Entered in error" }).click();
+    await page.locator("#log article.rec").first().locator('input[name="reason"]').fill("duplicate entry");
+    page.once("dialog", (d) => d.accept());
+    await page.locator("#log article.rec").first().getByRole("button", { name: "Invalidate" }).click();
+    await page.locator("#log summary", { hasText: "Invalidated records (1)" }).waitFor();   // the card moves there, taking its message with it
+    await page.reload();
+    assert((await page.locator("svg.chart circle.dot").count()) === 1, "invalidated entry leaves the chart");
+    await page.locator("#log summary", { hasText: "Invalidated records (1)" }).waitFor();
+    // the timeline and the dashboard know about symptoms
+    await page.goto(`${BASE}/patients/${pid}/timeline?kind=symptom`);
+    await page.locator(".timeline li").getByText("Cough").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.getByText("Ongoing symptoms").waitFor();
+    await page.screenshot({ path: path.join(OUT, "symptoms.png"), fullPage: false });
+  });
+
+  await step("search inside the file: finds a medication and a note, links to the record, ignores other files", async () => {
+    await page.goto(`${BASE}/patients/${pid}/symptoms`);
+    await page.locator(".shell-search input").fill("metformin");
+    await page.locator(".shell-search input").press("Enter");
+    await page.waitForURL(/\/search\?q=metformin/);
+    const hit = page.locator(".search-hits li", { hasText: "Medication" }).first();
+    await hit.waitFor();
+    await hit.getByRole("link").first().click();
+    await page.waitForURL(/\/medications$/);
+    await page.goto(`${BASE}/patients/${pid}/search?q=${encodeURIComponent("Filling 36")}`);
+    await page.locator(".search-hits li", { hasText: "Note" }).getByRole("link", { name: /Filling 36 note/ }).waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=${encodeURIComponent("throbbing")}`);
+    await page.locator(".search-hits li", { hasText: "Symptom" }).first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=a`);
+    await page.getByText("Type at least two characters.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=zzqqxxnothing`);
+    await page.getByText("Nothing in this file matches.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=metformin`);
+    await page.screenshot({ path: path.join(OUT, "search.png"), fullPage: false });
+  });
+
+  await step("full export: a ZIP that unzip accepts, with record.json, fhir.json, README and the document files; the export is audited", async () => {
+    await page.goto(`${BASE}/patients/${pid}/documents`);
+    const href = await page.locator("#export-zip").getAttribute("href");
+    const res = await ctx.request.get(BASE + href);
+    assert(res.status() === 200, "export status " + res.status());
+    assert(/application\/zip/.test(res.headers()["content-type"]), "zip content type");
+    assert(/attachment; filename="shifa-SH-\d+-\d{4}-\d{2}-\d{2}\.zip"/.test(res.headers()["content-disposition"]), "download name: " + res.headers()["content-disposition"]);
+    const zipPath = path.join(OUT, "export.zip");
+    fs.writeFileSync(zipPath, await res.body());
+    const tested = execFileSync("unzip", ["-t", zipPath], { encoding: "utf8" });
+    assert(/No errors detected/.test(tested), "unzip -t: " + tested.slice(-200));
+    const names = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" }).trim().split("\n");
+    for (const n of ["record.json", "fhir.json", "README.txt"]) assert(names.includes(n), n + " in the archive: " + names.join(","));
+    assert(names.filter((n) => n.startsWith("documents/")).length >= 1, "document files are in the archive");
+    const fhir = JSON.parse(execFileSync("unzip", ["-p", zipPath, "fhir.json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+    assert(fhir.resourceType === "Bundle" && fhir.type === "collection", "FHIR bundle");
+    const types = new Set(fhir.entry.map((e) => e.resource.resourceType));
+    for (const t of ["Patient", "Condition", "AllergyIntolerance", "MedicationStatement", "Observation", "Encounter", "DocumentReference"]) assert(types.has(t), "FHIR " + t + " present: " + [...types]);
+    const rec = JSON.parse(execFileSync("unzip", ["-p", zipPath, "record.json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+    assert(rec.patients.length === 1 && rec.symptom_entries.some((x) => x.record_status === "entered_in_error"), "record.json holds the invalidated symptom too");
+    assert(!("audit_logs" in rec) && !("medical_shares" in rec), "no audit log or share links in the export");
+    // every document file the DocumentReferences point at is in the archive
+    for (const e of fhir.entry.filter((x) => x.resource.resourceType === "DocumentReference")) {
+      assert(names.includes(e.resource.content[0].attachment.url), "document file present: " + e.resource.content[0].attachment.url);
+    }
+    await page.goto(`${BASE}/patients/${pid}/audit`);
+    await page.locator("table.t").getByText("Full export").first().waitFor();
+  });
+
+  // every share names the doctor it is for (the doctor types nothing)
+  const fillClinician = async (pg, name = "Dr Test Reader", extra = {}) => {
+    await pg.fill("#cl_name", name);
+    if (!(await pg.locator("#cl_spec").inputValue())) await pg.fill("#cl_spec", extra.specialty ?? "Dentistry");
+    await pg.fill("#cl_fac", extra.facility ?? "Test Clinic");
+    if (extra.city) await pg.fill("#cl_city", extra.city);
+    if (extra.license) await pg.fill("#cl_lic", extra.license);
+  };
   await step("create a specialty share (dentistry): link + PIN shown once", async () => {
     await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
     await page.getByText("Always included (for safety)").waitFor();
     await page.check('input[name="allow_notes"]');
+    await fillClinician(page);
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     shareLink = await page.locator('input[aria-label="Share link"]').inputValue();
@@ -891,6 +1090,18 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     sharePin = await page.locator('input[aria-label="PIN"]').inputValue();
     assert(/\/s\/[A-Za-z0-9_-]{30,}$/.test(shareLink), "link shape: " + shareLink);
     assert(/^\d{6}$/.test(sharePin), "pin shape");
+    // a QR code of the link (not the PIN) and a WhatsApp button that reminds to send the PIN separately
+    const qr = page.locator('[data-testid="share-qr"] svg');
+    await qr.waitFor();
+    assert((await qr.locator("path").count()) === 1 && Number((await qr.getAttribute("viewBox")).split(" ")[2]) >= 29, "QR drawn");
+    fs.writeFileSync(path.join(OUT, "share-qr.svg"), await qr.evaluate((el) => el.outerHTML));
+    fs.writeFileSync(path.join(OUT, "share-link.txt"), shareLink);
+    await qr.screenshot({ path: path.join(OUT, "share-qr.png") });
+    const wa = await page.locator("#share-whatsapp").getAttribute("href");
+    assert(wa.startsWith("https://wa.me/?text="), "whatsapp url: " + wa);
+    assert(decodeURIComponent(wa.slice("https://wa.me/?text=".length)).includes(shareLink), "the whatsapp text carries the link");
+    assert(!wa.includes(sharePin) && !decodeURIComponent(wa).includes(sharePin), "the PIN is not in the whatsapp message");
+    await page.getByText(/Send the PIN separately/).waitFor();
   });
 
   // ---------------------------------------------------------------- the doctor, in a clean browser (no Alice cookies)
@@ -987,6 +1198,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/sharing/new`);
     await page.fill("#title", "Brute target");
     await page.check('input[name="scope_kind"][value="full"]');
+    await fillClinician(page, "Dr Brute Target", { specialty: "Family medicine" });
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     const l = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
@@ -1009,6 +1221,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
     await page.getByText("Always included (for safety)").waitFor();
     await page.check('input[name="allow_print"]');
+    await fillClinician(page);
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     const link2 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
@@ -1026,10 +1239,16 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await c2.close();
   });
 
-  await step("doctor adds through a contributing share: identify + on-screen signature, diagnosis, visit + linked note, document, withdrawal", async () => {
+  await step("doctor adds through a contributing share: the patient names the doctor, one-click confirmation, diagnosis, visit + linked note, document, withdrawal", async () => {
     await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
     await page.getByText("Always included (for safety)").waitFor();
     await page.check('input[name="allow_contribute"]');
+    // a contributing link without the doctor's name is refused
+    await page.fill("#cl_fac", "Smile Clinic");
+    await page.locator("#cl_name").evaluate((el) => el.removeAttribute("required"));
+    await submit(page, "Create link & PIN");
+    await page.getByText("Enter the name of the doctor you are going to.").waitFor();
+    await fillClinician(page, "Dr Sara Molar", { facility: "Smile Clinic", city: "Riyadh", license: "DEN-12345" });
     await submit(page, "Create link & PIN");
     await page.getByText("Share created").waitFor();
     const link3 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
@@ -1040,20 +1259,11 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const c3 = await newContext(browser); const d3 = await c3.newPage(); watch(d3, "dentist");
     await d3.goto(link3); await d3.fill("#pin", pin3); await d3.getByRole("button", { name: "Open file" }).click(); await d3.waitForURL(/\/view$/);
     await d3.getByRole("heading", { name: /Add to the patient's file/ }).waitFor();
-    // nothing can be added before identifying; an unsigned form does not submit
-    await d3.fill("#c_name", "Dr Sara Molar");
-    await d3.fill("#c_spec", "Dentist");
-    await d3.fill("#c_lic", "DEN-12345");
-    await d3.fill("#c_fac", "Smile Clinic");
-    await d3.check('input[name="attest"]');
-    await d3.getByRole("button", { name: "Continue", exact: true }).click();
-    await d3.waitForTimeout(500);
-    assert(await d3.locator("#c_name").isVisible(), "the identity form stays until a signature is drawn");
-    const pad = await d3.locator("canvas.sig-pad").boundingBox();
-    await d3.mouse.move(pad.x + 20, pad.y + 100); await d3.mouse.down();
-    for (const [dx, dy] of [[60, 40], [120, 120], [180, 50], [240, 110], [300, 70]]) await d3.mouse.move(pad.x + dx, pad.y + dy, { steps: 4 });
-    await d3.mouse.up();
-    await d3.getByRole("button", { name: "Continue", exact: true }).click();
+    // the doctor types none of their details: the link names them, they confirm with one click
+    await d3.getByText("This link is for").waitFor();
+    assert((await d3.locator("#c_name").count()) === 0 && (await d3.locator("canvas.sig-pad").count()) === 0, "no identity form, no signature pad");
+    await d3.locator(".clinician-confirm").getByText("Smile Clinic").waitFor();
+    await d3.getByRole("button", { name: "I am Dr Sara Molar — start" }).click();
     await d3.getByText("Adding as").waitFor();
     await d3.getByText("Dr Sara Molar").first().waitFor();
 
@@ -1094,9 +1304,28 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await d3.selectOption("#cx_fk", "caries");
     await d3.locator("#cx-t-26").focus(); await d3.keyboard.press("d");
     await d3.getByRole("button", { name: "Add to this tooth" }).click();
+    // the comprehensive exam: a pulp test on 26, the soft tissues (a suspicious patch), the baseline flag
+    await d3.selectOption("#cx_pt", "cold");
+    await d3.selectOption("#cx_pr", "lingering");
+    await d3.getByRole("button", { name: "Add the test result" }).click();
+    await d3.locator(".exam-summary").getByText("Lingering pain").waitFor();
+    await d3.locator('details[data-section="soft_tissue"] > summary').click();
+    await d3.getByRole("button", { name: "All sites normal, no suspicious lesion" }).click();
+    await d3.selectOption("#cx_soft_tissue_tongue", "abnormal");
+    await d3.selectOption("#cx_soft_tissue_cancer_screening", "suspicious");
+    await d3.fill("#cx_soft_tissue_note", "White patch, left lateral tongue");
+    await d3.locator('details[data-section="extraoral"] > summary').click();
+    await d3.fill("#cx_extraoral_mouth_opening_mm", "42");
+    await d3.check('input[name="is_baseline"]');
     await d3.getByRole("button", { name: "Save the exam" }).click();
     await d3.getByText("The exam was saved to the patient's file under your name.").waitFor();
     await d3.reload();
+    // the next doctor on any link sees it: the alert, the baseline, the sections and the pulp test
+    await d3.locator("#dental").getByText("Suspicious soft-tissue lesion").waitFor();
+    const dx = d3.locator("article.share-exam", { hasText: "Baseline" }).first();
+    await dx.getByText(/Oral cancer screening: Suspicious lesion/).waitFor();
+    await dx.getByText(/Cold: Lingering pain/).waitFor();
+    await dx.getByText(/Maximum mouth opening 42 mm/).waitFor();
     await d3.locator("#contribute article.rec:not(.my-note)", { hasText: "Dental exam on the chart" }).first().waitFor();
     // in place: the dentist chooses a tooth and adds a diagnosis to it, without a separate form list
     await d3.locator("#chart-47").click();
@@ -1155,13 +1384,18 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Bitewing (dentist)").first().waitFor();
     await page.goto(`${BASE}/patients/${pid}/dental`);
     await page.locator("#exams article.rec", { hasText: "Added by Dr Sara Molar via a link" }).first().waitFor();
+    await page.getByText("Suspicious soft-tissue lesion").waitFor();
+    const docExam = page.locator("#exams article.rec", { hasText: "Added by Dr Sara Molar via a link" }).first();
+    await docExam.getByText("Baseline", { exact: true }).waitFor();
+    await docExam.getByText(/White patch, left lateral tongue/).waitFor();
+    await page.locator(".baseline-line").getByText(/comprehensive baseline exam/).waitFor();
     await page.locator("#chart-26").click();
     await page.locator(".tooth-panel .tooth-list li", { hasText: "Caries" }).getByText(/Added by Dr Sara Molar/).waitFor();
     await page.goto(`${BASE}${contribShareHref}`);
     await page.getByText("Doctors who added to your file").waitFor();
     await page.getByText("DEN-12345").first().waitFor();
-    const sigOk = await page.locator("img.sig-img").first().evaluate((img) => img.complete && img.naturalWidth > 0);
-    assert(sigOk, "the on-screen signature is shown to the patient");
+    await page.getByText("Confirmed being the doctor named on the link").first().waitFor();
+    await page.getByText("Riyadh").first().waitFor();
     await page.getByRole("button", { name: "I reviewed these additions" }).click();
     await page.getByText("Reviewed", { exact: true }).first().waitFor();
     await page.locator("summary", { hasText: "Invalidate everything this doctor added" }).click();
@@ -1175,6 +1409,648 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Doctor via a share link").first().waitFor();
   });
 
+  // ---------------------------------------------------------------- dental images: the image as a source, the viewer, the doctor on a link (ح2 / هـ)
+  await step("images: a panoramic is recorded with its bone reading and fulfils the imaging request; the files are attached; the whole-mouth image is on the chart and in every tooth panel", async () => {
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await openSummary(page, "Add test request");
+    await page.fill("#test-orders_new_name", "Panoramic X-ray (requested by Dr Abdullah)");
+    await page.selectOption("#test-orders_new_kind", "imaging");
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+    await openSummary(page, "Add an image or X-ray");
+    const form = page.locator("form", { has: page.locator("#imaging_new_modality") });
+    await form.locator("#imaging_new_modality").selectOption("panoramic");
+    await form.locator("#imaging_new_performed_on").fill(new Date().toISOString().slice(0, 10));
+    await form.locator("#imaging_new_test_order_id").selectOption(await form.locator("#imaging_new_test_order_id option", { hasText: "Panoramic X-ray (requested by Dr Abdullah)" }).getAttribute("value"));
+    await form.locator('select[name="bone_s1_level"]').selectOption("coronal_third");
+    await form.locator('select[name="bone_s1_pattern"]').selectOption("horizontal");
+    await form.locator('select[name="bone_s5_level"]').selectOption("apical_third");
+    await form.locator('select[name="bone_s5_pattern"]').selectOption("vertical");
+    await form.locator("#imaging_new_impression").fill("Generalised horizontal bone loss, vertical defect lower anterior");
+    await form.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    const study = page.locator("article.rec", { hasText: "Generalised horizontal bone loss" }).first();
+    await study.getByText("Whole mouth", { exact: true }).waitFor();
+    await study.getByText("Fulfils a request", { exact: true }).waitFor();
+    await study.getByText(/Bone: S1 Coronal third \(15–33%\) \(Horizontal\) · S5 Apical third \(Vertical \(angular\)\)/).waitFor();
+    // the request is closed by the study itself
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await page.locator("article.rec", { hasText: "Panoramic X-ray (requested by Dr Abdullah)" }).getByText("Done", { exact: true }).first().waitFor();
+    // a bad bone reading never reaches the database: a pattern without a level is refused by the form's own check
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+    await openSummary(page, "Add an image or X-ray");
+    const f2 = page.locator("form", { has: page.locator("#imaging_new_modality") });
+    await f2.locator('select[name="bone_s2_pattern"]').selectOption("mixed");
+    await f2.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText(/Invalid bone level reading/).waitFor();
+    // two image files are attached to the study (a different file each: the duplicate check stays quiet)
+    for (const [w, h, title] of [[640, 320, "Panoramic file A"], [480, 240, "Panoramic file B"]]) {
+      await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+      await page.locator("#ai_study").selectOption(await page.locator("#ai_study option", { hasText: "Panoramic" }).first().getAttribute("value"));
+      await page.setInputFiles("#ai_file", { name: `${title}.png`, mimeType: "image/png", buffer: makePng(w, h) });
+      await page.fill("#ai_title", title);
+      await page.locator("#attach-image-form").getByRole("button", { name: "Attach the image" }).click();
+      await page.getByText("The image file was attached to the study.").waitFor();
+    }
+    // the chart: the whole-mouth card lists it with its reading and its files
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const wm = page.locator("section.whole-mouth");
+    await wm.getByRole("heading", { name: "Whole-mouth images" }).waitFor();
+    await wm.getByText("Panoramic", { exact: false }).first().waitFor();
+    await wm.getByText(/S1 Coronal third/).waitFor();
+    await wm.getByRole("button", { name: /Open Panoramic file A in the viewer/ }).waitFor();
+    // and in the panel of any tooth, even one the image does not name
+    await page.locator("#chart-27").click();
+    await page.locator(".tooth-panel").getByRole("heading", { name: "Images & X-rays" }).waitFor();
+    await page.locator(".tooth-panel li[data-image]", { hasText: "Whole mouth" }).waitFor();
+  });
+
+  await step("images: a radiographic finding names the image it was read on (the exam editor, the tooth panel and its history)", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await openSummary(page, "New exam on the chart");
+    await page.locator("#px-t-36").click();
+    await page.selectOption("#px_fk", "bone_loss");
+    await page.selectOption("#px_fe", "radiographic");
+    const sel = page.locator("#px_fi");
+    await sel.waitFor();                                                         // offered only for a radiographic finding
+    await sel.selectOption(await sel.locator("option", { hasText: "Panoramic" }).first().getAttribute("value"));
+    await page.getByRole("button", { name: "Add to this tooth" }).click();
+    await page.locator(".exam-summary").getByText(/from Panoramic/).waitFor();
+    await page.selectOption("#px_fe", "clinical");
+    assert((await page.locator("#px_fi").count()) === 0, "a clinical finding is not asked for an image");
+    let saved = false;
+    for (let i = 0; i < 2 && !saved; i++) {
+      await page.locator("#px-form").getByRole("button", { name: "Save the exam" }).click();
+      const dup = page.getByText("Yes, a different exam — save it");
+      const ok = page.locator("#px-form").getByText("Exam saved.");
+      await Promise.race([dup.waitFor(), ok.waitFor()]);
+      if (await ok.isVisible().catch(() => false)) saved = true; else await dup.click();
+    }
+    await page.reload();
+    await page.locator("#chart-36").click();
+    await page.locator(".tooth-panel .tooth-list li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+    await page.locator(".tooth-panel .tooth-hist li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+  });
+
+  await step("images: the viewer zooms, pans, rotates, adjusts brightness and contrast, resets, compares two images and keeps annotations apart from the file", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("section.whole-mouth").getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    const dlg = page.getByRole("dialog", { name: "Image viewer" });
+    await dlg.waitFor();
+    const img = dlg.locator(".iv-viewport img").first();
+    await page.waitForFunction(() => { const i = document.querySelector(".iv-viewport img"); return i && i.naturalWidth > 0; });
+    const stage = dlg.locator(".iv-stage").first();
+    const tf = () => stage.evaluate((el) => el.style.transform);
+    const zoomText = () => dlg.locator(".iv-zoom").first().innerText();
+    assert((await zoomText()) === "100%", "starts at 100%");
+    await dlg.getByRole("button", { name: "Zoom in" }).first().click();
+    assert((await zoomText()) === "125%", "the button zooms by a quarter: " + await zoomText());
+    // the wheel zooms about the pointer
+    const vp = dlg.locator(".iv-viewport").first();
+    const box = await vp.boundingBox();
+    await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 20);
+    await page.mouse.wheel(0, -300);
+    assert(parseInt(await zoomText(), 10) > 125, "the wheel zooms in: " + await zoomText());
+    // dragging pans
+    const before = await tf();
+    await page.mouse.move(box.x + 100, box.y + 100); await page.mouse.down(); await page.mouse.move(box.x + 160, box.y + 130, { steps: 4 }); await page.mouse.up();
+    assert((await tf()) !== before, "dragging moves the image");
+    // rotate 90°, brightness and contrast through CSS filters; the file is never changed
+    await dlg.getByRole("button", { name: "Rotate 90° clockwise" }).first().click();
+    assert(/rotate\(90deg\)/.test(await tf()), "rotated: " + await tf());
+    await dlg.getByLabel("Brightness").first().fill("150");
+    await dlg.getByLabel("Contrast").first().fill("180");
+    const filter = await img.evaluate((el) => el.style.filter);
+    assert(/brightness\(150%\)/.test(filter) && /contrast\(180%\)/.test(filter), "filters: " + filter);
+    await dlg.getByRole("button", { name: "Reset" }).first().click();
+    assert((await zoomText()) === "100%" && /rotate\(0deg\)/.test(await tf()) && /brightness\(100%\)/.test(await img.evaluate((el) => el.style.filter)), "reset restores the view");
+    // from the keyboard
+    await vp.focus();
+    await page.keyboard.press("+"); await page.keyboard.press("+");
+    assert((await zoomText()) === "156%", "the keyboard zooms: " + await zoomText());
+    await page.keyboard.press("r");
+    assert(/rotate\(90deg\)/.test(await tf()), "R rotates");
+    await page.keyboard.press("0");
+    assert((await zoomText()) === "100%", "0 resets");
+    // side by side with the other image of the same patient
+    await dlg.getByRole("button", { name: "Compare with another image" }).click();
+    assert((await dlg.locator(".iv-pane").count()) === 2, "two images side by side");
+    await dlg.getByLabel("Image to compare with").selectOption({ index: 0 });
+    await dlg.getByRole("button", { name: "Compare with another image" }).click();
+    assert((await dlg.locator(".iv-pane").count()) === 1, "back to one image");
+    // annotations: a circle and an arrow, drawn in normalised coordinates, saved apart from the file
+    const draw = async (from, to) => {
+      const b = await vp.boundingBox();
+      await page.mouse.move(b.x + b.width * from[0], b.y + b.height * from[1]); await page.mouse.down();
+      await page.mouse.move(b.x + b.width * to[0], b.y + b.height * to[1], { steps: 5 }); await page.mouse.up();
+    };
+    await dlg.getByRole("button", { name: "Circle" }).click();
+    await draw([0.45, 0.5], [0.55, 0.5]);
+    await dlg.getByRole("button", { name: "Arrow" }).click();
+    await draw([0.3, 0.3], [0.42, 0.45]);
+    await dlg.getByText("2 shape(s) waiting to be saved").waitFor();
+    await dlg.getByRole("button", { name: "Save the annotation" }).click();
+    await dlg.getByText("The annotation was saved").waitFor();
+    await dlg.getByText("Annotations on this image (1)").waitFor();
+    assert((await dlg.locator(".iv-overlay-svg ellipse").count()) === 1 && (await dlg.locator(".iv-overlay-svg line").count()) === 1, "the shapes are drawn as an SVG overlay");
+    // the original file is untouched: it is still served as the PNG that was attached
+    const sh = await page.evaluate(async () => {
+      const r = await fetch(document.querySelector(".iv-viewport img").src);
+      return { ok: r.ok, type: r.headers.get("content-type"), len: (await r.arrayBuffer()).byteLength };
+    });
+    assert(sh.ok && /image\/png/.test(sh.type) && sh.len > 100, "the original file is still served untouched");
+    await page.keyboard.press("Escape");
+    await dlg.waitFor({ state: "detached" });
+    // after a reload the annotation is still there, and the file's size did not change
+    await page.reload();
+    await page.locator("section.whole-mouth").getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    await page.getByRole("dialog", { name: "Image viewer" }).locator(".iv-overlay-svg ellipse").waitFor();
+    await page.screenshot({ path: path.join(OUT, "image-viewer.png") });
+    await page.keyboard.press("Escape");
+  });
+
+  await step("images: a doctor on a link sees the whole-mouth panoramic, its reading, the finding linked to it and the patient's annotation; he links a finding and annotates; download stays blocked", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    await page.check('input[name="include"][value="documents"]');
+    await fillClinician(page, "Dr Nadia Perio", { specialty: "Periodontics", facility: "Gum Clinic" });
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin = await page.locator('input[aria-label="PIN"]').inputValue();
+    const cp = await newContext(browser); const dp = await cp.newPage(); watch(dp, "periodontist");
+    await dp.goto(link); await dp.fill("#pin", pin); await dp.getByRole("button", { name: "Open file" }).click(); await dp.waitForURL(/\/view$/);
+    await dp.getByRole("button", { name: "I am Dr Nadia Perio — start" }).click();
+    await dp.getByText("Adding as").waitFor();
+    // the panoramic has no tooth, yet the dentist's chart carries it, with the structured reading
+    const wm = dp.locator("section.whole-mouth");
+    await wm.getByRole("heading", { name: "Whole-mouth images" }).waitFor();
+    await wm.getByText(/S5 Apical third/).waitFor();
+    await wm.getByText("Generalised horizontal bone loss").waitFor();
+    // the finding the patient linked to it, in tooth 36's panel
+    await dp.locator("#chart-36").click();
+    await dp.locator(".tooth-panel .tooth-list li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+    // the viewer opens through the share's own document route, and shows the patient's annotation
+    await wm.getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    const dlg = dp.getByRole("dialog", { name: "Image viewer" });
+    await dp.waitForFunction(() => { const i = document.querySelector(".iv-viewport img"); return i && i.naturalWidth > 0; });
+    assert(/\/s\/[^/]+\/doc\//.test(await dlg.locator(".iv-viewport img").first().getAttribute("src")), "the file comes from the share document route");
+    await dlg.locator(".iv-overlay-svg ellipse").waitFor();
+    // the doctor draws his own
+    await dlg.getByRole("button", { name: "Text" }).click();
+    const vp = dlg.locator(".iv-viewport").first(); const b = await vp.boundingBox();
+    await dp.mouse.click(b.x + b.width * 0.7, b.y + b.height * 0.6);
+    await dlg.getByLabel("Annotation text, then Enter").fill("Vertical defect distal 46");
+    await dp.keyboard.press("Enter");
+    await dlg.getByText("1 shape(s) waiting to be saved").waitFor();
+    await dlg.getByRole("button", { name: "Save the annotation" }).click();
+    await dlg.getByText("The annotation was saved under your name").waitFor();
+    await dlg.getByText(/Annotations on this image \(2\)/).waitFor();
+    // download is blocked for this link, with or without the viewer
+    const src = await dlg.locator(".iv-viewport img").first().getAttribute("src");
+    const dl = await dp.request.get(`${BASE}${src}?dl=1`);
+    assert(dl.status() === 403, "download is not allowed on this share: " + dl.status());
+    await dp.keyboard.press("Escape");
+    // the doctor records a finding read on the same panoramic
+    await dp.locator("summary", { hasText: "Add: Dental exam on the chart" }).click();
+    await dp.locator("#cx-t-46").click();
+    await dp.selectOption("#cx_fk", "bone_loss");
+    await dp.selectOption("#cx_fe", "radiographic");
+    await dp.selectOption("#cx_fi", await dp.locator("#cx_fi option", { hasText: "Panoramic" }).first().getAttribute("value"));
+    await dp.getByRole("button", { name: "Add to this tooth" }).click();
+    await dp.getByRole("button", { name: "Save the exam" }).click();
+    await dp.getByText("The exam was saved to the patient's file under your name.").waitFor();
+    await dp.reload();
+    await dp.locator("#chart-46").click();
+    await dp.locator(".tooth-panel .tooth-list li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+    await dp.screenshot({ path: path.join(OUT, "periodontist-view.png"), fullPage: true });
+    await cp.close();
+    // the patient sees the doctor's annotation with his name in the viewer's list
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("section.whole-mouth").getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    const pd = page.getByRole("dialog", { name: "Image viewer" });
+    await pd.getByText(/Annotations on this image \(2\)/).waitFor();
+    await pd.locator("summary", { hasText: "Annotations on this image" }).click();
+    await pd.getByText(/Dr Nadia Perio/).first().waitFor();
+    await page.keyboard.press("Escape");
+  });
+
+  let periodShareHref;
+  await step("periodontist: a link naming the periodontist, quick entry through the link, the diagnosis from the suggestion, finalise, the phased plan; the patient sees it; a later doctor sees chart and diagnosis", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    assert(await page.locator('input[name="contribute"][value="perio_exams"]').isChecked(), "the gum chart is one of the things the doctor may add");
+    await fillClinician(page, "Dr Noura Gum", { specialty: "Periodontics", facility: "Gum Care Centre", city: "Jeddah", license: "PER-777" });
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link4 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin4 = await page.locator('input[aria-label="PIN"]').inputValue();
+    periodShareHref = await page.getByRole("link", { name: "Manage this share" }).getAttribute("href");
+
+    const c4 = await newContext(browser); const dp = await c4.newPage(); watch(dp, "periodontist");
+    await dp.goto(link4); await dp.fill("#pin", pin4); await dp.getByRole("button", { name: "Open file" }).click(); await dp.waitForURL(/\/view$/);
+    await dp.getByRole("button", { name: "I am Dr Noura Gum — start" }).click();
+    await dp.getByText("Adding as").waitFor();
+    // the periodontist sees the charts already in the file, read-only, and who recorded them
+    await dp.locator("#perio").getByText("Periodontal chart").first().waitFor();
+    await dp.locator('#perio [data-testid="share-perio-chart"]').waitFor();
+    assert((await dp.locator("#perio article.share-perio input[data-row]").count()) === 0, "the charts already in the file are read-only");
+    // a visit of their own to link the chart to
+    await dp.locator("summary", { hasText: "Add: Visit (reason, exam, assessment, plan)" }).first().click();
+    await dp.fill("#c_encounters_reason", "Gum consultation");
+    await dp.selectOption("#c_encounters_kind", "dental");
+    await dp.locator("form", { has: dp.locator("#c_encounters_reason") }).getByRole("button", { name: "Add to the file" }).click();
+    await dp.getByText("Added to the patient's file under your name.").first().waitFor();
+    await dp.reload();
+
+    // quick entry: depths and margins on 17, 16 and 26
+    await dp.locator("summary", { hasText: "Add: periodontal chart" }).click();
+    const pd = (i) => dp.locator(`input[data-row="upper-buccal-pd"][data-i="${i}"]`);
+    const gm = (i) => dp.locator(`input[data-row="upper-buccal-gm"][data-i="${i}"]`);
+    await pd(3).click(); await dp.keyboard.type("546");
+    await pd(6).click(); await dp.keyboard.type("647");
+    assert((await pd(6).inputValue()) === "6" && (await pd(7).inputValue()) === "4" && (await pd(8).inputValue()) === "7", "quick entry works through the link");
+    await pd(39).click(); await dp.keyboard.type("435");
+    for (const i of [3, 5, 6, 39, 41]) await gm(i).fill("-1");
+    await gm(8).fill("-2");
+    await dp.locator('#contrib-perio input[name="exam_date"]').waitFor();
+    assert((await dp.locator('#contrib-perio input[name="examiner_name"]').inputValue()) === "Dr Noura Gum"
+           && (await dp.locator('#contrib-perio input[name="examiner_name"]').getAttribute("readonly")) !== null, "the examiner is the doctor named on the link");
+    // the suggestion, with its reasons; the doctor adds the bone loss they read on the radiograph
+    await dp.fill("#dx-rbl", "35");
+    await dp.fill("#dx-lost", "1");
+    const sug = await dp.locator('[data-testid="dx-suggestion"]').innerText();
+    assert(/Periodontitis — Stage III/.test(sug) && /Generalized/.test(sug), "the suggestion: " + sug);
+    await dp.locator(".perio-dx-reasons").first().waitFor();
+    assert(/Worst interdental attachment loss \d+ mm/.test(await dp.locator("#perio-dx").innerText()), "the suggestion shows its reasons");
+    await dp.getByRole("button", { name: "Use the suggestion" }).click();
+    assert((await dp.locator("#dx-kind").inputValue()) === "periodontitis" && (await dp.locator("#dx-stage").inputValue()) === "III"
+           && (await dp.locator("#dx-extent").inputValue()) === "generalized" && (await dp.locator("#dx-grade").inputValue()) !== "", "the fields take the suggestion");
+    // the doctor decides: the grade is theirs to change
+    const suggestedGrade = await dp.locator("#dx-grade").inputValue();
+    const grade = suggestedGrade === "C" ? "B" : "C";
+    await dp.selectOption("#dx-grade", grade);
+    await dp.fill("#dx-note", "Smoker, generalized deep pockets");
+    await dp.selectOption("#pe-visit", { index: 1 });
+    await dp.getByRole("button", { name: "Save draft" }).click();
+    await dp.getByText("Draft saved.").waitFor();
+    await dp.reload();
+    assert((await pd(7).inputValue()) === "4" && (await dp.locator("#dx-stage").inputValue()) === "III" && (await dp.locator("#dx-grade").inputValue()) === grade,
+      "the draft resumes with its diagnosis");
+    await dp.locator("#perio").screenshot({ path: path.join(OUT, "perio-specialist-edit.png") });
+    dp.once("dialog", (dl) => dl.accept());
+    await dp.getByRole("button", { name: "Finalise the chart" }).click();
+    await dp.waitForURL(/pdone=1/);
+    const mineChart = dp.locator('#perio article.share-perio').first();
+    await mineChart.getByText(new RegExp(`Periodontitis — Stage III, Grade ${grade}, Generalized`)).waitFor();
+    await mineChart.getByText("Recorded by Dr Noura Gum via a link").waitFor();
+    await mineChart.getByText(/Linked to the visit/).waitFor();
+    assert((await mineChart.locator("input[data-row]").count()) === 0, "a final chart has no inputs");
+    // the periodontist lays out the plan in phases from the chart
+    await mineChart.getByRole("button", { name: "Phased gum treatment plan" }).click();
+    await dp.getByText("The phased gum plan was proposed under your name").waitFor();
+    await dp.reload();
+    await dp.locator("#dental").getByText(/Periodontal treatment plan/).first().waitFor();
+    const planText = await dp.locator("#dental").innerText();
+    assert(/Scaling & root planing/.test(planText) && /re-evaluation/i.test(planText) && /Periodontal maintenance/.test(planText), "the plan lists the phases");
+    await dp.screenshot({ path: path.join(OUT, "periodontist-contribute.png"), fullPage: true });
+    await c4.close();
+
+    // the patient: the chart with the doctor's name and diagnosis, not editable; the plan with the doctor's name
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    const shown = page.locator("#perio .perio-dx-view");
+    await shown.getByText("Recorded by Dr Noura Gum via a link").waitFor();
+    await shown.getByText(new RegExp(`Periodontitis — Stage III, Grade ${grade}, Generalized`)).waitFor();
+    await shown.getByText(/Smoker, generalized deep pockets/).waitFor();
+    await shown.getByText(/Linked to the visit.*Gum consultation/).waitFor();
+    assert((await page.locator("#perio input[data-row]").count()) === 0, "the patient does not edit a doctor's chart");
+    await page.locator("#perio-history li", { hasText: "Recorded by Dr Noura Gum via a link" }).first().waitFor();
+    await page.locator("#perio-history li", { hasText: "Periodontitis — Stage III" }).first().waitFor();
+    const pdfDoc = await page.request.get(`${BASE}${await page.locator("#perio a", { hasText: "PDF" }).first().getAttribute("href")}`);
+    assert(pdfDoc.ok() && (pdfDoc.headers()["content-type"] ?? "").includes("pdf"), "the doctor's chart prints, diagnosis included");
+    fs.writeFileSync(path.join(OUT, "perio-specialist.pdf"), await pdfDoc.body());
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    await page.getByText(/Periodontal treatment plan/).first().waitFor();
+    await page.getByText(/Dr Noura Gum/).first().waitFor();
+    // the patient can make the same plan from their account
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    await page.locator("#perio").getByRole("button", { name: "Phased gum treatment plan" }).click();
+    await page.waitForURL(/tab=treatment/);
+    assert((await page.getByText(/Periodontal treatment plan/).count()) >= 2, "a second phased plan, from the patient's own account");
+
+    // a later doctor, on a read-only link, sees the chart and the diagnosis
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await fillClinician(page, "Dr Later Reader");
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link5 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin5 = await page.locator('input[aria-label="PIN"]').inputValue();
+    const c5 = await newContext(browser); const dl2 = await c5.newPage(); watch(dl2, "later-doctor");
+    await dl2.goto(link5); await dl2.fill("#pin", pin5); await dl2.getByRole("button", { name: "Open file" }).click(); await dl2.waitForURL(/\/view$/);
+    const first = dl2.locator('#perio [data-testid="share-perio-chart"]');
+    await first.getByText(new RegExp(`Periodontitis — Stage III, Grade ${grade}, Generalized`)).waitFor();
+    await first.getByText("Recorded by Dr Noura Gum via a link").waitFor();
+    assert((await dl2.locator("summary", { hasText: "Add: periodontal chart" }).count()) === 0, "a read-only link has no chart editor");
+    assert((await dl2.locator("#perio input[data-row]").count()) === 0, "and no inputs");
+    await dl2.screenshot({ path: path.join(OUT, "later-doctor-perio.png"), fullPage: true });
+    await c5.close();
+
+    // the owner's page for the link names the chart among the additions
+    await page.goto(`${BASE}${periodShareHref}`);
+    await page.getByText("Doctors who added to your file").waitFor();
+    await page.getByText("PER-777").first().waitFor();
+  });
+
+  // ---------------------------------------------------------------- prescriptions, consents with a drawn signature, safety alerts (0027)
+  const drawSignature = async (pg, scope) => {
+    const canvas = scope.locator("canvas.sig-pad");
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    await pg.mouse.move(box.x + 20, box.y + 40);
+    await pg.mouse.down();
+    for (let i = 1; i <= 12; i++) await pg.mouse.move(box.x + 20 + i * 12, box.y + 40 + (i % 2 ? 25 : -20), { steps: 3 });
+    await pg.mouse.up();
+    await scope.locator("input.sig-value").evaluate((el) => { if (!el.value.startsWith("data:image/png")) throw new Error("nothing was drawn"); });
+  };
+  const pdfOk = async (req, url, label) => {
+    const r = await req.get(url);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]), `${label} pdf ${r.status()}`);
+    const body = await r.body();
+    assert(body.subarray(0, 5).toString() === "%PDF-", `${label} is a pdf`);
+    return body;
+  };
+
+  await step("prescriptions: the patient writes a detailed prescription on the dental visits tab, its medicines join the file, it prints, completing it ends them", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=care`);
+    await page.locator("#prescriptions summary", { hasText: "A new prescription" }).click();
+    await page.fill("#nrx_by", "Dr Reem Saleh");
+    await page.fill("#nrx_lic", "DEN-9");
+    await page.fill("#nrx_l0_g", "Amoxicillin");
+    await page.fill("#nrx_l0_s", "500 mg");
+    await page.selectOption("#nrx_l0_f", "capsule");
+    await page.fill("#nrx_l0_d", "1 capsule");
+    await page.selectOption("#nrx_l0_r", "oral");
+    await page.fill("#nrx_l0_q", "three times a day");
+    await page.fill("#nrx_l0_n", "7");
+    await page.fill("#nrx_l0_c", "21 capsules");
+    await page.fill("#nrx_l0_x", "0");
+    await page.getByRole("button", { name: "Another medicine on the prescription" }).click();
+    await page.fill("#nrx_l1_g", "Ibuprofen");
+    await page.fill("#nrx_l1_b", "Brufen");
+    await page.fill("#nrx_l1_q", "twice a day");
+    await page.fill("#nrx_l1_n", "3");
+    await page.fill("#nrx_l1_c", "10 tablets");
+    await page.check('input[name="l1_as_needed"]');
+    await page.locator("#nrx_form").getByRole("button", { name: "Save the prescription" }).click();
+    await page.getByText("The prescription was saved with 2 medicine(s)").waitFor();
+    const card = page.locator("article.rx-card", { hasText: "Dr Reem Saleh" });
+    await card.waitFor();
+    await card.getByText(/Amoxicillin/).first().waitFor();
+    await card.getByText(/quantity: 21 capsules/).waitFor();
+    await card.getByText(/refills: 0/).waitFor();
+    await card.getByText(/Brufen/).waitFor();
+    await card.getByText(/as needed/).waitFor();
+    // the file records a penicillin allergy: the reviewable rule flags the penicillin-family drug on the prescription itself
+    await card.locator('[data-alert="penicillin_allergy_prescribed"]').waitFor();
+    await card.getByText(/Because of: Penicillin/).waitFor();
+    assert((await card.locator('[data-alert]').count()) === 1, "only the penicillin rule concerns this prescription");
+    const rxId = await card.getAttribute("data-rx");
+    fs.writeFileSync(path.join(OUT, "prescription.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/prescriptions/${rxId}/pdf`, "prescription"));
+    assert((await card.getByRole("link", { name: "Print prescription" }).count()) === 1, "a print link");
+
+    // the medicines are in the file, with their details
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    const med = page.locator("article.rec:not(.rx-card)", { hasText: "Amoxicillin" }).first();
+    await med.getByText("21 capsules", { exact: true }).waitFor();
+    await med.getByText("Currently taking").first().waitFor();
+    assert((await page.locator("#prescriptions article.rx-card", { hasText: "Dr Reem Saleh" }).count()) === 1, "the prescription is also listed on the medications page");
+
+    // completing the course ends the medicines
+    await page.locator("#prescriptions article.rx-card", { hasText: "Dr Reem Saleh" }).getByRole("button", { name: "Course completed" }).click();
+    await page.locator("#prescriptions article.rx-card", { hasText: "Dr Reem Saleh" }).locator(".chip", { hasText: "Completed" }).waitFor();
+    await page.locator("article.rec:not(.rx-card)", { hasText: "Amoxicillin" }).first().locator(".chip", { hasText: "Course completed" }).first().waitFor();
+    await page.screenshot({ path: path.join(OUT, "prescriptions.png"), fullPage: true });
+  });
+
+  await step("safety alerts: an anticoagulant in the file raises the extraction alert on the plan and next to the treatment; an unrelated drug raises none", async () => {
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    assert((await page.locator('[data-alert]').count()) === 0, "no safety alert on the medications page");
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    // the file has a mechanical valve, a congenital aortic narrowing and a penicillin allergy: those rules apply, the anticoagulant one does not yet
+    await page.locator('#safety [data-alert="endocarditis_prophylaxis_review"]').getByText(/Because of: .*Mechanical aortic valve/).waitFor();
+    await page.locator('#safety [data-alert="penicillin_allergy"]').waitFor();
+    assert((await page.locator('#safety [data-alert="anticoagulant_before_surgery"]').count()) === 0, "without an anticoagulant, that rule is silent");
+    assert((await page.locator('#safety [data-alert="penicillin_allergy_prescribed"]').count()) === 0, "and the penicillin drug rule is silent once that prescription is completed");
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    await page.locator("#prescriptions summary", { hasText: "A new prescription" }).click();
+    await page.fill("#mrx_by", "Dr Cardio Lee");
+    await page.fill("#mrx_l0_g", "Warfarin");
+    await page.fill("#mrx_l0_s", "5 mg");
+    await page.fill("#mrx_l0_q", "once daily");
+    await page.fill("#mrx_l0_n", "30");
+    await page.locator("#mrx_form").getByRole("button", { name: "Save the prescription" }).click();
+    await page.getByText("The prescription was saved with 1 medicine(s)").waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const top = page.locator('#safety [data-alert="anticoagulant_before_surgery"]');
+    await top.waitFor();
+    await top.getByText(/Because of: Warfarin/).waitFor();
+    // the rule concerns every planned surgical treatment in the file (the periodontal plan's surgery too), so the extraction is among those named, not necessarily the first
+    await top.getByText(/Concerns: .*Simple extraction \(38\)/).waitFor();
+    await top.getByText(/not yet clinically reviewed/).waitFor();
+    assert((await page.locator('#safety [data-alert="local_anesthetic_allergy"], #safety [data-alert="latex_allergy"], #safety [data-alert="pregnancy_imaging_drugs"]').count()) === 0, "no alert for what is not in the file");
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    // the open extraction carries the alert (the cancelled one in the superseded version of the plan does not)
+    const ext = page.locator('li.treat-item:has-text("Simple extraction"):has([data-alert="anticoagulant_before_surgery"])');
+    await ext.first().waitFor();
+    assert((await ext.count()) === 1, "exactly one open extraction carries the alert");
+    await ext.getByText("Surgical", { exact: true }).waitFor();
+    // only the treatments the rule names carry it (surgical ones, and root planing which the rule lists by code): hygiene instruction, re-evaluation, maintenance show none
+    const carrying = page.locator('li.treat-item[data-item]:has([data-alert="anticoagulant_before_surgery"])');
+    assert((await carrying.filter({ hasNotText: /Simple extraction|Periodontal surgery|root planing/i }).count()) === 0, "an unrelated treatment carries the anticoagulant alert");
+    assert((await page.locator('li.treat-item:has-text("hygiene") [data-alert], li.treat-item:has-text("maintenance") [data-alert], li.treat-item:has-text("re-evaluation") [data-alert]').count()) === 0, "non-surgical periodontal treatments the rule does not name carry no alert");
+    // the plan holding that extraction (not simply the first plan on the page)
+    const planId = (await page.locator('article.plan-card', { has: ext }).getAttribute("id")).replace("plan-", "");
+    fs.writeFileSync(path.join(OUT, "treatment-plan-safety.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/treatment-plans/${planId}/pdf`, "plan"));
+    await page.screenshot({ path: path.join(OUT, "safety-alerts.png"), fullPage: true });
+  });
+
+  await step("consents: the patient signs on the screen (an undrawn signature is refused), versions supersede, withdrawing keeps it, the PDF carries the signature", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    await page.locator("#new-consent summary").click();
+    const f = page.locator("form#nc_form");
+    const target = await f.locator("#nc_target option", { hasText: "Simple extraction" }).first().getAttribute("value");
+    await f.locator("#nc_target").selectOption(target);
+    await f.locator("#nc_kind").selectOption("surgery");
+    assert(/Simple extraction/.test(await f.locator("#nc_title").inputValue()), "the title names the treatment");
+    assert(/surgical procedure/.test(await f.locator("#nc_body").inputValue()), "the text comes from the template");
+    await f.locator("#nc_witness").fill("Nurse Huda");
+    await f.locator('input[name="agree"]').check();
+    await f.getByRole("button", { name: "Sign and save the consent" }).click();           // nothing drawn: the form does not submit
+    await page.waitForTimeout(400);
+    assert((await page.locator("#consents article.consent-card").count()) === 0, "an undrawn signature is refused");
+    await drawSignature(page, f);
+    await f.getByRole("button", { name: "Sign and save the consent" }).click();
+    const c1 = page.locator("#consents article.consent-card", { hasText: "Simple extraction" });
+    await c1.waitFor();
+    await c1.getByText("Version 1").waitFor();
+    await c1.locator(".chip", { hasText: "Signed" }).waitFor();
+    await c1.getByText(/Nurse Huda/).waitFor();
+    await page.waitForFunction(() => { const i = document.querySelector("#consents img.sig-img"); return i && i.complete && i.naturalWidth > 0; });
+    const consentId = await c1.getAttribute("data-consent");
+    fs.writeFileSync(path.join(OUT, "consent.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${consentId}/pdf`, "consent"));
+    const sig = await page.request.get(`${BASE}/api/patients/${pid}/consents/${consentId}/signature`);
+    assert(sig.status() === 200 && /image\/png/.test(sig.headers()["content-type"]), "the signature is served to the file's members");
+    // next to the plan that holds the treatment it covers (other plans in the file have none)
+    const coveredPlan = (await page.locator("article.plan-card", { has: page.locator(`li[data-item="${target.replace(/^item:/, "")}"]`) }).getAttribute("id")).replace("plan-", "");
+    await page.locator(`[data-plan-consents="${coveredPlan}"]`).getByText(/Simple extraction/).waitFor();
+
+    // a new version supersedes the old one
+    await c1.locator("summary", { hasText: "New version" }).click();
+    const nv = page.locator('form[id^="cv-"]');
+    await nv.locator('textarea[name="body"]').fill("Updated explanation: the extraction of tooth 38 and the alternatives were explained again.");
+    await nv.locator('input[name="agree"]').check();
+    await drawSignature(page, nv);
+    await nv.getByRole("button", { name: "Sign the new version" }).click();
+    await page.locator('#consents article.consent-card[data-status="superseded"]').waitFor();
+    const c2 = page.locator('#consents article.consent-card[data-status="signed"]', { hasText: "Simple extraction" });
+    await c2.getByText("Version 2").waitFor();
+    assert((await page.locator("#consents article.consent-card").count()) === 2, "the old version is kept");
+
+    // withdrawing keeps it, with the reason; it cannot be signed again
+    await c2.locator("summary", { hasText: /^Withdraw$/ }).click();
+    await c2.locator('input[name="reason"]').fill("I want a second opinion first");
+    page.once("dialog", (dl) => dl.accept());
+    await c2.getByRole("button", { name: "Withdraw", exact: true }).click();
+    const w = page.locator('#consents article.consent-card[data-status="withdrawn"]');
+    await w.waitFor();
+    await w.getByText(/I want a second opinion first/).waitFor();
+    assert((await w.locator("summary").count()) === 0, "a withdrawn consent offers no further action");
+    assert((await page.locator("#consents article.consent-card").count()) === 2, "still two: nothing was deleted");
+  });
+
+  await step("doctor through a link: writes a prescription as the doctor named, presents a consent the patient signs on the doctor's screen, sees the alert on the plan", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    await page.check('input[name="allow_print"]');
+    await fillClinician(page, "Dr Rana Writer", { facility: "Rx Clinic", city: "Jeddah", license: "RX-1" });
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin = await page.locator('input[aria-label="PIN"]').inputValue();
+    const token = link.split("/s/")[1];
+
+    const cx = await newContext(browser); const d = await cx.newPage(); watch(d, "rx-doctor");
+    await d.goto(link); await d.fill("#pin", pin); await d.getByRole("button", { name: "Open file" }).click(); await d.waitForURL(/\/view$/);
+    await d.getByRole("button", { name: "I am Dr Rana Writer — start" }).click();
+    await d.getByText("Adding as").waitFor();
+    // the alert is in the doctor's view too: on the planned extraction
+    await d.locator('[data-alert="anticoagulant_before_surgery"]').first().waitFor();
+
+    // a prescription: the doctor does not type their name
+    await d.locator("#contrib-prescription summary").click();
+    assert((await d.locator("#cx-rx_by").count()) === 0, "the prescriber is not asked");
+    await d.locator("#contrib-prescription .rx-fixed").getByText("Dr Rana Writer").waitFor();
+    await d.fill("#cx-rx_l0_g", "Metronidazole");
+    await d.fill("#cx-rx_l0_s", "400 mg");
+    await d.fill("#cx-rx_l0_q", "three times a day");
+    await d.fill("#cx-rx_l0_n", "5");
+    await d.fill("#cx-rx_l0_c", "15 tablets");
+    await d.getByRole("button", { name: "Another medicine on the prescription" }).click();
+    await d.fill("#cx-rx_l1_g", "Chlorhexidine");
+    await d.fill("#cx-rx_l1_q", "twice a day");
+    await d.fill("#cx-rx_l1_n", "7");
+    await d.locator("#cx-rx_form").getByRole("button", { name: "Save the prescription" }).click();
+    await d.getByText("The prescription with 2 medicine(s) was saved under your name").waitFor();
+    const drx = d.locator("#sec-prescriptions article.rx-card", { hasText: "Dr Rana Writer" });
+    await drx.waitFor();
+    await drx.locator(".chip", { hasText: "Yours" }).waitFor();
+    const rid = await drx.getAttribute("data-rx");
+    await pdfOk(d.request, `${BASE}/s/${token}/rx/${rid}/pdf`, "shared prescription");
+
+    // a consent: the patient signs on the doctor's screen
+    await d.locator("#contrib-consent summary").click();
+    const cf = d.locator("form#cx-cn_form");
+    const tgt = await cf.locator("#cx-cn_target option", { hasText: "Simple extraction" }).first().getAttribute("value");
+    await cf.locator("#cx-cn_target").selectOption(tgt);
+    await cf.locator("#cx-cn_kind").selectOption("surgery");
+    await cf.getByText(/Presented by Dr Rana Writer/).waitFor();
+    await cf.locator('input[name="agree"]').check();
+    await drawSignature(d, cf);
+    await cf.getByRole("button", { name: "Sign and save the consent" }).click();
+    await d.getByText("The consent was saved with the patient's signature").waitFor();
+    const dc = d.locator('#sec-consents article.consent-card[data-status="signed"]', { hasText: "Simple extraction" });
+    await dc.waitFor();
+    await dc.locator(".chip", { hasText: "Yours" }).waitFor();
+    assert((await d.locator("#sec-consents img.sig-img").count()) === 0, "the doctor does not get the signature image");
+    await d.locator("#sec-consents article.consent-card[data-status='withdrawn']").first().waitFor();     // the patient's earlier, withdrawn consent is visible as withdrawn
+    await d.screenshot({ path: path.join(OUT, "doctor-rx-consent.png"), fullPage: true });
+    await cx.close();
+
+    // the patient's side: the prescription and the consent carry the doctor's name; the signature is the patient's, in their file
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    const prx = page.locator("#prescriptions article.rx-card", { hasText: "Dr Rana Writer" });
+    await prx.getByText(/Written by Dr Rana Writer via a link/).waitFor();
+    await prx.getByText(/licence RX-1/).waitFor();
+    assert((await prx.locator("summary", { hasText: "Entered in error" }).count()) === 0, "a doctor's prescription is not marked 'entered in error' by the patient");
+    await prx.locator("summary", { hasText: "Cancel the prescription" }).click();
+    await prx.locator('input[name="reason"]').fill("the course was changed");
+    page.once("dialog", (dl) => dl.accept());
+    await prx.getByRole("button", { name: "Cancel it" }).click();
+    await page.locator("#prescriptions article.rx-card", { hasText: "Dr Rana Writer" }).locator(".chip", { hasText: "Cancelled" }).waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    const pc = page.locator('#consents article.consent-card[data-status="signed"]', { hasText: "Presented by Dr Rana Writer via a link" });
+    await pc.waitFor();
+    // the signatures are lazy images: bring each into view (the page can be long) before asking that they all loaded
+    for (const img of await page.locator("#consents img.sig-img").all()) await img.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => [...document.querySelectorAll("#consents img.sig-img")].every((i) => i.complete && i.naturalWidth > 0));
+    await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${await pc.getAttribute("data-consent")}/pdf`, "presented consent");
+  });
+
+  await step("safety rules: an administrator reviews, edits and deactivates a rule; the review is recorded and cleared by an edit; others cannot open the page", async () => {
+    const actx = await newContext(browser); const adm = await actx.newPage(); watch(adm, "rules-admin");
+    const who = `Rules Admin ${stamp}`;
+    await signup(adm, `rules-admin-${stamp}@example.test`, who);
+    const denied = await adm.goto(`${BASE}/admin/safety-rules`);
+    assert(denied.status() === 404, "not an administrator yet: " + denied.status());
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const up = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?full_name=eq.${encodeURIComponent(who)}`, {
+      method: "PATCH", headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ role: "admin" }),
+    }).catch((e) => { throw new Error(`promoting the test account: ${e.message} (${e.cause?.code ?? e.cause?.message ?? "no cause"}) url=${process.env.NEXT_PUBLIC_SUPABASE_URL}`); });
+    assert(up.ok, "promoting the test account: " + up.status);
+    await adm.goto(`${BASE}/admin/safety-rules`);
+    await adm.getByRole("heading", { name: "Safety alert rules" }).waitFor();
+    assert((await adm.locator("details.fold[id^='r-']").count()) >= 12, "the seeded rules are listed");
+    assert((await adm.getByText("Not reviewed").count()) >= 12, "none is reviewed yet");
+    const rule = adm.locator("details#r-latex_allergy");
+    await rule.locator("summary").click();
+    await rule.getByRole("button", { name: "Record that I reviewed it" }).click();
+    await adm.locator("details#r-latex_allergy summary .chip", { hasText: "Reviewed" }).waitFor();
+    await adm.locator("details#r-latex_allergy").getByText(new RegExp(`Reviewed by ${who}`)).waitFor();
+    // editing what it says clears the review and raises the version
+    const r2 = adm.locator("details#r-latex_allergy");
+    const v0 = Number(/ v(\d+)/.exec(await adm.locator("details#r-latex_allergy summary").innerText())?.[1] ?? "1");
+    await r2.locator('textarea[name="message_en"]').fill(`A latex allergy is recorded: use latex-free gloves, rubber dams and materials (${stamp}).`);
+    await r2.getByRole("button", { name: "Save the rule" }).click();
+    await adm.locator("details#r-latex_allergy summary .chip", { hasText: "Not reviewed" }).waitFor();
+    await adm.locator("details#r-latex_allergy summary").getByText(`v${v0 + 1}`, { exact: false }).waitFor();
+    // a rule needs something in the file to match
+    await r2.locator('textarea[name="allergies"]').fill("");
+    await r2.getByRole("button", { name: "Save the rule" }).click();
+    await adm.getByText(/Choose what in the file raises the rule/).waitFor();
+    await actx.close();
+  });
+
   await step("another user cannot see or reach Alice's file, documents or exports", async () => {
     await signup(bob, `bob-${stamp}@example.test`, "Bob Beta");
     await bob.getByText("No files yet").waitFor();
@@ -1185,6 +2061,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const href = "/api/documents/" + cardioDocId;
     assert((await bctx.request.get(BASE + href)).status() === 404, "document hidden from bob");
     assert((await bctx.request.get(`${BASE}/api/patients/${pid}/report?scope=full`)).status() === 404, "report hidden from bob");
+    assert((await bctx.request.get(`${BASE}/api/patients/${pid}/export`)).status() === 403, "export refused to bob");
+    assert((await bob.goto(`${BASE}/patients/${pid}/search?q=metformin`)).status() === 404, "search page hidden from bob");
+    assert((await bob.goto(`${BASE}/patients/${pid}/symptoms`)).status() === 404, "symptoms page hidden from bob");
     const up = await bctx.request.post(`${BASE}/api/patients/${pid}/documents`, { multipart: { file: { name: "x.pdf", mimeType: "application/pdf", buffer: pdf() }, title: "intruder" }, maxRedirects: 0 });
     assert(up.status() === 403, "upload into alice file refused: " + up.status());
     const adm = await bob.goto(`${BASE}/admin/specialties`);
@@ -1317,12 +2196,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
     await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
     const mp = await m.newPage(); watch(mp, "mobile");
-    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/sharing/new", "/documents", "/timeline"]) {
+    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/dental?tab=treatment", "/dental?tab=care", "/medications", "/sharing/new", "/documents", "/timeline"]) {
       const r = await mp.goto(`${BASE}/patients/${pid}${p}`);
       assert(r.status() === 200, `${p} => ${r.status()}`);
       assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
       const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      assert(over <= 1, `horizontal overflow of ${over}px on ${p || "/"}`);
+      const culprits = over > 1 ? await mp.evaluate(() => [...document.querySelectorAll("body *")].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > document.documentElement.clientWidth + 1 || r.left < -1); })
+        .slice(0, 4).map((el) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className).split(" ")[0]}`)) : [];
+      assert(over <= 1, `horizontal overflow of ${over}px on ${p || "/"} (${culprits.join(", ")})`);
       if (p === "") await mp.screenshot({ path: path.join(OUT, "mobile-dashboard-ar.png"), fullPage: true });
       if (p === "/vitals") await mp.screenshot({ path: path.join(OUT, "mobile-vitals-ar.png"), fullPage: true });
       if (p === "/dental") await mp.screenshot({ path: path.join(OUT, "mobile-dental-ar.png"), fullPage: true });

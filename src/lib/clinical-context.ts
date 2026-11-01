@@ -17,7 +17,13 @@ export interface Lifestyle {
   tobacco_start_year: number | null; tobacco_quit_year: number | null; alcohol_status?: string | null; activity_level: string | null;
   pregnancy_status?: string | null; pregnancy_edd?: string | null; breastfeeding?: boolean | null;
   none_chronic_conditions: boolean; none_long_term_medications: boolean; none_devices: boolean;
+  /** structured social history (0028); absent in the shared view, which does not carry it */
+  occupation?: string | null; activity_minutes_per_week?: number | null; activity_days_per_week?: number | null; diet_pattern?: string | null;
+  sleep_hours?: number | null; sleep_quality?: string | null; living_situation?: string | null;
+  /** other substance use is sensitive: patient side only */
+  substance_use_status?: string | null; substance_types?: string[] | null;
 }
+export interface ExposureItem { kind: string; agent: string | null; setting: string; years: number | null; ongoing: boolean; protective_equipment: string }
 export interface ClinicalContextData {
   patient: { date_of_birth: string; sex: string; blood_abo: string | null; blood_rh: string | null; blood_group_verified: boolean; allergy_assertion: string };
   body: { height?: BodyValue; weight?: BodyValue } | null;
@@ -26,6 +32,8 @@ export interface ClinicalContextData {
   medications: { name: string; strength: string | null; dose: string | null; frequency: string | null; long_term: boolean; status: string }[];
   devices: { kind: string; name: string | null; body_site: string | null; implanted_on: string | null; date_precision: string | null; mri_safety: string }[];
   lifestyle: Lifestyle | null;
+  /** occupational / environmental exposures; absent in the shared view */
+  exposures?: ExposureItem[];
   highlights: HighlightRule[];
 }
 

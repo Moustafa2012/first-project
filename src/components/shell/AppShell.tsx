@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ChevronsUpDown, Plus } from "lucide-react";
+import { ChevronsUpDown, Plus, Search } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { getTheme } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
@@ -16,7 +16,10 @@ export interface Switcher { current: string; items: { href: string; label: strin
  * The signed-in app (Supabase-style): a rail of products on the side, the active product's menu next to it, a slim
  * top bar with the path (and a patient switcher), and the page.
  */
-export function AppShell({ nav, crumbs, switcher, user, children }: { nav: ShellNav; crumbs: Crumb[]; switcher?: Switcher; user: ShellUser; children: React.ReactNode }) {
+/** `search`: a box in the top bar that opens a search page (GET ?q=) */
+export interface ShellSearch { action: string; label: string; placeholder: string }
+
+export function AppShell({ nav, crumbs, switcher, user, search, children }: { nav: ShellNav; crumbs: Crumb[]; switcher?: Switcher; user: ShellUser; search?: ShellSearch; children: React.ReactNode }) {
   const { lang, t } = i18n();
   const dark = getTheme() === "dark";
   return (
@@ -47,6 +50,12 @@ export function AppShell({ nav, crumbs, switcher, user, children }: { nav: Shell
             <Suspense fallback={null}><ShellCrumbTail nav={nav} /></Suspense>
           </ol>
           <div className="spacer" />
+          {search && (
+            <form action={search.action} method="get" role="search" className="shell-search">
+              <Search size={14} aria-hidden="true" />
+              <input type="search" name="q" minLength={2} maxLength={100} placeholder={search.placeholder} aria-label={search.label} autoComplete="off" />
+            </form>
+          )}
           <NavUser name={user.name} email={user.email} avatar={user.avatar} admin={user.admin} text={{
             patients: t("المرضى", "Patients"), shares: t("سجل المشاركات", "Share register"), account: t("حسابي", "My account"), admin: t("الإدارة", "Admin"), signOut: t("تسجيل الخروج", "Sign out"), menu: t("قائمة الحساب", "Account menu"), sectionAccount: t("الحساب", "Account"), sectionPrefs: t("التفضيلات", "Preferences"), roleLabel: user.admin ? t("مدير النظام", "Administrator") : t("مستخدم", "Member"), langCode: lang === "ar" ? "AR" : "EN",
             langLabel: lang === "ar" ? "English" : "العربية", nextLang: lang === "ar" ? "en" : "ar",
@@ -76,7 +85,8 @@ export function globalNav(admin: boolean, t: (a: string, e: string) => string): 
     ],
     footer: [
       ...(admin ? [{ key: "admin", label: t("الإدارة", "Admin"), icon: "admin", href: "/admin/specialties", match: ["/admin"],
-        menu: { title: t("الإدارة", "Admin"), groups: [{ items: [{ href: "/admin/specialties", label: t("الأقسام الطبية", "Specialties"), icon: "specialties" }] }] } }] : []),
+        menu: { title: t("الإدارة", "Admin"), groups: [{ items: [{ href: "/admin/specialties", label: t("الأقسام الطبية", "Specialties"), icon: "specialties" },
+          { href: "/admin/safety-rules", label: t("قواعد تنبيهات السلامة", "Safety alert rules"), icon: "audit" }] }] } }] : []),
       { key: "account", label: t("حسابي", "My account"), icon: "account", href: "/account", match: ["/account"] },
     ],
   };

@@ -6,12 +6,14 @@ import { getAccess, getPatient, getProcedureCatalog, getSpecialties } from "@/li
 import { getTz } from "@/lib/auth";
 import { fmtPartialDate, localDate } from "@/lib/format";
 import { ENTITIES } from "@/lib/entities";
-import { SOURCE, lbl } from "@/lib/labels";
+import { IMAGING_MODALITY, SOURCE, lbl } from "@/lib/labels";
+import { isWholeMouth, type AnnotationRow } from "@/lib/dental-imaging";
+import { addImagingAnnotation, invalidateImagingAnnotation } from "@/app/actions/imaging";
 import {
   ABSENT_STATUSES, ANXIETY, BRUSHING, DENTITION, EXAM_KIND, FINDING_KIND, FLOSSING, ORAL_HYGIENE, TOOTH_STATUS, chartDentition, compareExams, deriveChart, fmtSurfaces,
   type ExamRow, type FindingRow,
 } from "@/lib/dental";
-import { Card, Chip, Empty, PageHead } from "@/components/ui";
+import { Banner, Card, Chip, Empty, PageHead } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { EntitySection } from "@/components/EntitySection";
 import { EntityForm } from "@/components/EntityForm";
@@ -20,6 +22,8 @@ import { DENTAL_DIAGNOSES, OPEN_PROBLEM, type ToothImage, type ToothProcedure } 
 import { setConditionTeeth } from "@/app/actions/dental";
 import { ExamEditor } from "@/components/dental/ExamEditor";
 import { PerioSection } from "@/components/dental/PerioSection";
+import { ExamExtras } from "@/components/dental/ExamExtras";
+import { baselineExam, openSoftTissueAlert, type PulpTest, type Sections } from "@/lib/dental-exam";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import { getClinicalContext } from "@/lib/clinical-context-server";
 import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actions/dental";
@@ -29,26 +33,40 @@ import { OPEN_ITEM, OPEN_PLAN, type TreatmentCost, type TreatmentItem, type Trea
 import { pendingFollowUps, type Recall } from "@/lib/followups";
 import { PendingList, RecallList } from "@/components/dental/FollowUps";
 import { RECALL_KIND } from "@/lib/labels";
+import { Prescriptions } from "@/components/rx/Prescriptions";
+import { RxForm } from "@/components/rx/RxForm";
+import { ConsentList } from "@/components/rx/Consents";
+import { ConsentForm, type ConsentTarget } from "@/components/rx/ConsentForm";
+import { SafetyAlerts, SafetyList } from "@/components/SafetyAlerts";
+import { activeDrugNames, groupPrescriptions } from "@/lib/prescription";
+import { consentsForPlan, type ConsentRow } from "@/lib/consent";
+import { alertsByItem, evaluateSafety } from "@/lib/safety-rules";
+import { getSafetyFacts, getSafetyRules } from "@/lib/safety-server";
+import { createPrescription, invalidatePrescription, setPrescriptionStatus } from "@/app/actions/prescriptions";
+import { signConsent, withdrawConsent } from "@/app/actions/consents";
 
 type Profile = Record<string, string | boolean | null>;
 
-export default async function DentalPage({ params, searchParams }: { params: { pid: string }; searchParams: { asof?: string; a?: string; b?: string; tab?: string; pv?: string; pa?: string; pb?: string; pnew?: string } }) {
+export default async function DentalPage({ params, searchParams }: { params: { pid: string }; searchParams: { uploaded?: string; error?: string; asof?: string; a?: string; b?: string; tab?: string; pv?: string; pa?: string; pb?: string; pnew?: string } }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const p = await getPatient(params.pid);
   const [access, specs, ctx, catalog] = await Promise.all([getAccess(p.id), getSpecialties(), getClinicalContext(p.id), getProcedureCatalog()]);
   const dent = specs.find((s) => s.code === "dentistry");
   const supabase = createClient();
-  const [{ data: profile }, { data: examRows }, { data: stateRows }, { data: findingRows }, { data: condRows }, { data: ctrRows }, { data: procRows }, { data: imgRows }] = await Promise.all([
+  const [{ data: profile }, { data: examRows }, { data: stateRows }, { data: findingRows }, { data: condRows }, { data: ctrRows }, { data: procRows }, { data: imgRows }, { data: pulpRows }] = await Promise.all([
     supabase.from("dental_profiles").select("*").eq("patient_id", p.id).maybeSingle(),
-    supabase.from("dental_exams").select("*").eq("patient_id", p.id).eq("record_status", "active").order("exam_date", { ascending: false }),
+    supabase.from("dental_exams").select("*").eq("patient_id", p.id).eq("record_status", "active").order("exam_date", { ascending: false }).order("recorded_at", { ascending: false }),
     supabase.from("dental_tooth_states").select("exam_id, tooth, status, note").eq("patient_id", p.id),
     supabase.from("dental_findings").select("*").eq("patient_id", p.id).eq("record_status", "active").order("observed_on", { ascending: false }),
     supabase.from("conditions").select("id, name, teeth, certainty, clinical_status, contributed_by, resolved_date, onset_date, specialty_id").eq("patient_id", p.id).eq("record_status", "active"),
     supabase.from("share_contributors").select("id, full_name").eq("patient_id", p.id),
     supabase.from("procedures").select("id, name, kind, teeth, performed_on, date_precision, operator_name, contributed_by").eq("patient_id", p.id).eq("record_status", "active"),
-    supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression").eq("patient_id", p.id).eq("record_status", "active"),
+    supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression, findings, bone_levels, specialty_id, contributed_by")
+      .eq("patient_id", p.id).eq("record_status", "active").order("performed_on", { ascending: false, nullsFirst: false }),
+    supabase.from("dental_pulp_tests").select("exam_id, tooth, test, result, value, note").eq("patient_id", p.id).order("tooth"),
   ]);
+  const pulpOf = (examId: string) => ((pulpRows ?? []) as (PulpTest & { exam_id: string })[]).filter((x) => x.exam_id === examId);
   // treatment plans, their treatments and the private costs
   const [{ data: planRows }, { data: itemRows }, { data: costRows }] = await Promise.all([
     supabase.from("treatment_plans").select("*").eq("patient_id", p.id).eq("record_status", "active").order("recorded_at", { ascending: false }),
@@ -57,16 +75,47 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   ]);
   const plans: TreatmentPlan[] = ((planRows ?? []) as TreatmentPlan[]).map((pl) => ({ ...pl, items: ((itemRows ?? []) as (TreatmentItem & { plan_id: string })[]).filter((i) => i.plan_id === pl.id) }));
   const costs = (costRows ?? []) as TreatmentCost[];
+  // prescriptions (with their medicines) and consents of the dental file, and the safety alerts the reviewable rules raise
+  const [{ data: rxRows }, { data: consentRows }, safetyRules, safetyFacts] = await Promise.all([
+    supabase.from("prescriptions").select("*").eq("patient_id", p.id).eq("record_status", "active").eq("specialty_id", dent?.id ?? "").order("issued_on", { ascending: false }).order("recorded_at", { ascending: false }),
+    supabase.from("consents").select("*").eq("patient_id", p.id).eq("record_status", "active").order("signed_at", { ascending: false }),
+    getSafetyRules(), getSafetyFacts(p.id),
+  ]);
+  const { data: rxMedRows } = (rxRows ?? []).length
+    ? await supabase.from("medications").select("*").eq("patient_id", p.id).eq("record_status", "active").in("prescription_id", (rxRows ?? []).map((r) => r.id as string))
+    : { data: [] as Record<string, unknown>[] };
+  const prescriptions = groupPrescriptions((rxRows ?? []) as Record<string, unknown>[], (rxMedRows ?? []) as Record<string, unknown>[]);
+  const consents = ((consentRows ?? []) as (ConsentRow & { specialty_id: string | null })[]).filter((c) => c.treatment_plan_id || c.treatment_item_id || c.specialty_id === dent?.id);
+  const catalogCategory = new Map(catalog.map((c) => [c.code, c.category]));
+  const safety = evaluateSafety(safetyRules, {
+    context: ctx, labs: safetyFacts.labs, history: safetyFacts.history, drugs: activeDrugNames(prescriptions),
+    items: plans.filter((pl) => OPEN_PLAN.has(pl.status)).flatMap((pl) => pl.items.filter((i) => OPEN_ITEM.has(i.status))
+      .map((i) => ({ id: i.id, name: i.name, catalog_code: i.catalog_code, category: catalogCategory.get(i.catalog_code ?? "") ?? null, teeth: i.teeth, plan: pl.title }))),
+  });
+  const safetyByItem = alertsByItem(safety);
+  const consentTargets: ConsentTarget[] = plans.filter((pl) => OPEN_PLAN.has(pl.status)).flatMap((pl) => [
+    { id: `plan:${pl.id}`, kind: "plan" as const, label: pl.title, plan_id: pl.id },
+    ...pl.items.filter((i) => OPEN_ITEM.has(i.status)).map((i) => ({ id: `item:${i.id}`, kind: "item" as const, plan_id: pl.id,
+      label: `${i.name}${i.teeth?.length ? ` (${i.teeth.join(", ")})` : ""}` })),
+  ]);
   const openPlans = plans.filter((pl) => OPEN_PLAN.has(pl.status));
   const planned = openPlans.flatMap((pl) => pl.items.filter((i) => OPEN_ITEM.has(i.status) && i.teeth?.length)
     .map((i) => ({ id: i.id, name: i.name, status: i.status, plan: pl.title, plan_id: pl.id, teeth: i.teeth })));
   const imgIds = (imgRows ?? []).map((i) => i.id as string);
   const { data: imgDocs } = imgIds.length
-    ? await supabase.from("medical_documents").select("id, title, imaging_id").eq("patient_id", p.id).eq("record_status", "active").in("imaging_id", imgIds)
-    : { data: [] as { id: string; title: string; imaging_id: string }[] };
+    ? await supabase.from("medical_documents").select("id, title, imaging_id, mime_type").eq("patient_id", p.id).eq("record_status", "active").in("imaging_id", imgIds).order("uploaded_at")
+    : { data: [] as { id: string; title: string; imaging_id: string; mime_type: string }[] };
+  const { data: annRows } = imgIds.length
+    ? await supabase.from("imaging_annotations").select("id, imaging_id, document_id, shapes, recorded_at, contributed_by, source_detail").eq("patient_id", p.id)
+      .eq("record_status", "active").in("imaging_id", imgIds).order("recorded_at")
+    : { data: [] as { id: string; imaging_id: string; document_id: string; shapes: AnnotationRow["shapes"]; recorded_at: string; contributed_by: string | null; source_detail: string | null }[] };
   const procedures = ((procRows ?? []) as ToothProcedure[]).filter((x) => Array.isArray(x.teeth) && x.teeth.length);
-  const images = ((imgRows ?? []) as ToothImage[]).filter((x) => Array.isArray(x.teeth) && x.teeth.length)
-    .map((i) => ({ ...i, documents: (imgDocs ?? []).filter((d) => d.imaging_id === i.id).map((d) => ({ id: d.id as string, title: d.title as string })) }));
+  // images that name teeth, and the whole-mouth ones (a panoramic, CBCT or cephalometric image of dentistry) that name none
+  const images = ((imgRows ?? []) as (ToothImage & { specialty_id?: string | null })[])
+    .filter((x) => (Array.isArray(x.teeth) && x.teeth.length) || (isWholeMouth(x.modality, x.teeth) && (!x.specialty_id || x.specialty_id === dent?.id)))
+    .map((i) => ({ ...i, documents: (imgDocs ?? []).filter((d) => d.imaging_id === i.id).map((d) => ({ id: d.id as string, title: d.title as string, mime_type: d.mime_type as string })) }));
+  const annotations: AnnotationRow[] = (annRows ?? []).map((a) => ({ id: a.id, imaging_id: a.imaging_id, document_id: a.document_id, shapes: a.shapes, recorded_at: a.recorded_at,
+    contributed_by: a.contributed_by, by: a.source_detail }));
   const exams: ExamRow[] = (examRows ?? []).map((e) => ({ ...e, states: (stateRows ?? []).filter((s) => s.exam_id === e.id) })) as ExamRow[];
   const findings = (findingRows ?? []) as FindingRow[];
   const allConds = (condRows ?? []) as (DentalDiagnosis & { specialty_id: string | null })[];
@@ -122,9 +171,25 @@ export default async function DentalPage({ params, searchParams }: { params: { p
       />
 
       <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={["dentistry"]} coreHref={`/patients/${p.id}/profile`} />
+      <SafetyAlerts alerts={safety} lang={lang} />
 
 
       {tab === "chart" && (<>
+      {(() => {
+        const baseline = baselineExam(exams);
+        const latestSoft = openSoftTissueAlert(exams);
+        return (<>
+          {latestSoft && (
+            <Banner tone="bad" title={t("آفة مشتبهة في الأنسجة الرخوة", "Suspicious soft-tissue lesion")}>
+              {t(`سُجّلت في فحص ${day(latestSoft.exam_date)} وتحتاج متابعة أو تحويلاً لأخصائي.`, `Recorded at the exam of ${day(latestSoft.exam_date)}; it needs follow-up or a specialist.`)}
+              {" "}<a href={`#exam-${latestSoft.id}`}>{t("عرض الفحص", "See the exam")}</a>
+            </Banner>
+          )}
+          <p className="small baseline-line">{baseline
+            ? <>{t("الحالة الابتدائية:", "Baseline:")} <a href={`#exam-${baseline.id}`}>{t(`الفحص الأساسي الشامل في ${day(baseline.exam_date)}`, `the comprehensive baseline exam of ${day(baseline.exam_date)}`)}</a>{baseline.examiner_name ? ` — ${baseline.examiner_name}` : ""}</>
+            : <span className="muted">{t("لا يوجد فحص أساسي شامل بعد: أول فحص كامل للأسنان والفم يُعلَّم «فحص أساسي» ليُقرأ عليه كل ما بعده.", "No comprehensive baseline exam yet: mark the first full exam of the teeth and mouth as the baseline so later exams are read against it.")}</span>}</p>
+        </>);
+      })()}
 
       <Card id="chart" title={asExam ? t(`المخطط كما كان في ${day(asExam.exam_date)}`, `The chart as of ${day(asExam.exam_date)}`) : t("مخطط الأسنان الحالي", "Current tooth chart")}
         actions={exams.length > 0 ? (
@@ -145,7 +210,11 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         <DentalChart dentition={dentition} exams={exams} findings={findings} diagnoses={diagnoses} contributors={contributors} lang={lang}
           pid={p.id} canWrite={access.canWrite} today={today} asOf={asExam?.exam_date ?? null} specialtyId={dent?.id ?? null}
           procedures={procedures} images={images} problemsHref={`${base}?tab=problems#diagnoses`} toothAdd={toothAdd}
-          planned={planned} treatmentHref={`${base}?tab=treatment`} />
+          planned={planned} treatmentHref={`${base}?tab=treatment`}
+          viewer={{ docBase: "/api/documents/", annotations: {
+            rows: annotations,
+            ...(access.canWrite ? { add: addImagingAnnotation, addHidden: { _pid: p.id }, remove: invalidateImagingAnnotation, removeHidden: { _pid: p.id } } : {}),
+          } }} />
       </Card>
 
       {access.canWrite && (
@@ -156,7 +225,10 @@ export default async function DentalPage({ params, searchParams }: { params: { p
               <p className="small muted">{t("ما تسجله أنت يظهر «إفادة غير موثقة» حتى يؤكده طبيب. اختر «إفادة المريض» نوعاً للفحص إن لم يكن فحصاً سريرياً.",
                 "What you record shows as “unverified” until a clinician confirms it. Choose “Patient's own account” as the kind if it was not a clinical exam.")}</p>
               <ExamEditor action={saveDentalExam} hidden={{ _pid: p.id }} lang={lang} today={today} defaultDentition={dentition}
-                conditions={diagnoses.map((d) => ({ id: d.id, name: d.name, teeth: d.teeth }))} idPrefix="px" evidenceDefault="patient_reported" />
+                conditions={diagnoses.map((d) => ({ id: d.id, name: d.name, teeth: d.teeth }))} idPrefix="px" evidenceDefault="patient_reported"
+                knownStates={[...deriveChart(exams, findings).values()].filter((v) => v.status).map((v) => ({ tooth: v.tooth, status: v.status! }))}
+                suggestBaseline={!exams.some((e) => (e as ExamRow & { is_baseline?: boolean }).is_baseline)}
+                images={images.map((i) => ({ id: i.id, label: `${lbl(IMAGING_MODALITY, i.modality, lang)}${i.performed_on ? ` ${fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang)}` : ""}` }))} />
             </div>
           </details>
         </Card>
@@ -181,6 +253,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
                 <article key={e.id} className="rec" id={`exam-${e.id}`}>
                   <div className="row between">
                     <span className="row" style={{ gap: ".4rem" }}><strong>{day(e.exam_date)}</strong> {lbl(EXAM_KIND, e.kind, lang)}
+                      {(e as ExamRow & { is_baseline?: boolean }).is_baseline && <Chip tone="ok">{t("فحص أساسي", "Baseline")}</Chip>}
                       {e.contributed_by ? <Chip tone="info">{t(`أضافه ${contributors[e.contributed_by] ?? "طبيب"} عبر رابط`, `Added by ${contributors[e.contributed_by] ?? "a doctor"} via a link`)}</Chip>
                         : e.verification === "reported" ? <Chip tone="muted">{t("إفادة غير موثقة", "Unverified (reported)")}</Chip> : <Chip tone="ok">{t("موثّق", "Confirmed")}</Chip>}
                       <Chip tone="muted">{lbl(SOURCE, e.source, lang)}</Chip></span>
@@ -190,6 +263,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
                     {" · "}{t(`${e.states.length} سن · ${fs.length} موجود`, `${e.states.length} teeth · ${fs.length} findings`)}</p>
                   {e.chief_complaint && <p className="small">{t("الشكوى", "Complaint")}: {e.chief_complaint}</p>}
                   {fs.length > 0 && <p className="small">{fs.map((f) => `${f.tooth}${f.surfaces.length ? " " + fmtSurfaces(f.surfaces, f.tooth) : ""} ${lbl(FINDING_KIND, f.kind, lang)}`).join(" · ")}</p>}
+                  <ExamExtras sections={(e as ExamRow & { sections?: Sections | null }).sections} pulp={pulpOf(e.id)} lang={lang} />
                   {e.notes && <p className="small">{e.notes}</p>}
                   {access.canWrite && (
                     <details className="fold"><summary>{t("أُدخل خطأً", "Entered in error")}</summary><div className="fold-body">
@@ -256,7 +330,43 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         <Card id="treatment" title={t("العلاج وخطط العلاج", "Treatment & treatment plans")}>
           <p className="small muted" style={{ marginBlockStart: 0 }}>{t("لكل علاج دورة: مقترح ← موافَق عليه ← مجدول ← منجز. لا يُسجَّل علاج منجزاً قبل الموافقة عليه، والجراحي يحتاج تأكيداً صريحاً. عند الإنجاز يُضاف الإجراء إلى الملف ويُحدَّث المخطط وتُغلق المشكلة التي عالجها.",
             "Each treatment moves: proposed → accepted → scheduled → completed. Nothing is completed before it was accepted, and a surgical one needs an explicit confirmation. Completing it adds the procedure, updates the chart and closes the problem it treated.")}</p>
-          <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors} />
+          <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors}
+            safety={safetyByItem} extras={(pl) => {
+              const own = consentsForPlan(consents, pl.id);
+              return (
+                <p className="small plan-consents" data-plan-consents={pl.id}>
+                  <strong>{t("الموافقات", "Consents")}:</strong>{" "}
+                  {own.length === 0 ? <span className="muted">{t("لا موافقة موقّعة لهذه الخطة بعد.", "No signed consent for this plan yet.")}</span>
+                    : own.map((c) => <a key={c.id} href="#consents" className={`chip ${c.status === "signed" ? "ok" : c.status === "withdrawn" ? "bad" : "muted"}`}>{c.title} · {t(`النسخة ${c.version}`, `v${c.version}`)} · {c.status === "signed" ? t("موقّعة", "signed") : c.status === "withdrawn" ? t("مسحوبة", "withdrawn") : t("مستبدلة", "superseded")}</a>)}
+                </p>
+              );
+            }} />
+        </Card>
+      )}
+
+      {tab === "treatment" && (
+        <Card id="consents" title={t("الموافقات الموقّعة", "Signed consents")}>
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("يوقّع المريض أو وليّه بإصبعه أو بالفأرة، ويُحفظ نص الموافقة كما وُقّع. لا تُعدَّل ولا تُحذف: تُسحب بسبب، أو تُستبدل بنسخة جديدة.",
+            "The patient or guardian signs with a finger or mouse, and the text is kept as signed. A consent is never edited or deleted: it is withdrawn with a reason, or replaced by a new version.")}</p>
+          <ConsentList consents={consents as ConsentRow[]} lang={lang} tz={tz} contributors={contributors}
+            actions={{
+              hidden: { _pid: p.id }, withdraw: access.canWrite ? withdrawConsent : undefined,
+              signatureHref: (c) => `/api/patients/${p.id}/consents/${c.id}/signature`, pdfHref: (c) => `/api/patients/${p.id}/consents/${c.id}/pdf`,
+              newVersion: access.canWrite ? (c) => (
+                <ConsentForm action={signConsent} hidden={{ _pid: p.id, ...(dent ? { specialty_id: dent.id } : {}) }} lang={lang} idPrefix={`cv-${c.id.slice(0, 8)}`} targets={consentTargets}
+                  signerName={c.signer_name} submitLabel={t("توقيع النسخة الجديدة", "Sign the new version")}
+                  supersede={{ id: c.id, kind: c.kind, title: c.title, body: (c as ConsentRow & { body: string }).body, target: c.treatment_item_id ? `item:${c.treatment_item_id}` : c.treatment_plan_id ? `plan:${c.treatment_plan_id}` : null }} />
+              ) : undefined,
+            }} />
+          {access.canWrite && (
+            <details className="fold" id="new-consent">
+              <summary>{t("موافقة جديدة بالتوقيع", "A new consent to sign")}</summary>
+              <div className="fold-body">
+                <ConsentForm action={signConsent} hidden={{ _pid: p.id, ...(dent ? { specialty_id: dent.id } : {}) }} lang={lang} idPrefix="nc" targets={consentTargets}
+                  signerName={p.full_name} submitLabel={t("توقيع وحفظ الموافقة", "Sign and save the consent")} />
+              </div>
+            </details>
+          )}
         </Card>
       )}
 
@@ -295,6 +405,21 @@ export default async function DentalPage({ params, searchParams }: { params: { p
       })())}
 
       {tab === "care" && (<>
+        <Card id="prescriptions" title={t("الوصفات الطبية", "Prescriptions")}>
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("الوصفة تجمع عدة أدوية بجرعتها ومدتها وكميتها؛ تُضاف الأدوية إلى الملف دفعة واحدة وتنتهي بنهاية مدتها، ويمكن طباعة الوصفة.",
+            "A prescription groups several medicines with their dose, duration and quantity; the medicines are added to the file in one step and end when their duration does, and the prescription can be printed.")}</p>
+          <Prescriptions rxs={prescriptions} lang={lang} tz={tz} alerts={safety}
+            contributors={contributors} actions={{ hidden: { _pid: p.id }, ...(access.canWrite ? { status: setPrescriptionStatus, invalidate: invalidatePrescription } : {}),
+              pdfHref: (rx) => `/api/patients/${p.id}/prescriptions/${rx.id}/pdf` }} />
+          {access.canWrite && (
+            <details className="fold" id="new-rx">
+              <summary>{t("وصفة جديدة", "A new prescription")}</summary>
+              <div className="fold-body">
+                <RxForm action={createPrescription} hidden={{ _pid: p.id, ...(dent ? { specialty_id: dent.id } : {}) }} lang={lang} today={today} idPrefix="nrx" submitLabel={t("حفظ الوصفة", "Save the prescription")} />
+              </div>
+            </details>
+          )}
+        </Card>
         <EntitySection entity={ENTITIES.visits} pid={p.id} returnPath={base} title={t("زيارات الأسنان", "Dental visits")} compact
           filter={dent ? { specialty_id: dent.id } : {}} defaults={{ kind: "dental" }} context={{ fixed: dent ? { specialty_id: dent.id } : {}, dental: true }} addLabel={t("إضافة زيارة أسنان", "Add a dental visit")} />
         <EntitySection entity={ENTITIES.procedures} pid={p.id} returnPath={base} title={t("إجراءات الأسنان", "Dental procedures")} compact
@@ -308,6 +433,27 @@ export default async function DentalPage({ params, searchParams }: { params: { p
       {tab === "imaging" && (<>
         <EntitySection entity={ENTITIES.imaging} pid={p.id} returnPath={base} title={t("صور وأشعة الأسنان", "Dental images & X-rays")} compact
           filter={dent ? { specialty_id: dent.id } : {}} defaults={{ modality: "dental_xray" }} context={{ fixed: dent ? { specialty_id: dent.id } : {}, dental: true }} addLabel={t("إضافة صورة أو أشعة", "Add an image or X-ray")} />
+        {searchParams.uploaded === "1" && <Banner tone="ok">{t("أُرفق ملف الصورة بالدراسة. افتحه من المخطط ثم «عرض».", "The image file was attached to the study. Open it from the chart, then “View”.")}</Banner>}
+        {searchParams.error && <Banner tone="bad">{t("تعذر رفع الملف (JPG أو PNG أو WebP حتى 20 ميغابايت).", "The file could not be uploaded (JPG, PNG or WebP up to 20 MB).")}</Banner>}
+        {access.canWrite && (imgRows ?? []).some((x) => x.specialty_id === dent?.id || (Array.isArray(x.teeth) && x.teeth.length)) && (
+          <Card id="attach-image" title={t("إرفاق ملف صورة بدراسة تصوير", "Attach an image file to an imaging study")}>
+            <p className="small muted" style={{ marginBlockStart: 0 }}>{t("الدراسة سجل (النوع والتاريخ والقراءة)، والملف هو الصورة نفسها. بعد الإرفاق تُفتح الصورة في العارض: تكبير وتدوير وسطوع وتباين ومقارنة وتعليقات.",
+              "The study is the record (type, date, reading); the file is the picture itself. Once attached it opens in the viewer: zoom, rotate, brightness, contrast, compare and annotations.")}</p>
+            <form method="post" action={`/api/patients/${p.id}/documents`} encType="multipart/form-data" className="stack" id="attach-image-form">
+              <input type="hidden" name="_return" value={`${base}?tab=imaging`} /><input type="hidden" name="doc_type" value="dental_image" />
+              {dent && <input type="hidden" name="specialty_id" value={dent.id} />}
+              <div className="form-grid">
+                <div className="field"><label htmlFor="ai_study">{t("الدراسة", "Study")}</label>
+                  <select id="ai_study" name="imaging_id" required>{(imgRows ?? []).filter((x) => x.specialty_id === dent?.id || (Array.isArray(x.teeth) && x.teeth.length))
+                    .map((x) => <option key={x.id} value={x.id}>{lbl(IMAGING_MODALITY, x.modality, lang)}{x.performed_on ? ` — ${fmtPartialDate(x.performed_on, x.date_precision ?? "day", lang)}` : ""}{Array.isArray(x.teeth) && x.teeth.length ? ` — ${x.teeth.join(", ")}` : ""}</option>)}</select></div>
+                <div className="field"><label htmlFor="ai_file">{t("ملف الصورة (JPG / PNG / WebP)", "Image file (JPG / PNG / WebP)")}</label>
+                  <input id="ai_file" name="file" type="file" required accept="image/jpeg,image/png,image/webp" /></div>
+                <div className="field"><label htmlFor="ai_title">{t("العنوان", "Title")}</label><input id="ai_title" name="title" maxLength={200} /></div>
+              </div>
+              <div><button className="btn primary">{t("إرفاق الصورة", "Attach the image")}</button></div>
+            </form>
+          </Card>
+        )}
         <p className="small"><Link href={`/patients/${p.id}/documents${dent ? `?specialty=${dent.id}` : ""}`}>{t("ملفات الصور والتقارير (المستندات) ←", "Image files and reports (documents) →")}</Link></p>
       </>)}
 

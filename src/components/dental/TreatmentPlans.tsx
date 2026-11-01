@@ -10,6 +10,8 @@ import { lbl } from "@/lib/labels";
 import { Chip, Empty } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton, type FormAction } from "@/components/ui/client";
 import { TreatmentStatusForm } from "./TreatmentStatus";
+import { SafetyList } from "@/components/SafetyAlerts";
+import type { SafetyAlert } from "@/lib/safety-rules";
 
 /** What the viewer may do: the patient manages everything; a clinician through a share moves treatments along and notes their own cost. */
 export interface TreatmentActions {
@@ -88,10 +90,14 @@ export function TreatmentItemForm({
 }
 
 export function TreatmentPlans({
-  plans, costs = [], catalog, problems, actions, lang, today, contributors = {},
+  plans, costs = [], catalog, problems, actions, lang, today, contributors = {}, safety, extras,
 }: {
   plans: TreatmentPlan[]; costs?: TreatmentCost[]; catalog: CatalogItem[]; problems: ProblemRef[]; actions: TreatmentActions; lang: Lang; today: string;
   contributors?: Record<string, string>;
+  /** safety alerts that concern each treatment (by treatment id), shown next to it */
+  safety?: Map<string, SafetyAlert[]>;
+  /** something shown under a plan's summary (e.g. the consents that cover it) */
+  extras?: (plan: TreatmentPlan) => React.ReactNode;
 }) {
   const ar = lang === "ar";
   const t = (a: string, e: string) => (ar ? a : e);
@@ -135,6 +141,7 @@ export function TreatmentPlans({
           <span className="small">{t(`منجز ${prog.done} من ${prog.total}`, `${prog.done} of ${prog.total} done`)} ({prog.pct}%)</span>
         </div>
         {p.notes && <p className="small">{p.notes}</p>}
+        {extras?.(p)}
 
         {p.items.length === 0 ? <Empty>{t("لا علاجات في هذه الخطة بعد.", "No treatments in this plan yet.")}</Empty> : byPhase(p.items).map(([phase, list]) => (
           <div key={phase} className="plan-phase">
@@ -161,6 +168,7 @@ export function TreatmentPlans({
                         i.completed_on && t(`أُنجز ${day(i.completed_on)}`, `done ${day(i.completed_on)}`),
                         i.status_reason, i.notes].filter(Boolean).join(" · ")}
                     </div>
+                    {safety?.get(i.id) && OPEN_ITEM.has(i.status) && <SafetyList alerts={safety.get(i.id)!} lang={lang} compact />}
                     {(next.length > 0 || (actions.addCost && i.status !== "cancelled")) && (
                       <div className="row" style={{ gap: ".4rem" }}>
                         {next.length > 0 && (

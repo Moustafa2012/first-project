@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
-import { CONTRIB_MODULES, SHARE_MODULES } from "@/lib/labels";
+import { CLINICIAN_SPECIALTIES, CONTRIB_MODULES, SHARE_MODULES } from "@/lib/labels";
 import { Banner, PageHead } from "@/components/ui";
 import { SubmitButton } from "@/components/ui/client";
 import { ShareCreateShell } from "@/components/ShareCreateShell";
@@ -58,12 +58,29 @@ export default async function NewSharePage({ params, searchParams }: { params: {
           title: t("أُنشئت المشاركة", "Share created"), warn: t("انسخ الرابط والرمز الآن: لن يُعرضا مرة أخرى ولا نحتفظ بهما بصيغة مقروءة. أرسلهما بقناتين مختلفتين.", "Copy the link and PIN now: they will not be shown again and are not stored in readable form. Send them through two different channels."),
           link: t("رابط المشاركة", "Share link"), pin: t("رمز PIN", "PIN"), copy: t("نسخ", "Copy"), copied: t("تم النسخ", "Copied"), expires: t("تنتهي الصلاحية", "Expires"),
           done: t("إدارة المشاركة", "Manage this share"), hidePin: t("إخفاء", "Hide"), showPin: t("إظهار", "Show"),
+          qr: t("رمز QR للرابط", "QR code of the link"), qrHint: t("يمسحه الطبيب بكاميرا هاتفه ليفتح الرابط. الرمز يحوي الرابط فقط، لا الـ PIN.", "The doctor scans it with a phone camera to open the link. It holds the link only, never the PIN."),
+          whatsapp: t("إرسال الرابط عبر واتساب", "Send the link by WhatsApp"), whatsappText: t("رابط ملفي الصحي من بوابة شفاء:", "The link to my health file on Shifa Portal:"),
+          pinSeparate: t("أرسل رمز PIN بشكل منفصل (مكالمة أو رسالة أخرى): لا يُضاف إلى رسالة واتساب.", "Send the PIN separately (a call or another message): it is not added to the WhatsApp message."),
         }}>
           <input type="hidden" name="_pid" value={p.id} />
           <div className="form-grid">
             <div className="field wide"><label htmlFor="title">{t("غرض المشاركة", "Purpose")} <span className="req">*</span></label><input id="title" name="title" required maxLength={200} defaultValue={preset ? t(`زيارة ${preset.name_ar}`, `${preset.name_en} visit`) : ""} /></div>
-            <div className="field wide"><label htmlFor="recipient_label">{t("المستلم (اختياري)", "Recipient (optional)")}</label><input id="recipient_label" name="recipient_label" maxLength={200} placeholder={t("د. فلان — عيادة…", "Dr … — clinic …")} /></div>
           </div>
+
+          <fieldset id="clinician"><legend>{t("الطبيب الذي تذهب إليه", "The doctor you are going to")}</legend>
+            <p className="small muted" style={{ marginBlockStart: 0 }}>{t("تُحفظ هذه البيانات مع الرابط، ويظهر بها كل ما يضيفه الطبيب إلى ملفك؛ فلا يُطلب منه إدخال بياناته، بل يؤكد بنقرة أنه الطبيب المذكور ثم يسجّل التشخيص والعمل فقط.",
+              "These details are kept with the link and every addition the doctor makes carries them; the doctor does not type their details, they confirm with one click that they are the doctor named, then record only the diagnosis and the work.")}</p>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="cl_name">{t("اسم الطبيب", "Doctor's name")} <span className="req">*</span></label><input id="cl_name" name="clinician_name" required minLength={3} maxLength={120} placeholder={t("د. عبدالله …", "Dr …")} /></div>
+              <div className="field"><label htmlFor="cl_spec">{t("التخصص", "Specialty")} <span className="req">*</span></label>
+                <input id="cl_spec" name="clinician_specialty" required maxLength={120} list="cl_spec_list" defaultValue={preset ? t(preset.name_ar, preset.name_en) : ""} />
+                <datalist id="cl_spec_list">{CLINICIAN_SPECIALTIES.map((x) => <option key={x[0]} value={t(x[0], x[1])} />)}</datalist></div>
+              <div className="field"><label htmlFor="cl_fac">{t("العيادة / المنشأة", "Clinic / facility")} <span className="req">*</span></label><input id="cl_fac" name="clinician_facility" required maxLength={200} /></div>
+              <div className="field"><label htmlFor="cl_city">{t("المدينة", "City")}</label><input id="cl_city" name="clinician_city" maxLength={120} /></div>
+              <div className="field"><label htmlFor="cl_lic">{t("رقم الترخيص (اختياري)", "Licence no. (optional)")}</label><input id="cl_lic" name="clinician_license" maxLength={60} dir="ltr" /></div>
+              <div className="field"><label htmlFor="cl_phone">{t("هاتف العيادة (اختياري)", "Clinic phone (optional)")}</label><input id="cl_phone" name="clinician_phone" maxLength={40} dir="ltr" inputMode="tel" /></div>
+            </div>
+          </fieldset>
 
           <fieldset><legend>{t("النطاق", "Scope")}</legend>
             <div className="stack">
@@ -115,8 +132,8 @@ export default async function NewSharePage({ params, searchParams }: { params: {
             <div className="grid cols-2" style={{ paddingInlineStart: "1.6rem", marginBlockStart: ".4rem" }}>
               {CONTRIB_MODULES.map((m) => <label className="check small" key={m.value}><input type="checkbox" name="contribute" value={m.value} defaultChecked={m.value !== "medical_documents" || Boolean(preset)} />{m[lang]}</label>)}
             </div>
-            <p className="small muted">{t("يعرّف الطبيب بنفسه ويوقّع على الشاشة قبل أي إضافة. تظهر إضافاته باسمه داخل نطاق هذه المشاركة فقط، ولا يستطيع تعديل أو حذف ما سجلتَه أنت. تراجعها وتستطيع إبطالها كلها بخطوة واحدة. من يملك الرابط والرمز معاً يستطيع الإضافة، فاجعل المدة قصيرة.",
-              "The doctor states who they are and signs on screen before adding anything. Additions carry their name, stay inside this share's scope, and cannot change or remove what you recorded. You review them and can invalidate all of them in one step. Anyone holding both the link and the PIN can add, so keep the validity short.")}</p>
+            <p className="small muted">{t("يؤكد الطبيب بنقرة أنه الطبيب المذكور أعلاه قبل أي إضافة. تظهر إضافاته باسمه داخل نطاق هذه المشاركة فقط، ولا يستطيع تعديل أو حذف ما سجلتَه أنت. تراجعها وتستطيع إبطالها كلها بخطوة واحدة. من يملك الرابط والرمز معاً يستطيع الإضافة، فاجعل المدة قصيرة.",
+              "The doctor confirms with one click that they are the doctor named above before adding anything. Additions carry their name, stay inside this share's scope, and cannot change or remove what you recorded. You review them and can invalidate all of them in one step. Anyone holding both the link and the PIN can add, so keep the validity short.")}</p>
           </fieldset>
           <div><SubmitButton pending={t("جارٍ الإنشاء…", "Creating…")}>{t("إنشاء الرابط والرمز", "Create link & PIN")}</SubmitButton></div>
         </ShareCreateShell>

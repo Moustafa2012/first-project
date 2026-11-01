@@ -18,6 +18,11 @@ import { parseExamForm } from "@/lib/dental";
 import { localDate } from "@/lib/format";
 import { parseTreatmentItem } from "@/lib/treatment-form";
 import { COST_KIND, CURRENCIES, treatmentError } from "@/lib/treatment";
+import { parseShapes } from "@/lib/dental-imaging";
+import { parsePerioTeeth, type PerioTooth } from "@/lib/perio";
+import { buildPerioPlan } from "@/lib/perio-plan";
+import { dxErrorText, parseDx } from "@/lib/perio-staging";
+import type { SharePerio } from "@/lib/share-types";
 
 /** The doctor's PIN gate. Every failure path returns a generic message; the database enforces limits. */
 export async function openShare(_: FormState, fd: FormData): Promise<FormState> {
@@ -105,6 +110,20 @@ export async function identifyContributor(_: FormState, fd: FormData): Promise<F
   return { ok: true, message: t("تم. يمكنك الآن الإضافة إلى الملف.", "Done. You can now add to the file.") };
 }
 
+/** The doctor confirms, with one click, that they are the doctor the patient named on the link. */
+export async function confirmClinician(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const token = String(fd.get("_t") ?? "");
+  const session = validToken(token) ? getShareSession(token) : null;
+  if (!session) return { error: t("انتهت الجلسة. أدخل الرمز من جديد.", "Session ended. Enter the PIN again.") };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_confirm_clinician", { p_session_token: session, p_ip_hash: ipHash, p_user_agent: ua });
+  const status = (data as { status?: string } | null)?.status;
+  if (error || status !== "ok") return { error: error ? explainError(error, t) : t("الإضافة غير مسموحة في هذه المشاركة أو انتهت الجلسة.", "Adding is not allowed on this share, or the session ended.") };
+  revalidatePath(`/s/${token}/view`);
+  return { ok: true };
+}
+
 const CONTRIB_STATUS: Record<string, [string, string]> = {
   expired: ["انتهت الجلسة أو أُلغيت المشاركة. أدخل الرمز من جديد.", "The session ended or the share was revoked. Enter the PIN again."],
   forbidden: ["هذا النوع من الإضافة غير مسموح في هذه المشاركة.", "This kind of addition is not allowed on this share."],
@@ -137,6 +156,11 @@ export async function contributeRecord(_: FormState, fd: FormData): Promise<Form
     if (table === "procedures" && !payload.operator_name) payload.operator_name = who;
     if (table === "encounters" && !payload.practitioner_name) payload.practitioner_name = who;
   }
+  // the clinic the patient named on the link: the doctor does not type it
+  if (["encounters", "procedures", "imaging_studies", "appointments"].includes(table) && !payload.facility_name) {
+    const facility = await namedFacility(session);
+    if (facility) payload.facility_name = facility;
+  }
   const { ipHash, ua } = clientMeta();
   const { data, error } = await createAdminClient().rpc("share_contribute", { p_session_token: session, p_table: table, p_payload: payload, p_ip_hash: ipHash, p_user_agent: ua });
   if (error) return { error: explainError(error, t) };
@@ -165,6 +189,12 @@ export async function retractContribution(_: FormState, fd: FormData): Promise<F
   return { ok: true, message: t("سُحب السجل وبقي في التاريخ مع السبب.", "Withdrawn; it stays in the history with the reason.") };
 }
 
+/** The clinic the patient named on the link, so the clinician does not type it. */
+async function namedFacility(session: string): Promise<string | null> {
+  const { data } = await createAdminClient().rpc("share_clinician", { p_session_token: session });
+  return (data as { facility?: string | null } | null)?.facility ?? null;
+}
+
 /** A whole dental exam on the chart (tooth states + findings), saved under the clinician's name in one step. */
 export async function contributeDentalExam(_: FormState, fd: FormData): Promise<FormState> {
   const { t } = i18n();
@@ -173,6 +203,10 @@ export async function contributeDentalExam(_: FormState, fd: FormData): Promise<
   if (!session) return { error: t(...CONTRIB_STATUS.expired) };
   const parsed = parseExamForm(fd, t, localDate(new Date(), getTz()));
   if ("error" in parsed) return { error: parsed.error };
+  if (!parsed.exam.facility_name) {
+    const facility = await namedFacility(session);
+    if (facility) parsed.exam.facility_name = facility;
+  }
   const { ipHash, ua } = clientMeta();
   const { data, error } = await createAdminClient().rpc("share_contribute_dental_exam", {
     p_session_token: session, p_exam: parsed.exam, p_states: parsed.states, p_findings: parsed.findings, p_ip_hash: ipHash, p_user_agent: ua,
@@ -281,4 +315,95 @@ export async function shareAmendNote(_: FormState, fd: FormData): Promise<FormSt
   if (bad) return bad;
   revalidatePath(`/s/${s.token}/view`);
   return { ok: true, message: t("أُضيف التعديل الموثّق؛ النص الأصلي محفوظ.", "The amendment was added; the original text is kept.") };
+}
+
+/** The dentist draws on an image of the patient (arrows, circles, rectangles, text). Saved under their name; the file is not changed. */
+export async function shareAddAnnotation(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const imaging = String(fd.get("imaging_id") ?? ""), doc = String(fd.get("document_id") ?? "");
+  if (!UUID_RE.test(imaging) || !UUID_RE.test(doc)) return { error: t(...CONTRIB_STATUS.invalid) };
+  let raw: unknown;
+  try { raw = JSON.parse(String(fd.get("shapes") ?? "[]")); } catch { return { error: t("الرسم غير صالح.", "Invalid drawing.") }; }
+  const parsed = parseShapes(raw);
+  if ("error" in parsed) return { error: t("ارسم شكلاً واحداً على الأقل (حتى 50).", "Draw at least one shape (up to 50).") };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_add_annotation", {
+    p_session_token: s.session, p_imaging: imaging, p_document: doc, p_shapes: parsed.shapes, p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  if (error) return { error: explainError(error, t) };
+  const st = (data as { status?: string } | null)?.status ?? "invalid";
+  if (st !== "ok") return { error: t(...(CONTRIB_STATUS[st] ?? CONTRIB_STATUS.invalid)) };
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("حُفظ التعليق باسمك (الصورة الأصلية لم تتغير).", "The annotation was saved under your name (the original image is unchanged).") };
+}
+
+// ---------------------------------------------------------------- the periodontal chart through the link
+/** The periodontist saves their chart as a draft, or finalises it (with the periodontal diagnosis and the visit it belongs to). */
+export async function sharePerioSave(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const finalize = fd.get("_finalize") === "1";
+  const id = String(fd.get("_id") ?? "");
+  if (id && !UUID_RE.test(id)) return { error: t(...CONTRIB_STATUS.invalid) };
+  const date = String(fd.get("exam_date") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: t("أدخل تاريخ الفحص.", "Enter the exam date.") };
+  if (date > localDate(new Date(), getTz())) return { error: t("تاريخ الفحص في المستقبل.", "The exam date is in the future.") };
+  const parsed = parsePerioTeeth(String(fd.get("teeth") ?? "[]"));
+  if ("error" in parsed) return { error: parsed.error === "range"
+    ? t("قيمة خارج النطاق: العمق 0–20 مم، حافة اللثة من −15 إلى +15 مم، الحركة 0–3، انقسام الجذور 0–3.", "A value is out of range: depth 0–20 mm, margin −15 to +15 mm, mobility 0–3, furcation 0–3.")
+    : t("بيانات المخطط غير صالحة.", "The chart data is invalid.") };
+  if (finalize && !parsed.teeth.some((x) => x.missing || x.pd)) {
+    return { error: t("لا يُعتمد مخطط فارغ: سجّل أعماق الجيوب أولاً.", "An empty chart is not finalised: record the pocket depths first.") };
+  }
+  const dx = parseDx((k) => String(fd.get(k) ?? ""), finalize);
+  if ("error" in dx) return { error: dxErrorText(dx.error, t) ?? t(...CONTRIB_STATUS.invalid) };
+  const enc = String(fd.get("encounter_id") ?? "");
+  if (enc && !UUID_RE.test(enc)) return { error: t(...CONTRIB_STATUS.invalid) };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_perio_save", {
+    p_session_token: s.session, p_exam_id: id || null,
+    p_exam: { exam_date: date, notes: String(fd.get("notes") ?? "").slice(0, 4000), facility_name: String(fd.get("facility_name") ?? "").slice(0, 200), encounter_id: enc || null, ...dx.dx },
+    p_teeth: parsed.teeth, p_finalize: finalize, p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  if (error) return { error: dxErrorText(error.message, t) ?? explainError(error, t) };
+  const r = (data ?? {}) as { status?: string; id?: string; reason?: string };
+  if (r.status !== "ok") {
+    if (r.status === "invalid" && r.reason) {
+      if (/exam_empty/.test(r.reason)) return { error: t("لا يُعتمد مخطط فارغ.", "An empty chart is not finalised.") };
+      return { error: dxErrorText(r.reason, t) ?? t(...CONTRIB_STATUS.invalid) };
+    }
+    return { error: t(...(CONTRIB_STATUS[r.status ?? "invalid"] ?? CONTRIB_STATUS.invalid)) };
+  }
+  revalidatePath(`/s/${s.token}/view`);
+  return {
+    ok: true, data: { id: String(r.id ?? id) }, redirectTo: finalize ? `/s/${s.token}/view?pdone=1#perio` : undefined,
+    message: finalize ? t("اعتُمد مخطط اللثة باسمك.", "The periodontal chart was finalised under your name.") : t("حُفظت المسودة.", "Draft saved."),
+  };
+}
+
+/** The periodontist lays out the phased plan from a final chart in range (proposed under their name; the patient accepts it). */
+export async function sharePerioPlan(_: FormState, fd: FormData): Promise<FormState> {
+  const { t, lang } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const id = String(fd.get("_id") ?? "");
+  if (!UUID_RE.test(id)) return { error: t(...CONTRIB_STATUS.invalid) };
+  const admin = createAdminClient();
+  const { data: pd } = await admin.rpc("share_perio", { p_session_token: s.session });
+  const perio = pd as SharePerio | null;
+  const exam = perio?.status === "ok" ? perio.exams.find((e) => e.id === id && e.status === "final") : undefined;
+  if (!exam) return { error: t(...CONTRIB_STATUS.not_found) };
+  const plan = buildPerioPlan({ examDate: exam.exam_date, teeth: exam.teeth as PerioTooth[], dx: exam, lang });
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await admin.rpc("share_contribute_treatment_plan", {
+    p_session_token: s.session, p_ip_hash: ipHash, p_user_agent: ua, p_items: plan.items,
+    p_plan: { title: plan.title, lang, notes: plan.notes },
+  });
+  const bad = txAnswer(data, error, t);
+  if (bad) return bad;
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("اقترحت خطة اللثة بمراحلها باسمك؛ يعتمدها المريض.", "The phased gum plan was proposed under your name; the patient accepts it.") };
 }

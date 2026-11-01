@@ -34,6 +34,11 @@ export interface PerioTooth {
 export interface PerioExam {
   id: string; exam_date: string; status: "draft" | "final"; examiner_name?: string | null; facility_name?: string | null; notes?: string | null;
   finalized_at?: string | null; recorded_at?: string | null; record_status?: string; invalidated_reason?: string | null; teeth: PerioTooth[];
+  /** set when a clinician recorded the chart through a share link */
+  contributed_by?: string | null; source?: string | null; source_detail?: string | null; verification?: string | null; encounter_id?: string | null;
+  /** the periodontal diagnosis (2017 AAP/EFP), as the clinician saved it */
+  dx_kind?: string | null; dx_stage?: string | null; dx_grade?: string | null; dx_extent?: string | null;
+  dx_rbl_pct?: number | null; dx_teeth_lost_perio?: number | null; dx_note?: string | null;
 }
 
 /** permanent teeth, as seen when facing the patient */
@@ -84,6 +89,8 @@ export function calOf(t: Pick<PerioTooth, "pd" | "gm">): Six<number> | null {
   if (!t.pd) return null;
   return SITES.map((i) => calAt(t.pd?.[i], t.gm?.[i]));
 }
+/** was the gingival margin measured at this site (an empty margin is "not measured", not "at the CEJ") */
+export const marginMeasured = (t: Pick<PerioTooth, "gm">, site: number): boolean => t.gm?.[site] !== null && t.gm?.[site] !== undefined;
 /** colour band of a probing depth: up to 3 mm healthy, 4–5 moderate, 6+ deep */
 export function depthTone(pd: number | null | undefined): "ok" | "warn" | "deep" | null {
   if (pd === null || pd === undefined) return null;
@@ -152,7 +159,10 @@ export function comparePerio(before: PerioTooth[], after: PerioTooth[], threshol
       const p1 = t1.pd?.[i], p2 = t2.pd?.[i], k1 = c1?.[i], k2 = c2?.[i];
       if (p1 == null || p2 == null || k1 == null || k2 == null) continue;
       const ch: SiteChange = { tooth: t2.tooth, site: i, pdBefore: p1, pdAfter: p2, calBefore: k1, calAfter: k2, dCal: k2 - k1, dPd: p2 - p1 };
-      if (ch.dCal >= threshold) worse.push(ch);
+      // attachment is compared only when the margin was measured in both charts, or in neither (an unmeasured margin is
+      // not a margin at the CEJ: comparing it with a measured one would invent loss or gain)
+      const comparable = marginMeasured(t1, i) === marginMeasured(t2, i);
+      if (comparable && ch.dCal >= threshold) worse.push(ch);
       else if (ch.dPd <= -threshold) better.push(ch);
     }
   }
@@ -233,7 +243,7 @@ export function readSite(v: string, lo: number, hi: number): number | null | "ba
 }
 /**
  * Quick entry: after a keystroke, should the cursor move to the next site? A single digit moves on, except "1" when 10–20 may
- * follow (probing depths) and a lone sign; two digits always move on.
+ * follow (probing depths, or a negative margin down to −15) and a lone sign; two digits always move on.
  */
 export function siteComplete(v: string, waitAfterOne = true): boolean {
   const s = v.replace(/^[-+]/, "");

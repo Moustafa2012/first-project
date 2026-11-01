@@ -22,6 +22,20 @@ export interface ShareDental {
   /** current treatment plans (never with costs) and the costs this clinician entered themselves */
   plans?: import("@/lib/treatment").TreatmentPlan[];
   my_costs?: import("@/lib/treatment").TreatmentCost[];
+  /** pulp tests per exam id */
+  pulp?: Record<string, import("@/lib/dental-exam").PulpTest[]>;
+  /** annotations on the image files of the images above */
+  annotations?: import("@/lib/dental-imaging").AnnotationRow[];
+}
+
+/** The periodontal charts a link shows (public.share_perio): final charts in range and this clinician's own open draft. */
+export interface SharePerio {
+  status: string;
+  can_add: boolean;
+  contributor_id: string | null;
+  exams: import("@/lib/perio").PerioExam[];
+  factors: { date_of_birth: string | null; tobacco_status: string | null; cigarettes_per_day: number | null; waterpipe_per_week: number | null;
+             diabetes: boolean; hba1c: { value: number; at: string } | null };
 }
 
 export interface ShareNoteAmendment { body: string; reason: string; amended_at: string; amended_name: string | null }

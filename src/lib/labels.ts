@@ -71,7 +71,10 @@ export const PROCEDURE_KIND: Opt[] = [
   o("endoscopy", "منظار", "Endoscopy"), o("biopsy", "خزعة", "Biopsy"), o("therapy", "علاج", "Therapy"), o("other", "أخرى", "Other"),
 ];
 export const IMAGING_MODALITY: Opt[] = [
-  o("xray", "أشعة سينية", "X-ray"), o("dental_xray", "أشعة أسنان", "Dental X-ray"), o("panoramic", "بانوراما أسنان", "Panoramic"), o("ct", "أشعة مقطعية", "CT"),
+  o("xray", "أشعة سينية", "X-ray"), o("dental_xray", "أشعة أسنان", "Dental X-ray"), o("panoramic", "بانوراما أسنان", "Panoramic"),
+  o("periapical", "أشعة ذروية (Periapical)", "Periapical X-ray"), o("bitewing", "أشعة مجنّحة (Bitewing)", "Bitewing X-ray"), o("occlusal", "أشعة إطباقية", "Occlusal X-ray"),
+  o("intraoral_photo", "صورة داخل الفم", "Intraoral photo"), o("extraoral_photo", "صورة خارج الفم", "Extraoral photo"),
+  o("cbct", "أشعة مقطعية مخروطية (CBCT)", "Cone-beam CT (CBCT)"), o("cephalometric", "أشعة جانبية للجمجمة (Ceph)", "Cephalometric X-ray"), o("ct", "أشعة مقطعية", "CT"),
   o("mri", "رنين مغناطيسي", "MRI"), o("ultrasound", "سونار", "Ultrasound"), o("echo", "إيكو القلب", "Echocardiography"), o("mammography", "ماموغرام", "Mammography"),
   o("fluoroscopy", "تنظير شعاعي", "Fluoroscopy"), o("nuclear", "طب نووي", "Nuclear medicine"), o("other", "أخرى", "Other"),
 ];
@@ -123,6 +126,9 @@ export const CONTRIB_MODULES: Opt[] = [
   o("medical_documents", "رفع مستند أو صورة", "Upload a document or image"),
   o("dental_exams", "فحص أسنان على المخطط (طب الأسنان فقط)", "Dental exam on the chart (dentistry only)"),
   o("treatment_plans", "خطة علاج أسنان: اقتراح العلاج وتسجيل إنجازه (طب الأسنان فقط)", "Dental treatment plan: propose treatment and record it done (dentistry only)"),
+  o("perio_exams", "مخطط اللثة وتشخيص اللثة (طب الأسنان فقط)", "Periodontal chart and periodontal diagnosis (dentistry only)"),
+  o("prescriptions", "وصفة طبية مفصلة (عدة أدوية بالجرعة والمدة والكمية)", "Detailed prescription (several medicines with dose, duration and quantity)"),
+  o("consents", "تقديم موافقة يوقّعها المريض على شاشتك (علاج، جراحة، تخدير، أشعة…)", "Present a consent that the patient signs on your screen (treatment, surgery, anaesthesia, imaging…)"),
 ];
 /** the entity definition (src/lib/entities.ts) that describes each contributable table's fields */
 export const CONTRIB_ENTITY: Record<string, string> = {
@@ -241,3 +247,31 @@ export const TOBACCO_TYPE: Opt[] = [o("cigarettes", "سجائر", "Cigarettes"),
 export const ALCOHOL_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("none", "لا يشرب", "None"), o("occasional", "أحياناً", "Occasional"), o("regular", "بانتظام", "Regular"), o("former", "سابقاً", "Former")];
 export const ACTIVITY_LEVEL: Opt[] = [o("sedentary", "خامل", "Sedentary"), o("light", "خفيف", "Light"), o("moderate", "متوسط", "Moderate"), o("active", "نشيط", "Active")];
 export const PREGNANCY_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("not_pregnant", "غير حامل", "Not pregnant"), o("pregnant", "حامل", "Pregnant"), o("not_applicable", "لا ينطبق", "Not applicable")];
+
+/** suggestions for the specialty of the doctor a share is for (free text is allowed) */
+export const CLINICIAN_SPECIALTIES: [string, string][] = [
+  ["طب الأسنان العام", "General dentistry"], ["علاج اللثة", "Periodontics"], ["علاج العصب (اللبّ)", "Endodontics"],
+  ["جراحة الفم والفكين", "Oral & maxillofacial surgery"], ["تقويم الأسنان", "Orthodontics"], ["التركيبات وتعويض الأسنان", "Prosthodontics"],
+  ["طب أسنان الأطفال", "Paediatric dentistry"], ["أشعة الفم والفكين", "Oral & maxillofacial radiology"], ["طب الفم", "Oral medicine"],
+  ["طب الأسرة", "Family medicine"], ["الباطنة", "Internal medicine"], ["القلب", "Cardiology"], ["الغدد الصماء والسكري", "Endocrinology & diabetes"],
+  ["النساء والولادة", "Obstetrics & gynaecology"], ["الأطفال", "Paediatrics"], ["العظام", "Orthopaedics"], ["الجلدية", "Dermatology"],
+  ["العيون", "Ophthalmology"], ["الأنف والأذن والحنجرة", "ENT"], ["المسالك البولية", "Urology"], ["الأعصاب", "Neurology"], ["الطب النفسي", "Psychiatry"],
+];
+
+// ---------------------------------------------------------------- general completion (0028): social history, symptoms
+export const DIET_PATTERN: Opt[] = [o("balanced", "متوازن", "Balanced"), o("vegetarian", "نباتي (بيض وألبان)", "Vegetarian"), o("vegan", "نباتي صرف", "Vegan"), o("low_carb", "قليل النشويات", "Low carbohydrate"),
+  o("diabetic", "حمية السكري", "Diabetic diet"), o("low_salt", "قليل الملح", "Low salt"), o("high_protein", "عالي البروتين", "High protein"), o("irregular", "غير منتظم", "Irregular"), o("other", "أخرى", "Other")];
+export const SLEEP_QUALITY: Opt[] = [o("good", "جيد", "Good"), o("fair", "متوسط", "Fair"), o("poor", "سيئ", "Poor")];
+export const SUBSTANCE_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("none", "لا يتعاطى", "None"), o("former", "سابقاً", "Former"), o("current", "حالياً", "Current")];
+export const SUBSTANCE_TYPE: Opt[] = [o("cannabis", "قنب (حشيش)", "Cannabis"), o("stimulants", "منشطات", "Stimulants"), o("opioids", "أفيونات", "Opioids"), o("sedatives", "مهدئات", "Sedatives"),
+  o("hallucinogens", "مهلوسات", "Hallucinogens"), o("inhalants", "مستنشقات", "Inhalants"), o("khat", "قات", "Khat"), o("other", "أخرى", "Other")];
+export const LIVING_SITUATION: Opt[] = [o("alone", "يعيش وحده", "Lives alone"), o("with_spouse", "مع الزوج / الزوجة", "With spouse"), o("with_family", "مع الأسرة", "With family"),
+  o("with_roommates", "مع آخرين (سكن مشترك)", "With others (shared housing)"), o("care_facility", "دار رعاية", "Care facility"), o("other", "أخرى", "Other")];
+export const EXPOSURE_KIND: Opt[] = [o("dust", "غبار", "Dust"), o("silica", "سيليكا", "Silica"), o("asbestos", "أسبستوس", "Asbestos"), o("chemicals", "مواد كيميائية", "Chemicals"),
+  o("solvents", "مذيبات", "Solvents"), o("pesticides", "مبيدات", "Pesticides"), o("fumes", "أبخرة ودخان", "Fumes / smoke"), o("radiation", "إشعاع", "Radiation"), o("noise", "ضوضاء", "Noise"),
+  o("heat", "حرارة شديدة", "Extreme heat"), o("vibration", "اهتزاز", "Vibration"), o("biological", "عوامل حيوية (عدوى، حيوانات)", "Biological (infection, animals)"),
+  o("secondhand_smoke", "تدخين سلبي", "Second-hand smoke"), o("other", "أخرى", "Other")];
+export const EXPOSURE_SETTING: Opt[] = [o("work", "العمل", "Work"), o("home", "المنزل", "Home"), o("environment", "البيئة المحيطة", "Environment"), o("other", "أخرى", "Other")];
+export const PROTECTIVE_EQUIPMENT: Opt[] = [o("unknown", "غير معروف", "Unknown"), o("none", "لا يستخدم", "None"), o("sometimes", "أحياناً", "Sometimes"), o("always", "دائماً", "Always")];
+export const SYMPTOM_PATTERN: Opt[] = [o("constant", "مستمر", "Constant"), o("intermittent", "متقطع", "Intermittent"), o("episodic", "نوبات", "Episodic"),
+  o("worsening", "يزداد سوءاً", "Worsening"), o("improving", "يتحسن", "Improving"), o("unknown", "غير معروف", "Unknown")];

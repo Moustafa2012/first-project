@@ -13,7 +13,10 @@ import type { ObservationRow, ObservationType, PatientRow } from "@/lib/types";
 import type { Block, Cell, ReportMeta } from "@/lib/pdf/engine";
 import { bodyMetrics, contextPackYears, matchHighlights, type ClinicalContextData } from "@/lib/clinical-context";
 import { ALCOHOL_STATUS, DEVICE_KIND, PREGNANCY_STATUS, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
-import { calOf, comparePerio, siteName, summarize, type PerioExam, type PerioTooth } from "@/lib/perio";
+import { calOf, comparePerio, siteName, summarize, toothHasData, type PerioExam, type PerioTooth } from "@/lib/perio";
+import { DX_EXTENTS, DX_KINDS, dxIsSet, dxLine } from "@/lib/perio-staging";
+import { safetyBlocks } from "@/lib/pdf/rx-reports";
+import type { SafetyAlert } from "@/lib/safety-rules";
 import { ITEM_STATUS, PLAN_STATUS, byPhase, costTotals, fmtMoney, planProgress, type TreatmentCost, type TreatmentPlan } from "@/lib/treatment";
 
 type Lang = "ar" | "en";
@@ -339,6 +342,8 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string; ctx?: (
 // ------------------------------------------------------------------------------------------------ a treatment plan, with consent
 export function buildTreatmentPlanReport(p: PatientRow, plan: TreatmentPlan, o: {
   lang: Lang; tz: string; ctx?: ClinicalContextData; problems: { id: string; name: string }[]; costs?: TreatmentCost[] | null;
+  /** safety alerts for this plan (reviewable rules matched against the file and the plan's treatments) */
+  alerts?: SafetyAlert[];
 }): { meta: ReportMeta; blocks: Block[]; filename: string } {
   const { lang, tz } = o;
   const t = tx(lang);
@@ -348,6 +353,7 @@ export function buildTreatmentPlanReport(p: PatientRow, plan: TreatmentPlan, o: 
     blocks.push({ t: "h", text: t("معلومات السلامة قبل العلاج", "Safety information before treatment") });
     blocks.push(...contextBlocks(o.ctx, lang, ["dentistry"]));
   }
+  if (o.alerts?.length) blocks.push(...safetyBlocks(o.alerts, lang));
   blocks.push({ t: "h", text: t("الخطة", "The plan") });
   blocks.push({ t: "kv", rows: ([
     [t("العنوان", "Title"), plan.title],
@@ -421,8 +427,22 @@ export function buildPerioReport(p: PatientRow, exam: PerioExam, o: { lang: Lang
     [t("الحالة", "Status"), exam.status === "final" ? t("معتمد", "Final") : t("مسودة", "Draft")],
     [t("الفاحص", "Examiner"), s(exam.examiner_name)],
     [t("المنشأة", "Facility"), s(exam.facility_name)],
+    [t("سُجّل عبر رابط بواسطة", "Recorded through a link by"), exam.contributed_by ? s(exam.source_detail ?? exam.examiner_name) : ""],
     [t("ملاحظات", "Notes"), s(exam.notes)],
   ] as [string, string][]).filter(([, v]) => v) });
+  if (dxIsSet(exam)) {
+    blocks.push({ t: "h", text: t("التشخيص اللثوي (تصنيف 2017 — AAP/EFP)", "Periodontal diagnosis (2017 AAP/EFP)") });
+    blocks.push({ t: "kv", rows: ([
+      [t("التشخيص", "Diagnosis"), exam.dx_kind ? s(DX_KINDS.find((k) => k.value === exam.dx_kind)?.[lang]) : ""],
+      [t("المرحلة", "Stage"), s(exam.dx_stage)],
+      [t("الدرجة", "Grade"), s(exam.dx_grade)],
+      [t("الامتداد", "Extent"), exam.dx_extent ? s(DX_EXTENTS.find((x) => x.value === exam.dx_extent)?.[lang]) : ""],
+      [t("فقد العظم الشعاعي في أسوأ موقع", "Radiographic bone loss at the worst site"), exam.dx_rbl_pct == null ? "" : `${exam.dx_rbl_pct}%`],
+      [t("أسنان فُقدت بسبب اللثة", "Teeth lost to periodontitis"), exam.dx_teeth_lost_perio == null ? "" : String(exam.dx_teeth_lost_perio)],
+      [t("ملاحظة", "Note"), s(exam.dx_note)],
+    ] as [string, string][]).filter(([, v]) => v) });
+    if (dxLine(exam, lang)) blocks.push({ t: "p", text: dxLine(exam, lang) });
+  }
   blocks.push({ t: "h", text: t("الملخص", "Summary") });
   const mm = t("مم", "mm");
   blocks.push({ t: "table", cols: [{ label: t("المؤشر", "Measure"), w: 5 }, { label: t("القيمة", "Value"), w: 3, align: "end" }], rows: ([
@@ -454,7 +474,7 @@ export function buildPerioReport(p: PatientRow, exam: PerioExam, o: { lang: Lang
     [t("الربع السفلي الأيسر (3)", "Lower left (3)"), [31, 32, 33, 34, 35, 36, 37, 38]], [t("الربع السفلي الأيمن (4)", "Lower right (4)"), [41, 42, 43, 44, 45, 46, 47, 48]],
   ];
   for (const [title, list] of quads) {
-    const rows = list.map((n) => by.get(n)).filter((x): x is PerioTooth => !!x);
+    const rows = list.map((n) => by.get(n)).filter((x): x is PerioTooth => !!x && toothHasData(x));
     if (!rows.length) continue;
     blocks.push({ t: "h", text: title });
     blocks.push({ t: "table", cols: [

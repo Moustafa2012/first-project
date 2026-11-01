@@ -14,7 +14,7 @@ interface Ev { at: string; kind: string; title: string; sub?: string; href?: str
 const KINDS: [string, string, string][] = [
   ["visit", "الزيارات", "Visits"], ["lab", "التحاليل", "Lab reports"], ["vital", "القياسات", "Measurements"], ["procedure", "العمليات", "Procedures"],
   ["imaging", "الأشعة", "Imaging"], ["condition", "التشخيصات", "Conditions"], ["medication", "الأدوية", "Medications"], ["immunization", "التطعيمات", "Immunizations"],
-  ["document", "المستندات", "Documents"], ["appointment", "المواعيد", "Appointments"], ["note", "الملاحظات", "Notes"],
+  ["document", "المستندات", "Documents"], ["appointment", "المواعيد", "Appointments"], ["note", "الملاحظات", "Notes"], ["symptom", "الأعراض", "Symptoms"],
 ];
 
 export default async function TimelinePage({ params, searchParams }: { params: { pid: string }; searchParams: SP }) {
@@ -31,7 +31,7 @@ export default async function TimelinePage({ params, searchParams }: { params: {
   const actObs: Record<string, string> = spec ? { patient_id: p.id, specialty_id: spec } : { patient_id: p.id };
   const L = 150;
 
-  const [enc, labs, vit, proc, img, cond, med, imm, doc, apt, note] = await Promise.all([
+  const [enc, labs, vit, proc, img, cond, med, imm, doc, apt, note, sym] = await Promise.all([
     want("visit") ? supabase.from("encounters").select("id, kind, reason, started_at, specialty_id").match(act).order("started_at", { ascending: false }).limit(L) : null,
     want("lab") ? supabase.from("lab_reports").select("id, title, lab_name, collected_at, specialty_id").match(act).order("collected_at", { ascending: false, nullsFirst: false }).limit(L) : null,
     want("vital") ? supabase.from("observations").select("id, effective_at, value_num, value_num2, unit, interpretation, specialty_id, observation_types!inner(name_ar, name_en, category)").match(actObs).in("status", ["final", "preliminary"]).eq("observation_types.category", "vital").not("interpretation", "in", searchParams.vitals === "all" ? "(none)" : "(normal,not_assessed)").order("effective_at", { ascending: false }).limit(L) : null,
@@ -43,6 +43,7 @@ export default async function TimelinePage({ params, searchParams }: { params: {
     want("document") ? supabase.from("medical_documents").select("id, title, doc_type, document_date, uploaded_at, specialty_id").match(act).order("uploaded_at", { ascending: false }).limit(L) : null,
     want("appointment") ? supabase.from("appointments").select("id, reason, scheduled_at, status, specialty_id").match(act).order("scheduled_at", { ascending: false }).limit(L) : null,
     want("note") ? supabase.from("clinical_notes").select("id, title, kind, noted_at, specialty_id").match(act).order("noted_at", { ascending: false }).limit(L) : null,
+    want("symptom") ? supabase.from("symptom_entries").select("id, symptom, severity, body_site, onset_at, specialty_id").match(act).order("onset_at", { ascending: false }).limit(L) : null,
   ]);
 
   const ev: Ev[] = [];
@@ -58,6 +59,7 @@ export default async function TimelinePage({ params, searchParams }: { params: {
   rows<Record<string, string>>(doc).forEach((r) => ev.push({ at: r.document_date ?? r.uploaded_at, kind: "document", title: r.title, sub: lbl(DOC_TYPE, r.doc_type, lang), href: `${base}/documents`, specialty: r.specialty_id }));
   rows<Record<string, string>>(apt).forEach((r) => ev.push({ at: r.scheduled_at, kind: "appointment", title: r.reason ?? t("موعد", "Appointment"), href: `${base}/appointments`, specialty: r.specialty_id }));
   rows<Record<string, string>>(note).forEach((r) => ev.push({ at: r.noted_at, kind: "note", title: r.title ?? t("ملاحظة", "Note"), href: `${base}/notes`, specialty: r.specialty_id }));
+  rows<Record<string, unknown>>(sym).forEach((r) => ev.push({ at: String(r.onset_at), kind: "symptom", title: [r.symptom, r.body_site].filter(Boolean).join(" — "), sub: r.severity != null ? `${t("الشدة", "Severity")} ${r.severity}/10` : undefined, href: `${base}/symptoms`, specialty: r.specialty_id as string | null }));
   const dated = ev.filter((e) => !!e.at);
   dated.sort((a, b) => b.at.localeCompare(a.at));
   const shown = dated.slice(0, 400);

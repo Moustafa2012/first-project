@@ -13,6 +13,7 @@ export type Block =
   | { t: "kv"; rows: [string, string][] }
   | { t: "table"; cols: { label: string; w: number; align?: "start" | "end" }[]; rows: Cell[][] }
   | { t: "chart"; title: string; caption?: string; unit?: string; series: { label: string; pts: { t: number; v: number }[] }[]; refs?: { y: number; label?: string }[]; dateLabel: (ms: number) => string }
+  | { t: "image"; data: Buffer; w: number; h: number; caption?: string }     // a PNG / JPEG (e.g. a drawn signature), fitted into w x h
   | { t: "space"; h?: number };
 
 export interface ReportMeta {
@@ -142,6 +143,15 @@ export function renderPdf(meta: ReportMeta, blocks: Block[]): Promise<Buffer> {
         doc.save().moveTo(L, y).lineTo(L + W, y).lineWidth(0.5).strokeColor(C.line).stroke().restore();
       }
       y += 8;
+      continue;
+    }
+    if (b.t === "image") {
+      need(b.h + 26);
+      doc.save().roundedRect(L, y, b.w + 8, b.h + 8, 4).lineWidth(0.5).strokeColor(C.line).stroke().restore();
+      try { doc.image(b.data, L + 4, y + 4, { fit: [b.w, b.h], align: "center", valign: "center" }); } catch { /* an unreadable image leaves an empty frame */ }
+      y += b.h + 12;
+      if (b.caption) { text(b.caption, L, y, W, { size: 8, color: C.muted }); y += 13; }
+      y += 4;
       continue;
     }
     if (b.t === "chart") {

@@ -1,5 +1,7 @@
 import type { Lang } from "@/lib/i18n";
 import type { Opt } from "@/lib/labels";
+import { parsePulpTests, parseSections } from "@/lib/dental-exam";
+import type { BoneLevels } from "@/lib/dental-imaging";
 
 /**
  * Dental chart logic shared by the patient pages, the share viewer and the tests.
@@ -32,6 +34,9 @@ export const FINDING_KIND: Opt[] = [
   o("defective_restoration", "حشوة أو تاج معيب", "Defective restoration"), o("periapical_lesion", "آفة ذروية", "Periapical lesion"),
   o("abscess", "خراج", "Abscess"), o("recession", "انحسار اللثة", "Gingival recession"), o("mobility", "حركة السن", "Mobility"),
   o("discoloration", "تلوّن", "Discoloration"), o("hypoplasia", "نقص تكلّس / تنسّج المينا", "Enamel hypoplasia"),
+  o("calculus", "جير", "Calculus"), o("bone_loss", "فقد عظم حول السن", "Bone loss"), o("retained_root", "جذر متبقٍّ", "Retained root"),
+  o("open_contact", "تماسّ مفتوح / انحشار طعام", "Open contact / food impaction"), o("root_resorption", "امتصاص الجذر", "Root resorption"),
+  o("cyst", "كيس", "Cyst"), o("sinus_tract", "ناسور (مخرج صديد)", "Sinus tract"),
   o("filling", "حشوة", "Filling"), o("sealant", "مادة سادّة للشقوق", "Fissure sealant"), o("inlay_onlay", "حشوة ترصيعية (Inlay/Onlay)", "Inlay / onlay"),
   o("veneer", "قشرة (فينير)", "Veneer"), o("crown", "تاج", "Crown"), o("bridge_abutment", "دعامة جسر", "Bridge abutment"),
   o("bridge_pontic", "سن جسر بديل (Pontic)", "Bridge pontic"), o("root_canal", "علاج عصب (لبّ)", "Root canal treatment"),
@@ -40,16 +45,18 @@ export const FINDING_KIND: Opt[] = [
 ];
 /** problems to treat (drawn in red) vs work already done (drawn in blue) */
 export const DISEASE_KINDS = new Set(["caries", "secondary_caries", "fracture", "crack", "wear", "defective_restoration", "periapical_lesion",
-  "abscess", "recession", "mobility", "discoloration", "hypoplasia"]);
+  "abscess", "recession", "mobility", "discoloration", "hypoplasia", "calculus", "bone_loss", "retained_root", "open_contact", "root_resorption",
+  "cyst", "sinus_tract"]);
 /** findings that concern the whole tooth: their surfaces are not asked for */
 export const WHOLE_TOOTH_KINDS = new Set(["crown", "bridge_abutment", "bridge_pontic", "root_canal", "post_core", "implant", "denture",
-  "ortho_appliance", "periapical_lesion", "abscess", "mobility"]);
+  "ortho_appliance", "periapical_lesion", "abscess", "mobility", "retained_root", "root_resorption", "cyst", "sinus_tract"]);
 /** work that covers every surface of the crown, so the whole tooth is drawn as treated */
 export const COVERS_ALL_SURFACES = new Set(["crown", "bridge_abutment", "bridge_pontic", "implant"]);
 /** a short code drawn under the tooth for whole-tooth work */
 export const KIND_BADGE: Record<string, string> = {
   crown: "CR", bridge_abutment: "BR", bridge_pontic: "PO", root_canal: "RCT", post_core: "PC", implant: "IMP", denture: "DEN",
-  ortho_appliance: "ORT", periapical_lesion: "PA", abscess: "ABS", mobility: "MOB", veneer: "VEN",
+  ortho_appliance: "ORT", periapical_lesion: "PA", abscess: "ABS", mobility: "MOB", veneer: "VEN", retained_root: "RR", root_resorption: "RES",
+  cyst: "CYS", sinus_tract: "ST", bone_loss: "BL",
 };
 
 export const EVIDENCE: Opt[] = [
@@ -191,12 +198,15 @@ export interface ExamRow {
   id: string; exam_date: string; recorded_at?: string | null; kind: string; dentition: string; examiner_name?: string | null;
   facility_name?: string | null; chief_complaint?: string | null; oral_hygiene?: string | null; notes?: string | null; source?: string | null;
   source_detail?: string | null; verification?: string | null; contributed_by?: string | null; states: ToothStateRow[];
+  is_baseline?: boolean; sections?: import("@/lib/dental-exam").Sections | null;
 }
 export interface FindingRow {
   id: string; exam_id: string | null; condition_id?: string | null; tooth: number; surfaces: string[]; kind: string; evidence: string;
   severity?: string | null; material?: string | null; observed_on: string; date_precision?: string | null; resolved_on?: string | null;
   resolved_note?: string | null; notes?: string | null; source?: string | null; source_detail?: string | null; verification?: string | null;
   contributed_by?: string | null; recorded_at?: string | null;
+  /** the imaging study a radiographic finding was read on */
+  imaging_id?: string | null;
 }
 export interface ToothView {
   tooth: number;
@@ -288,9 +298,9 @@ export function chartSummary(chart: Map<number, ToothView>) {
 
 // ---------------------------------------------------------------- the exam form (patient page and share link)
 export interface ExamPayload {
-  exam: Record<string, string>;
+  exam: Record<string, unknown>;
   states: { tooth: number; status: string; note?: string }[];
-  findings: { tooth: number; surfaces: Surface[]; kind: string; evidence: string; severity?: string; material?: string; notes?: string; condition_id?: string }[];
+  findings: { tooth: number; surfaces: Surface[]; kind: string; evidence: string; severity?: string; material?: string; notes?: string; condition_id?: string; imaging_id?: string }[];
 }
 const has = (list: Opt[], v: unknown) => typeof v === "string" && list.some((x) => x.value === v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -298,7 +308,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Reads and checks an exam submitted as form fields + two JSON lists (states, findings). The database checks again. */
 export function parseExamForm(fd: FormData, t: (ar: string, en: string) => string, today: string): ExamPayload | { error: string } {
   const g = (k: string, max = 200) => String(fd.get(k) ?? "").trim().slice(0, max);
-  const exam: Record<string, string> = {};
+  const exam: Record<string, unknown> = {};
   const date = g("exam_date", 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) return { error: t("أدخل تاريخ الفحص.", "Enter the exam date.") };
   if (date > today) return { error: t("تاريخ الفحص في المستقبل.", "The exam date is in the future.") };
@@ -336,7 +346,9 @@ export function parseExamForm(fd: FormData, t: (ar: string, en: string) => strin
     if (!isFdi(tooth) || !has(FINDING_KIND, f?.kind) || !has(EVIDENCE, f?.evidence ?? "unknown")
         || surfaces.some((x) => !SURFACES.includes(x as Surface)) || new Set(surfaces).size !== surfaces.length
         || (f.severity && !has(FINDING_SEVERITY, f.severity)) || (f.material && !has(MATERIAL, f.material))
-        || (f.condition_id && !UUID.test(String(f.condition_id)))) {
+        || (f.condition_id && !UUID.test(String(f.condition_id)))
+        // the image a radiographic finding was read on
+        || (f.imaging_id && (!UUID.test(String(f.imaging_id)) || !["radiographic", "clinical_radiographic"].includes(String(f.evidence))))) {
       return { error: t("موجود سني غير صالح.", "Invalid dental finding.") };
     }
     const notes = String(f.notes ?? "").trim().slice(0, 2000);
@@ -344,9 +356,22 @@ export function parseExamForm(fd: FormData, t: (ar: string, en: string) => strin
       tooth, surfaces: WHOLE_TOOTH_KINDS.has(f.kind as string) ? [] : (surfaces as Surface[]), kind: f.kind as string, evidence: (f.evidence as string) ?? "unknown",
       ...(f.severity ? { severity: f.severity as string } : {}), ...(f.material ? { material: f.material as string } : {}),
       ...(notes ? { notes } : {}), ...(f.condition_id ? { condition_id: String(f.condition_id) } : {}),
+      ...(f.imaging_id ? { imaging_id: String(f.imaging_id) } : {}),
     });
   }
-  if (states.length === 0 && findings.length === 0) return { error: t("سجّل حالة سن واحد أو موجوداً واحداً على الأقل.", "Record at least one tooth state or finding.") };
+  // the rest of a comprehensive exam: sections, pulp tests, and whether it is the baseline
+  let rawSections: unknown, rawPulp: unknown;
+  try { rawSections = JSON.parse(String(fd.get("sections") || "{}")); rawPulp = JSON.parse(String(fd.get("pulp_tests") || "[]")); }
+  catch { return { error: t("بيانات الفحص غير صالحة.", "Invalid exam data.") }; }
+  const sec = parseSections(rawSections), pulp = parsePulpTests(rawPulp);
+  if ("error" in sec) return { error: t("قيمة غير صالحة في أقسام الفحص.", "Invalid value in the exam sections.") };
+  if ("error" in pulp) return { error: t("اختبار حيوية غير صالح.", "Invalid pulp test.") };
+  if (Object.keys(sec.sections).length) exam.sections = sec.sections;
+  if (pulp.tests.length) exam.pulp_tests = pulp.tests;
+  if (fd.get("is_baseline") === "on") exam.is_baseline = true;
+  if (states.length === 0 && findings.length === 0 && !exam.sections && !exam.pulp_tests) {
+    return { error: t("سجّل حالة سن أو موجوداً أو قسماً من الفحص على الأقل.", "Record at least one tooth state, finding or exam section.") };
+  }
   return { exam, states, findings };
 }
 
@@ -385,7 +410,12 @@ export function diagnosisCode(name: string): string {
 export const OPEN_PROBLEM = new Set(["active", "recurrence"]);
 export interface ToothDiagnosis { id: string; name: string; teeth: number[] | null; clinical_status?: string | null; certainty?: string | null; contributed_by?: string | null; resolved_date?: string | null; onset_date?: string | null }
 export interface ToothProcedure { id: string; name: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; kind?: string | null; operator_name?: string | null; contributed_by?: string | null }
-export interface ToothImage { id: string; modality: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; impression?: string | null; body_site?: string | null; documents?: { id: string; title: string }[] }
+export interface ToothImage {
+  id: string; modality: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; impression?: string | null; body_site?: string | null;
+  /** the structured reading of the bone level per sextant, and the free-text findings */
+  bone_levels?: BoneLevels | null; findings?: string | null; contributed_by?: string | null;
+  documents?: { id: string; title: string; mime_type?: string | null }[];
+}
 
 /** For each tooth: its open problems (with a chart label), and how many procedures and images name it. */
 /** A treatment still to happen, from a current plan (see src/lib/treatment.ts). */

@@ -104,7 +104,7 @@ select test.throws(format($$select public.treatment_plan_create(%L, '{"title":"I
 -- the dentist through a share
 select test.as_user(:'alice'::uuid);
 select public.share_create(p_patient => :'pt', p_title => 'Dentist', p_scope_kind => 'specialty', p_specialty_ids => array[:'s_dent'::uuid],
-  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['treatment_plans']) as sh \gset
+  p_expires_at => now() + interval '1 day', p_allow_contribute => true, p_contribute_modules => array['treatment_plans'], p_clinician => '{"name":"Dr Plan","facility":"Smile"}') as sh \gset
 select (:'sh'::jsonb ->> 'token') as tok, (:'sh'::jsonb ->> 'pin') as pin \gset
 select test.as_service();
 select (public.share_open(:'tok', :'pin', 'ip-tx', 'UA') ->> 'session_token') as sess \gset
@@ -146,6 +146,35 @@ select test.ok((select contributed_by = :'ctr'::uuid from public.status_history 
 select public.share_retract(:'sess', 'treatment_plans', :'dpid', 'wrong patient') ->> 'status' as rt \gset
 select test.ok(:'rt' = 'ok' and (select count(*) = 3 from public.treatment_items where plan_id = :'dpid' and record_status = 'entered_in_error'),
   'withdrawing the plan invalidates its treatments');
+
+-- the patient's own treatments: the dentist carries them forward only once the patient accepted them
+select test.as_user(:'alice'::uuid);
+select public.treatment_plan_create(:'pt', '{"title":"Own plan"}', '[{"name":"Own scaling"}]') as pown \gset
+select id as own_prop from public.treatment_items where plan_id = :'pown' \gset
+select test.as_service();
+select test.ok(public.share_treatment_item_status(:'sess', :'own_prop', 'planned', null, null) ->> 'status' = 'forbidden'
+               and public.share_treatment_item_status(:'sess', :'own_prop', 'cancelled', null, 'nope') ->> 'status' = 'forbidden'
+               and (select status = 'proposed' from public.treatment_items where id = :'own_prop'),
+  'the dentist does not move or cancel a treatment the patient has not accepted');
+select test.as_user(:'alice'::uuid);
+select public.treatment_item_set_status(:'own_prop', 'accepted', null, null) is not null as acc \gset
+select test.as_service();
+select test.ok(public.share_treatment_item_status(:'sess', :'own_prop', 'cancelled', null, 'nope') ->> 'status' = 'forbidden'
+               and public.share_treatment_item_status(:'sess', :'own_prop', 'scheduled', current_date + 7, null) ->> 'status' = 'ok',
+  'once accepted, the dentist schedules it but does not cancel it');
+
+-- what the dentist adds carries their own name as its author
+select test.as_user(:'alice'::uuid);
+select public.share_create(p_patient => :'pt', p_title => 'Notes', p_scope_kind => 'full', p_expires_at => now() + interval '1 day',
+  p_allow_contribute => true, p_contribute_modules => array['clinical_notes', 'procedures'], p_clinician => '{"name":"Dr Real"}') as shn \gset
+select test.as_service();
+select (public.share_open(:'shn'::jsonb ->> 'token', :'shn'::jsonb ->> 'pin', 'ip-tn', 'UA') ->> 'session_token') as sessn \gset
+select public.share_confirm_clinician(:'sessn');
+select (public.share_contribute(:'sessn', 'clinical_notes', jsonb_build_object('body', 'x', 'noted_at', now(), 'author_name', 'Prof. Somebody Else')) ->> 'id') as fn \gset
+select (public.share_contribute(:'sessn', 'procedures', jsonb_build_object('name', 'Scaling', 'kind', 'dental', 'performed_on', current_date)) ->> 'id') as fp \gset
+select test.ok((select author_name = 'Dr Real' from public.clinical_notes where id = :'fn')
+               and (select operator_name = 'Dr Real' from public.procedures where id = :'fp'),
+  'a clinician cannot write another name as the author, and an empty one is their own');
 
 select test.as_user(:'alice'::uuid);
 select public.patient_request_deletion(:'pt', 'Treatment Patient');

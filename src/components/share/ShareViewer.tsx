@@ -1,32 +1,48 @@
 import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut, Printer } from "lucide-react";
+import { ExamExtras } from "@/components/dental/ExamExtras";
+import { baselineExam, openSoftTissueAlert } from "@/lib/dental-exam";
 import { i18n } from "@/lib/i18n";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import { ANESTHESIA_KIND, RECALL_KIND, ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_TYPE, ENCOUNTER_KIND, IMAGING_MODALITY, lbl, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, FAMILY_RELATION, CARE_PLAN_STATUS, LAB_GROUP, IMMUNIZATION_STATUS } from "@/lib/labels";
 import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
-import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall } from "@/lib/share-types";
+import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall, SharePerio } from "@/lib/share-types";
+import { SharePerioCard } from "@/components/share/SharePerio";
 import { DentalChart, type ToothAddForm } from "@/components/dental/DentalChart";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import type { ClinicalContextData } from "@/lib/clinical-context";
-import { chartDentition, DENTAL_DIAGNOSES, EXAM_KIND } from "@/lib/dental";
+import { chartDentition, DENTAL_DIAGNOSES, EXAM_KIND, deriveChart } from "@/lib/dental";
 import { localDate } from "@/lib/format";
 import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
-import { endShare, addShareNote, contributeTreatment, shareSetCost, shareTreatmentStatus } from "@/app/actions/share-viewer";
+import { endShare, addShareNote, contributeTreatment, retractContribution, shareAddAnnotation, shareSetCost, shareTreatmentStatus } from "@/app/actions/share-viewer";
 import { TreatmentItemForm, TreatmentPlans } from "@/components/dental/TreatmentPlans";
 import { OPEN_ITEM, OPEN_PLAN, type CatalogItem } from "@/lib/treatment";
 import type { ContribState } from "@/lib/share-contrib";
 import { canAdd, ContribAdd, ContribForm, ContributorCard, ContribSummary, contribLabel } from "@/components/share/Contribute";
+import { Prescriptions } from "@/components/rx/Prescriptions";
+import { RxForm } from "@/components/rx/RxForm";
+import { ConsentList } from "@/components/rx/Consents";
+import { ConsentForm, type ConsentTarget } from "@/components/rx/ConsentForm";
+import { SafetyAlerts } from "@/components/SafetyAlerts";
+import { alertsByItem, type SafetyAlert } from "@/lib/safety-rules";
+import type { Rx } from "@/lib/prescription";
+import { consentTemplate, type ConsentRow } from "@/lib/consent";
+import { contributePrescription, presentConsent, retractPrescription } from "@/app/actions/share-rx";
 
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [] }: {
-  b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string;
+export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [], rx, safety = [] }: {
+  b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; perio?: SharePerio | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string;
   catalog?: CatalogItem[]; extras?: ShareExtras | null; myNotes?: ShareMyNote[]; recalls?: ShareRecall[]; templates?: { id: string; title: string; body: string }[];
+  /** prescriptions and consents within the share's scope (public.share_rx_extras), when the patient allowed them */
+  rx?: { prescriptions: Rx[]; consents: ConsentRow[] } | null;
+  /** safety alerts the reviewable rules raise for this file and the plan shown here */
+  safety?: SafetyAlert[];
 }) {
   const { lang, t } = i18n();
   const tz = getTz();
@@ -50,7 +66,11 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   // the clinician adds where the information belongs: each "add" form sits in its section, the tooth forms in the panel of
   // the chosen tooth; what has no section on this page gathers in "other additions"
   const dentition = dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent";
-  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} templates={templates} /> : null);
+  const known = dental ? [...deriveChart(dental.exams, dental.findings).values()].filter((v) => v.status).map((v) => ({ tooth: v.tooth, status: v.status! })) : [];
+  // the dental images the link shows: a finding read on one names it, and a file can be attached to one
+  const studyOptions = (dental?.imaging ?? []).map((i) => ({ id: i.id, label: `${lbl(IMAGING_MODALITY, i.modality, lang)}${i.performed_on ? ` ${fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang, tz)}` : ""}` }));
+  const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} templates={templates}
+    knownStates={known} noBaseline={Boolean(dental) && !dental!.exams.some((e) => e.is_baseline)} images={studyOptions} /> : null);
   const placed = new Set<string>();
   const place = (table: string, shown: boolean) => { if (shown) placed.add(table); return shown; };
   const showEnc = place("encounters", inc.has("encounters"));
@@ -60,6 +80,15 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   const showNotes = place("clinical_notes", inc.has("notes") && ((b.notes ?? []).length > 0 || canAdd(contrib, "clinical_notes")));
   const showDocs = place("medical_documents", inc.has("documents"));
   if (dental) { placed.add("dental_exams"); placed.add("treatment_plans"); }
+  if (perio) placed.add("perio_exams");
+  placed.add("prescriptions"); placed.add("consents");          // their own cards below
+  const safetyByItem = alertsByItem(safety);
+  const consentTargets: ConsentTarget[] = dental ? (dental.plans ?? []).filter((pl) => OPEN_PLAN.has(pl.status)).flatMap((pl) => [
+    { id: `plan:${pl.id}`, kind: "plan" as const, label: pl.title, plan_id: pl.id },
+    ...pl.items.filter((i) => OPEN_ITEM.has(i.status)).map((i) => ({ id: `item:${i.id}`, kind: "item" as const, plan_id: pl.id, label: `${i.name}${i.teeth?.length ? ` (${i.teeth.join(", ")})` : ""}` })),
+  ]) : [];
+  const rxOn = Boolean(rx) && (contrib?.modules ?? []).includes("prescriptions");
+  const consentsOn = Boolean(rx) && (contrib?.modules ?? []).includes("consents");
   const others = (contrib?.modules ?? []).filter((m) => !placed.has(m) && canAdd(contrib, m));
   // treatment plans in the dental workspace: the dentist proposes, moves treatments along and notes their own cost
   const plans = dental?.plans ?? [];
@@ -131,6 +160,8 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
       </section>
       )}
 
+      <SafetyAlerts alerts={safety} lang={lang} />
+
       {inc.has("contact") && (b.emergency_contacts ?? []).length > 0 && (
         <Card title={t("جهات الطوارئ", "Emergency contacts")}>{(b.emergency_contacts ?? []).map((c, i) => <div key={i}>{s(c.full_name)} {c.relation ? `(${s(c.relation)})` : ""} <span className="ltr">{s(c.phone)}</span></div>)}</Card>
       )}
@@ -140,9 +171,28 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
       {dental && (
         <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
           <p className="small muted" style={{ marginBlockStart: 0 }}>{canAdd(contrib, "conditions") || canAdd(contrib, "procedures") ? t("اختر سناً لعرض تاريخه وصوره، وللإضافة إليه مباشرة.", "Choose a tooth to see its history and images, and to add to it directly.") : t("اختر سناً لعرض تاريخه وصوره.", "Choose a tooth to see its history and images.")}</p>
+          {(() => {
+            const soft = openSoftTissueAlert(dental.exams);
+            const base = baselineExam(dental.exams);
+            return (<>
+              {soft?.sections?.soft_tissue && (
+                <Banner tone="bad" title={t("آفة مشتبهة في الأنسجة الرخوة", "Suspicious soft-tissue lesion")}>
+                  {t(`سُجّلت في فحص ${d(soft.exam_date)}${soft.examiner_name ? ` (${soft.examiner_name})` : ""}.`, `Recorded at the exam of ${d(soft.exam_date)}${soft.examiner_name ? ` (${soft.examiner_name})` : ""}.`)}
+                  {soft.sections.soft_tissue.note ? ` ${s(soft.sections.soft_tissue.note)}` : ""}
+                </Banner>
+              )}
+              {base && <p className="small baseline-line">{t("الحالة الابتدائية: الفحص الأساسي الشامل في", "Baseline: the comprehensive exam of")} {d(base.exam_date)}{base.examiner_name ? ` — ${base.examiner_name}` : ""}</p>}
+            </>);
+          })()}
           <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
             diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
-            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} planned={planned} />
+            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} planned={planned}
+            viewer={{ docBase: `/s/${token}/doc/`, annotations: {
+              rows: dental.annotations ?? [],
+              ...(canAdd(contrib, "imaging_studies") && contrib?.covers_dentistry
+                ? { add: shareAddAnnotation, addHidden: { _t: token }, remove: retractContribution, removeHidden: { _t: token, _table: "imaging_annotations" }, removeMineOnly: true }
+                : {}),
+            } }} />
           {canAdd(contrib, "dental_exams") && <div style={{ marginBlockStart: ".75rem" }}>{add("dental_exams")}</div>}
           {(plans.length > 0 || txWrite) && (<>
             <h3 id="treatment">{t("خطط العلاج", "Treatment plans")}</h3>
@@ -150,7 +200,7 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
               ? t("اقترح العلاج من لوحة السن أو من النموذج أدناه؛ يعتمده المريض، ثم تسجّل أنت إنجازه فيُضاف الإجراء ويُحدَّث المخطط. تكاليف المريض لا تظهر لك.",
                   "Propose treatment from a tooth's panel or the form below; the patient accepts it, then you record it done and the procedure and chart are updated. The patient's costs are not shown to you.")
               : t("خطط العلاج الحالية (بلا تكاليف).", "Current treatment plans (without costs).")}</p>
-            <TreatmentPlans plans={plans} costs={dental.my_costs ?? []} catalog={catalog} problems={openProblems} lang={lang} today={localDate(new Date(), tz)}
+            <TreatmentPlans plans={plans} costs={dental.my_costs ?? []} catalog={catalog} problems={openProblems} lang={lang} today={localDate(new Date(), tz)} safety={safetyByItem}
               actions={txWrite ? { hidden: { _t: token }, status: shareTreatmentStatus, clinician: true, addCost: shareSetCost, addItem: contributeTreatment,
                 canAddTo: (p) => myProposals.some((m) => m.id === p.id) } : { hidden: {} }} />
             {txWrite && (
@@ -175,14 +225,64 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           {dental.exams.length > 0 && (<>
             <h3>{t("الفحوص", "Exams")}</h3>
             {dental.exams.map((e) => (
-              <div className="row between" key={e.id}><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}
-                {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
-                <span className="muted small">{d(e.exam_date)}</span></div>
+              <article className="rec share-exam" key={e.id}>
+                <div className="row between"><span>{lbl(EXAM_KIND, e.kind, lang)}{e.examiner_name ? ` · ${e.examiner_name}` : ""}{e.facility_name ? ` · ${e.facility_name}` : ""}
+                  {e.is_baseline && <Chip tone="ok">{t("فحص أساسي", "Baseline")}</Chip>}
+                  {e.contributed_by ? <Chip tone="info">{t("سجّله طبيب عبر رابط", "Recorded by a doctor via a link")}</Chip> : e.verification === "reported" ? <Chip tone="muted">{t("إفادة المريض", "Patient-reported")}</Chip> : null}</span>
+                  <span className="muted small">{d(e.exam_date)}</span></div>
+                {e.chief_complaint && <p className="small" style={{ margin: ".2rem 0" }}>{t("الشكوى", "Complaint")}: {s(e.chief_complaint)}</p>}
+                <ExamExtras sections={e.sections} pulp={dental.pulp?.[e.id]} lang={lang} />
+                {e.notes && <p className="small" style={{ margin: ".2rem 0" }}>{s(e.notes)}</p>}
+              </article>
             ))}
           </>)}
         </Card>
       )}
 
+
+      {perio && <SharePerioCard token={token} perio={perio} contrib={contrib ?? null} />}
+      {rxOn && rx && (
+        <Card title={t("الوصفات الطبية", "Prescriptions")} id="sec-prescriptions">
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("الوصفات ضمن نطاق المشاركة. وصفتك تُحفظ باسمك كما حدّده المريض في الرابط، وتُضاف أدويتها إلى ملفه.",
+            "Prescriptions within the share's scope. Yours is saved under your name as the patient gave it on the link, and its medicines are added to their file.")}</p>
+          <Prescriptions rxs={rx.prescriptions} lang={lang} tz={tz} idPrefix="srx"
+            actions={{ hidden: { _t: token }, retract: retractPrescription, pdfHref: b.meta.allow_print ? (r) => `/s/${token}/rx/${r.id}/pdf` : undefined }}
+            alerts={safety} empty={t("لا وصفات ضمن النطاق بعد.", "No prescriptions in scope yet.")} />
+          {canAdd(contrib, "prescriptions") && contrib?.contributor && (
+            <details className="fold" id="contrib-prescription">
+              <summary>{t("إضافة: وصفة طبية مفصلة", "Add: a detailed prescription")}</summary>
+              <div className="fold-body">
+                <RxForm action={contributePrescription} hidden={{ _t: token }} lang={lang} today={localDate(new Date(), tz)} idPrefix="cx-rx"
+                  prescriber={contrib.contributor.full_name} submitLabel={t("حفظ الوصفة", "Save the prescription")} />
+              </div>
+            </details>
+          )}
+        </Card>
+      )}
+
+      {consentsOn && rx && (
+        <Card title={t("الموافقات الموقّعة", "Signed consents")} id="sec-consents">
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("قدّم الموافقة للمريض ليقرأها ويوقّع بنفسه على شاشتك؛ يُحفظ التوقيع في ملفه. لا يمكنك تعديل موافقة موقّعة، والمريض هو من يسحبها.",
+            "Present the consent to the patient to read and sign on your screen; the signature is stored in their file. You cannot edit a signed consent; the patient is the one who withdraws it.")}</p>
+          <ConsentList consents={rx.consents} lang={lang} tz={tz} idPrefix="scn" actions={{
+            hidden: { _t: token },
+            newVersion: (c) => canAdd(contrib, "consents") && c.mine && contrib?.contributor ? (
+              <ConsentForm action={presentConsent} hidden={{ _t: token }} lang={lang} idPrefix={`scv-${c.id.slice(0, 8)}`} targets={consentTargets} presenter={contrib.contributor.full_name}
+                signerName={c.signer_name} submitLabel={t("توقيع النسخة الجديدة", "Sign the new version")}
+                supersede={{ id: c.id, kind: c.kind, title: `${c.title} (v${c.version + 1})`, body: consentTemplate(c.kind, lang).body, target: c.treatment_item_id ? `item:${c.treatment_item_id}` : c.treatment_plan_id ? `plan:${c.treatment_plan_id}` : null }} />
+            ) : null,
+          }} empty={t("لا موافقات ضمن النطاق بعد.", "No consents in scope yet.")} />
+          {canAdd(contrib, "consents") && contrib?.contributor && (
+            <details className="fold" id="contrib-consent">
+              <summary>{t("إضافة: موافقة يوقّعها المريض على شاشتك", "Add: a consent the patient signs on your screen")}</summary>
+              <div className="fold-body">
+                <ConsentForm action={presentConsent} hidden={{ _t: token }} lang={lang} idPrefix="cx-cn" targets={consentTargets} presenter={contrib.contributor.full_name}
+                  signerName={p.full_name} submitLabel={t("توقيع وحفظ الموافقة", "Sign and save the consent")} />
+              </div>
+            </details>
+          )}
+        </Card>
+      )}
 
       {inc.has("observations") && (
         <Card title={t("القياسات والتحاليل عبر الزمن", "Measurements & lab results over time")}>
@@ -314,7 +414,7 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           <p className="small muted">{t("لا تُضاف ملاحظتك إلى السجل الطبي تلقائياً؛ يراجعها المريض أولاً.", "Your note is not added to the medical record automatically; the patient reviews it first.")}</p>
           <ActionForm action={addShareNote} className="stack">
             <input type="hidden" name="_t" value={token} />
-            <div className="field"><label htmlFor="author_name">{t("اسمك", "Your name")}</label><input id="author_name" name="author_name" required minLength={2} maxLength={120} /></div>
+            <div className="field"><label htmlFor="author_name">{t("اسمك", "Your name")}</label><input id="author_name" name="author_name" required minLength={2} maxLength={120} defaultValue={contrib?.clinician?.name ?? contrib?.contributor?.full_name ?? ""} /></div>
             <div className="field"><label htmlFor="body">{t("الملاحظة", "Note")}</label><textarea id="body" name="body" required maxLength={4000} rows={4} /></div>
             <div><SubmitButton>{t("إرسال", "Send")}</SubmitButton></div>
           </ActionForm>

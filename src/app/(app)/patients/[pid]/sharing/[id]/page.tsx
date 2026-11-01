@@ -18,13 +18,17 @@ const CONTRIB_LABEL: Record<string, string> = {
   test_orders: "id, name, recorded_at, record_status, contributed_by", imaging_studies: "id, modality, body_site, recorded_at, record_status, contributed_by",
   medical_documents: "id, title, uploaded_at, record_status, contributed_by",
   dental_exams: "id, exam_date, recorded_at, record_status, contributed_by",
+  perio_exams: "id, exam_date, recorded_at, record_status, contributed_by",
   treatment_plans: "id, title, recorded_at, record_status, contributed_by",
   treatment_costs: "id, amount, currency, recorded_at, record_status, contributed_by",
+  imaging_annotations: "id, recorded_at, record_status, contributed_by",
+  prescriptions: "id, prescriber_name, issued_on, recorded_at, record_status, contributed_by",
+  consents: "id, title, recorded_at, record_status, contributed_by",
 };
 const CONTRIB_PAGE: Record<string, string> = {
   encounters: "visits", conditions: "conditions", procedures: "procedures", clinical_notes: "notes", medications: "medications",
-  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents", dental_exams: "dental",
-  treatment_plans: "dental?tab=treatment", treatment_costs: "dental?tab=treatment",
+  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents", dental_exams: "dental", perio_exams: "dental?tab=perio",
+  treatment_plans: "dental?tab=treatment", treatment_costs: "dental?tab=treatment", prescriptions: "medications", consents: "dental?tab=treatment", imaging_annotations: "dental",
 };
 
 export default async function ShareDetail({ params }: { params: { pid: string; id: string } }) {
@@ -35,23 +39,23 @@ export default async function ShareDetail({ params }: { params: { pid: string; i
   const access = await getAccess(p.id);
   if (!access.canShare) notFound();
   const supabase = createClient();
-  const { data: s } = await supabase.from("medical_shares").select("id, title, recipient_label, scope_kind, specialty_ids, include, include_sensitive, date_from, date_to, allow_download, allow_print, allow_notes, allow_contribute, contribute_modules, max_contributions, max_attempts, failed_attempts, lock_count, locked_until, expires_at, revoked_at, revoke_reason, last_accessed_at, access_count, created_at").eq("id", params.id).eq("patient_id", p.id).maybeSingle();
+  const { data: s } = await supabase.from("medical_shares").select("id, title, recipient_label, clinician_name, clinician_specialty, clinician_facility, clinician_city, clinician_license, clinician_phone, scope_kind, specialty_ids, include, include_sensitive, date_from, date_to, allow_download, allow_print, allow_notes, allow_contribute, contribute_modules, max_contributions, max_attempts, failed_attempts, lock_count, locked_until, expires_at, revoked_at, revoke_reason, last_accessed_at, access_count, created_at").eq("id", params.id).eq("patient_id", p.id).maybeSingle();
   if (!s) notFound();
   const [specs, { data: logs }, { data: notes }, { count: itemCount }, { data: ctrs }] = await Promise.all([
     getSpecialties(),
     supabase.from("medical_share_access_logs").select("id, event, ip_hash, user_agent, at, detail").eq("share_id", s.id).order("at", { ascending: false }).limit(200),
     supabase.from("share_notes").select("id, author_name, body, created_at, reviewed_at").eq("share_id", s.id).order("created_at", { ascending: false }),
     supabase.from("medical_share_items").select("share_id", { count: "exact", head: true }).eq("share_id", s.id),
-    supabase.from("share_contributors").select("id, full_name, specialty, license_no, facility, phone, attested_at, contribution_count, last_contribution_at, reviewed_at").eq("share_id", s.id).order("created_at"),
+    supabase.from("share_contributors").select("id, full_name, specialty, license_no, facility, city, phone, attested_at, named_by_patient, signature_path, contribution_count, last_contribution_at, reviewed_at").eq("share_id", s.id).order("created_at"),
   ]);
-  const contributors = (ctrs ?? []) as { id: string; full_name: string; specialty: string | null; license_no: string | null; facility: string | null; phone: string | null; attested_at: string; contribution_count: number; last_contribution_at: string | null; reviewed_at: string | null }[];
+  const contributors = (ctrs ?? []) as { id: string; full_name: string; specialty: string | null; license_no: string | null; facility: string | null; city: string | null; phone: string | null; attested_at: string; named_by_patient: boolean; signature_path: string | null; contribution_count: number; last_contribution_at: string | null; reviewed_at: string | null }[];
   // everything the clinicians of this share added, newest first
   type Added = { table: string; id: string; label: string; at: string; record_status: string; contributed_by: string };
   const added: Added[] = contributors.length === 0 ? [] : (await Promise.all(Object.entries(CONTRIB_LABEL).map(async ([table, cols]) => {
     const { data } = await supabase.from(table).select(cols).eq("patient_id", p.id).in("contributed_by", contributors.map((c) => c.id));
     return ((data ?? []) as unknown as Record<string, string | null>[]).map((r): Added => ({
       table, id: String(r.id), record_status: String(r.record_status), contributed_by: String(r.contributed_by),
-      label: String(r.name ?? r.title ?? r.exam_date ?? (r.amount != null ? `${r.amount} ${r.currency}` : null) ?? r.reason ?? r.name_generic ?? r.name_brand ?? (r.body ? r.body.slice(0, 80) : null) ?? [r.modality, r.body_site].filter(Boolean).join(" — ") ?? r.kind ?? "—"),
+      label: String(r.name ?? r.title ?? r.exam_date ?? (r.prescriber_name ? `${r.prescriber_name} · ${r.issued_on}` : null) ?? (r.amount != null ? `${r.amount} ${r.currency}` : null) ?? r.reason ?? r.name_generic ?? r.name_brand ?? (r.body ? r.body.slice(0, 80) : null) ?? [r.modality, r.body_site].filter(Boolean).join(" — ") ?? r.kind ?? "—"),
       at: String(r.recorded_at ?? r.started_at ?? r.noted_at ?? r.scheduled_at ?? r.uploaded_at ?? ""),
     }));
   }))).flat().sort((a, b) => b.at.localeCompare(a.at));
@@ -68,6 +72,8 @@ export default async function ShareDetail({ params }: { params: { pid: string; i
 
       <Card title={t("النطاق والصلاحيات", "Scope & permissions")}>
         <KV items={[
+          [t("الطبيب", "Doctor"), s.clinician_name ? [s.clinician_name, s.clinician_specialty, s.clinician_facility, s.clinician_city].filter(Boolean).join(" — ") : null],
+          [t("الترخيص والهاتف", "Licence & phone"), [s.clinician_license, s.clinician_phone].filter(Boolean).join(" · ") || null],
           [t("النطاق", "Scope"), s.scope_kind === "full" ? t("الملف الكامل", "Whole file") : s.scope_kind === "specialty" ? s.specialty_ids.map((id: string) => specs.find((x) => x.id === id)?.[lang === "ar" ? "name_ar" : "name_en"]).filter(Boolean).join("، ") : t(`${itemCount ?? 0} سجل مختار`, `${itemCount ?? 0} selected records`)],
           [t("المعلومات الإضافية", "Extras"), (s.include as string[]).map((m) => SHARE_MODULES.find((x) => x.value === m)?.[lang]).filter(Boolean).join(" · ") || t("الأساسيات فقط", "Essentials only")],
           [t("الفترة", "Period"), s.date_from || s.date_to ? `${s.date_from ?? "…"} → ${s.date_to ?? "…"}` : null],
@@ -87,22 +93,24 @@ export default async function ShareDetail({ params }: { params: { pid: string; i
 
       {contributors.length > 0 && (
         <Card title={t("الأطباء الذين أضافوا إلى ملفك", "Doctors who added to your file")}>
-          <p className="small muted">{t("كل إضافة تحمل اسم الطبيب كما عرّف به نفسه وتوقيعه. لا يستطيع تعديل ما سجلتَه. يمكنك إبطال أي إضافة من صفحتها، أو إبطال كل إضافات طبيب هنا.",
-            "Each addition carries the doctor's name as they stated it and their signature. They cannot change what you recorded. Invalidate any single addition from its page, or everything from one doctor here.")}</p>
+          <p className="small muted">{t("كل إضافة تحمل اسم الطبيب كما حدّدتَه في الرابط. لا يستطيع تعديل ما سجلتَه. يمكنك إبطال أي إضافة من صفحتها، أو إبطال كل إضافات طبيب هنا.",
+            "Each addition carries the doctor's name as you gave it on the link. They cannot change what you recorded. Invalidate any single addition from its page, or everything from one doctor here.")}</p>
           {contributors.map((c) => {
             const mine = added.filter((a) => a.contributed_by === c.id);
             const pending = c.contribution_count > 0 && (!c.reviewed_at || (c.last_contribution_at != null && c.last_contribution_at > c.reviewed_at));
             return (
               <article className="rec" key={c.id}>
                 <div className="row between">
-                  <div><strong>{c.full_name}</strong> {[c.specialty, c.facility, c.license_no && `${t("ترخيص", "license")} ${c.license_no}`, c.phone].filter(Boolean).map((x) => <Chip key={String(x)} tone="muted">{x}</Chip>)}
-                    <div className="small muted">{t("عرّف بنفسه ووقّع", "Identified and signed")} {fmtDateTime(c.attested_at, lang, tz)} · {t(`${c.contribution_count} إضافة`, `${c.contribution_count} addition(s)`)}</div></div>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="sig-img" src={`/api/signatures/${c.id}`} alt={t(`توقيع ${c.full_name}`, `Signature of ${c.full_name}`)} loading="lazy" />
+                  <div><strong>{c.full_name}</strong> {[c.specialty, c.facility, c.city, c.license_no && `${t("ترخيص", "license")} ${c.license_no}`, c.phone].filter(Boolean).map((x) => <Chip key={String(x)} tone="muted">{x}</Chip>)}
+                    <div className="small muted">{c.named_by_patient ? t("أكّد أنه الطبيب المذكور في الرابط", "Confirmed being the doctor named on the link") : t("عرّف بنفسه ووقّع", "Identified and signed")} {fmtDateTime(c.attested_at, lang, tz)} · {t(`${c.contribution_count} إضافة`, `${c.contribution_count} addition(s)`)}</div></div>
+                  {c.signature_path && (<>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img className="sig-img" src={`/api/signatures/${c.id}`} alt={t(`توقيع ${c.full_name}`, `Signature of ${c.full_name}`)} loading="lazy" />
+                  </>)}
                 </div>
                 {mine.length > 0 && (
                   <ul style={{ margin: ".5rem 0", paddingInlineStart: "1.1rem" }}>{mine.map((a) => (
-                    <li key={`${a.table}:${a.id}`}><Link href={`/patients/${p.id}/${CONTRIB_PAGE[a.table]}`}>{a.table === "treatment_costs" ? t("تكلفة علاج", "Treatment cost") : CONTRIB_MODULES.find((x) => x.value === a.table)?.[lang]}: {a.label}</Link>
+                    <li key={`${a.table}:${a.id}`}><Link href={`/patients/${p.id}/${CONTRIB_PAGE[a.table]}`}>{a.table === "treatment_costs" ? t("تكلفة علاج", "Treatment cost") : a.table === "imaging_annotations" ? t("تعليق على صورة", "Image annotation") : CONTRIB_MODULES.find((x) => x.value === a.table)?.[lang]}: {a.label}</Link>
                       {a.record_status !== "active" && <> <Chip tone="bad">{t("مُبطل", "Invalidated")}</Chip></>} <span className="muted small">{a.at ? fmtDateTime(a.at, lang, tz) : ""}</span></li>))}</ul>
                 )}
                 <div className="row">

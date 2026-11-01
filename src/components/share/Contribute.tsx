@@ -9,7 +9,7 @@ import { Banner, Chip, Empty } from "@/components/ui";
 import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client";
 import { FieldInput } from "@/components/EntityForm";
 import { SignaturePad } from "@/components/SignaturePad";
-import { contributeDentalExam, contributeRecord, identifyContributor, retractContribution, shareAmendNote } from "@/app/actions/share-viewer";
+import { contributeDentalExam, contributeRecord, confirmClinician, identifyContributor, retractContribution, shareAmendNote } from "@/app/actions/share-viewer";
 import { TemplatePicker } from "@/components/TemplatePicker";
 import type { ShareMyNote } from "@/lib/share-types";
 import { ExamEditor } from "@/components/dental/ExamEditor";
@@ -25,19 +25,21 @@ const UPLOAD_ERR: Record<string, [string, string]> = {
   too_large: ["الملف أكبر من 20 ميغابايت.", "The file is larger than 20 MB."],
   bad_type: ["نوع الملف غير مسموح (PDF أو JPG أو PNG أو WebP).", "File type not allowed (PDF, JPG, PNG or WebP)."],
   active_content: ["رُفض ملف PDF لاحتوائه على محتوى نشط.", "This PDF was rejected because it contains active content."],
-  no_file: ["اختر ملفاً.", "Choose a file."], limit: ["بلغت المشاركة الحد الأقصى للإضافات.", "The share reached its limit of additions."],
+  no_file: ["اختر ملفاً.", "Choose a file."], invalid: ["دراسة التصوير غير متاحة في هذه المشاركة.", "That imaging study is not available on this share."], limit: ["بلغت المشاركة الحد الأقصى للإضافات.", "The share reached its limit of additions."],
 };
 
 // filled in from the clinician's identity, not asked again
 const AUTO_NAMES = ["practitioner_name", "author_name", "ordered_by", "prescriber_name", "operator_name"];
+// prescription details are written with the prescription form, not with the single-medicine form
+const RX_ONLY = ["quantity", "duration_days", "refills"];
 const DEFAULTS: Record<string, Record<string, string>> = { medications: { origin: "prescribed" }, test_orders: { status: "requested" }, encounters: { kind: "clinic" } };
 
 /** May this clinician add to `table` now (identified, and the patient allowed that kind of record)? */
 export function canAdd(st: ContribState | null | undefined, table: string): boolean {
   if (!st?.contributor || !(st.modules ?? []).includes(table)) return false;
-  return table === "dental_exams" || table === "treatment_plans" ? Boolean(st.covers_dentistry) : true;
+  return table === "dental_exams" || table === "treatment_plans" || table === "perio_exams" ? Boolean(st.covers_dentistry) : true;
 }
-const EXTRA_LABELS: Record<string, [string, string]> = { treatment_costs: ["تكلفة علاج", "Treatment cost"], treatment_plans: ["خطة علاج", "Treatment plan"] };
+const EXTRA_LABELS: Record<string, [string, string]> = { treatment_costs: ["تكلفة علاج", "Treatment cost"], treatment_plans: ["خطة علاج", "Treatment plan"], imaging_annotations: ["تعليق على صورة", "Image annotation"] };
 export const contribLabel = (table: string, lang: "ar" | "en") =>
   EXTRA_LABELS[table]?.[lang === "ar" ? 0 : 1] ?? CONTRIB_MODULES.find((m) => m.value === table)?.[lang] ?? table;
 
@@ -53,7 +55,18 @@ export function ContributorCard({ token, st, uploaded, uploadError }: { token: s
       <p className="small muted">{t("سمح لك المريض بإضافة ما يلي. تُحفظ إضافاتك باسمك ضمن نطاق هذه المشاركة، ويراها المريض ويستطيع إبطالها. لا يمكنك تعديل أو حذف ما سجله المريض.",
         "The patient allowed you to add the following. Your additions are saved under your name within this share's scope; the patient sees them and can invalidate them. You cannot change or remove what the patient recorded.")}</p>
       <p className="small">{modules.map((m) => <Chip key={m} tone="info">{contribLabel(m, lang)}</Chip>)}</p>
-      {!who ? (
+      {!who && st.clinician ? (
+        <ActionForm action={confirmClinician} className="stack clinician-confirm" resetOnSuccess={false}>
+          <input type="hidden" name="_t" value={token} />
+          <h3>{t("هذا الرابط مخصّص لـ", "This link is for")}</h3>
+          <p className="clinician-id"><strong>{st.clinician.name}</strong>
+            {[st.clinician.specialty, st.clinician.facility, st.clinician.city, st.clinician.license && `${t("ترخيص", "licence")} ${st.clinician.license}`].filter(Boolean).map((x) => <Chip key={String(x)} tone="muted">{x}</Chip>)}</p>
+          <p className="small muted" style={{ margin: 0 }}>{t("حدّد المريض هذه البيانات عند إنشاء الرابط، وتُحفظ مع كل ما تضيفه. لا تحتاج إلى إدخال بياناتك؛ سجّل التشخيص والعمل فقط.",
+            "The patient gave these details when making the link, and they are kept with everything you add. You do not need to enter your details; record only the diagnosis and the work.")}</p>
+          <div><SubmitButton pending={t("جارٍ التأكيد…", "Confirming…")}>{t(`أنا ${st.clinician.name} — ابدأ`, `I am ${st.clinician.name} — start`)}</SubmitButton></div>
+          <p className="small muted" style={{ margin: 0 }}>{t("لست هذا الطبيب؟ لا تتابع، واطلب من المريض رابطاً باسمك.", "Not this doctor? Do not continue; ask the patient for a link in your name.")}</p>
+        </ActionForm>
+      ) : !who ? (
         <ActionForm action={identifyContributor} className="stack" resetOnSuccess={false}>
           <input type="hidden" name="_t" value={token} />
           <h3>{t("عرّف بنفسك ووقّع مرة واحدة، ثم أضف في مكان كل معلومة", "Identify yourself and sign once, then add where each piece of information belongs")}</h3>
@@ -96,7 +109,7 @@ export function ContribForm({ token, st, table, formId, fixed = {}, external = [
   const tz = getTz();
   const def = ENTITIES[CONTRIB_ENTITY[table]];
   if (!def || !st.contributor) return null;
-  const fields = def.fields.filter((f) => f.kind !== "specialty" && !(f.only === "dental" && !st.covers_dentistry) && !AUTO_NAMES.includes(f.name)
+  const fields = def.fields.filter((f) => f.kind !== "specialty" && f.kind !== "imaging_order" && !(f.only === "dental" && !st.covers_dentistry) && !AUTO_NAMES.includes(f.name) && !RX_ONLY.includes(f.name)
     && !(f.name in fixed) && !external.includes(f.name) && (!pick || pick.includes(f.name)));
   const encounters = st.encounters ?? [];
   const linkable = table !== "encounters" && encounters.length > 0;
@@ -120,7 +133,7 @@ export function ContribForm({ token, st, table, formId, fixed = {}, external = [
 }
 
 /** "Add: …" folded inside the section it belongs to; nothing when this clinician may not add it. */
-export function ContribAdd({ token, st, table, dentition = "permanent", uploadError, templates }: { token: string; st: ContribState | null | undefined; table: string; dentition?: Dentition; uploadError?: string; templates?: { id: string; title: string; body: string }[] }) {
+export function ContribAdd({ token, st, table, dentition = "permanent", uploadError, templates, knownStates, noBaseline, images = [] }: { token: string; st: ContribState | null | undefined; table: string; dentition?: Dentition; uploadError?: string; templates?: { id: string; title: string; body: string }[]; knownStates?: { tooth: number; status: string }[]; noBaseline?: boolean; images?: { id: string; label: string }[] }) {
   const { lang, t } = i18n();
   const tz = getTz();
   if (!st || !canAdd(st, table)) return null;
@@ -130,7 +143,7 @@ export function ContribAdd({ token, st, table, dentition = "permanent", uploadEr
       <summary>{t(`إضافة: ${label}`, `Add: ${label}`)}</summary>
       <div className="fold-body">
         <ExamEditor action={contributeDentalExam} hidden={{ _t: token }} lang={lang} today={localDate(new Date(), tz)} defaultDentition={dentition}
-          conditions={st.conditions ?? []} examiner={st.contributor!.full_name} idPrefix="cx"
+          conditions={st.conditions ?? []} examiner={st.contributor!.full_name} idPrefix="cx" knownStates={knownStates} suggestBaseline={noBaseline} images={images}
           encounters={(st.encounters ?? []).map((e) => ({ id: e.id, label: `${fmtDate(e.started_at, lang, tz)} — ${e.reason ?? e.kind}` }))} />
       </div>
     </details>
@@ -144,6 +157,10 @@ export function ContribAdd({ token, st, table, dentition = "permanent", uploadEr
             <div className="field wide"><label htmlFor="c_file">{t("الملف (PDF / JPG / PNG / WebP، حتى 20 ميغابايت)", "File (PDF / JPG / PNG / WebP, up to 20 MB)")} <span className="req">*</span></label><input id="c_file" name="file" type="file" required accept="application/pdf,image/jpeg,image/png,image/webp" /></div>
             <div className="field"><label htmlFor="c_title">{t("العنوان", "Title")}</label><input id="c_title" name="title" maxLength={200} /></div>
             <div className="field"><label htmlFor="c_dtype">{t("النوع", "Type")}</label><select id="c_dtype" name="doc_type" defaultValue={st.covers_dentistry ? "dental_image" : "other"}>{DOC_TYPE.map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}</select></div>
+            {images.length > 0 && (
+              <div className="field"><label htmlFor="c_study">{t("دراسة التصوير (إن كان صورة لدراسة)", "Imaging study (if it is the image of a study)")}</label>
+                <select id="c_study" name="imaging_id" defaultValue=""><option value="">—</option>{images.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}</select></div>
+            )}
             <div className="field"><label htmlFor="c_ddate">{t("تاريخ المستند", "Document date")}</label><input id="c_ddate" name="document_date" type="date" /></div>
             <div className="field wide"><label htmlFor="c_desc">{t("وصف", "Description")}</label><textarea id="c_desc" name="description" rows={2} maxLength={1000} /></div>
           </div>

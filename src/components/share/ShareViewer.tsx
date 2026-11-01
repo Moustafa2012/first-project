@@ -6,7 +6,8 @@ import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
 import { ANESTHESIA_KIND, RECALL_KIND, ALLERGY_SEVERITY, CERTAINTY, CLINICAL_STATUS, CONDITION_CATEGORY, DOC_TYPE, ENCOUNTER_KIND, IMAGING_MODALITY, lbl, MED_ORIGIN, PROCEDURE_KIND, SEX, SHARE_MODULES, FAMILY_RELATION, CARE_PLAN_STATUS, LAB_GROUP, IMMUNIZATION_STATUS } from "@/lib/labels";
 import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
-import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall } from "@/lib/share-types";
+import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall, SharePerio } from "@/lib/share-types";
+import { SharePerioCard } from "@/components/share/SharePerio";
 import { DentalChart, type ToothAddForm } from "@/components/dental/DentalChart";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import type { ClinicalContextData } from "@/lib/clinical-context";
@@ -25,8 +26,8 @@ import { canAdd, ContribAdd, ContribForm, ContributorCard, ContribSummary, contr
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [] }: {
-  b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string;
+export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [] }: {
+  b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; perio?: SharePerio | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string;
   catalog?: CatalogItem[]; extras?: ShareExtras | null; myNotes?: ShareMyNote[]; recalls?: ShareRecall[]; templates?: { id: string; title: string; body: string }[];
 }) {
   const { lang, t } = i18n();
@@ -63,6 +64,7 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   const showNotes = place("clinical_notes", inc.has("notes") && ((b.notes ?? []).length > 0 || canAdd(contrib, "clinical_notes")));
   const showDocs = place("medical_documents", inc.has("documents"));
   if (dental) { placed.add("dental_exams"); placed.add("treatment_plans"); }
+  if (perio) placed.add("perio_exams");
   const others = (contrib?.modules ?? []).filter((m) => !placed.has(m) && canAdd(contrib, m));
   // treatment plans in the dental workspace: the dentist proposes, moves treatments along and notes their own cost
   const plans = dental?.plans ?? [];
@@ -205,6 +207,8 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
         </Card>
       )}
 
+
+      {perio && <SharePerioCard token={token} perio={perio} contrib={contrib ?? null} />}
 
       {inc.has("observations") && (
         <Card title={t("القياسات والتحاليل عبر الزمن", "Measurements & lab results over time")}>

@@ -7,6 +7,8 @@ import {
 const tooth = (n: number, pd: number[], gm?: (number | null)[], extra: Partial<PerioTooth> = {}): PerioTooth =>
   ({ ...emptyTooth(n), pd, gm: gm ?? null, ...extra });
 
+const tooth16Deep = () => [tooth(16, [3, 3, 7, 3, 3, 3], [0, 0, 0, 0, 0, 0])];
+
 describe("attachment level", () => {
   it("is PD minus the margin: recession is negative and adds, overgrowth is positive and subtracts", () => {
     expect(calAt(4, -2)).toBe(6);
@@ -61,12 +63,25 @@ describe("summary", () => {
 
 describe("comparison", () => {
   it("reports attachment loss of 2 mm or more, pocket reduction, and lost teeth", () => {
-    const before = [tooth(16, [3, 3, 4, 3, 3, 3]), tooth(11, [5, 2, 2, 2, 2, 2]), tooth(46, [3, 3, 3, 3, 3, 3])];
+    const before = [tooth(16, [3, 3, 4, 3, 3, 3], [0, 0, 0, 0, 0, 0]), tooth(11, [5, 2, 2, 2, 2, 2]), tooth(46, [3, 3, 3, 3, 3, 3])];
     const after = [tooth(16, [3, 3, 5, 3, 3, 3], [0, 0, -1, 0, 0, 0]), tooth(11, [3, 2, 2, 2, 2, 2]), { ...emptyTooth(46), missing: true }];
     const c = comparePerio(before, after);
     expect(c.worse).toEqual([{ tooth: 16, site: 2, pdBefore: 4, pdAfter: 5, calBefore: 4, calAfter: 6, dCal: 2, dPd: 1 }]);
     expect(c.better.map((x) => [x.tooth, x.site, x.dPd])).toEqual([[11, 0, -2]]);
     expect(c.lostTeeth).toEqual([46]);
+  });
+  it("compares attachment only where the margin was measured in both charts or in neither (an empty margin is not the CEJ)", () => {
+    // before: no margin; after: margin measured at -2 → the real attachment before is unknown, so no "worse" is invented
+    const noMargin = [tooth(16, [3, 3, 4, 3, 3, 3])];
+    const measured = [tooth(16, [3, 3, 4, 3, 3, 3], [0, 0, -2, 0, 0, 0])];
+    expect(comparePerio(noMargin, measured).worse).toEqual([]);
+    expect(comparePerio(measured, noMargin).worse).toEqual([]);
+    // both without margin: the depth change stands for it
+    expect(comparePerio(noMargin, [tooth(16, [3, 3, 6, 3, 3, 3])]).worse.map((x) => [x.tooth, x.site, x.dCal])).toEqual([[16, 2, 2]]);
+    // both measured: a real loss is reported
+    expect(comparePerio(measured, [tooth(16, [3, 3, 4, 3, 3, 3], [0, 0, -4, 0, 0, 0])]).worse.map((x) => x.dCal)).toEqual([2]);
+    // a pocket that became shallower is still reported, whatever the margin
+    expect(comparePerio(tooth16Deep(), noMargin).better.map((x) => x.site)).toEqual([2]);
   });
   it("ignores 1 mm changes (probing error)", () => {
     expect(comparePerio([tooth(16, [3, 3, 3, 3, 3, 3])], [tooth(16, [4, 3, 3, 3, 3, 2])]).worse).toEqual([]);
@@ -105,7 +120,7 @@ describe("quick entry", () => {
       .toEqual([3, -2, null, null, "bad", "bad"]);
   });
   it("moves on after a digit, waits after 1 for depths, and after a lone sign", () => {
-    expect([siteComplete("3"), siteComplete("1"), siteComplete("12"), siteComplete("-"), siteComplete("-1", false), siteComplete("1", false)])
-      .toEqual([true, false, true, false, true, true]);
+    expect([siteComplete("3"), siteComplete("1"), siteComplete("12"), siteComplete("-"), siteComplete("-1", false), siteComplete("1", false), siteComplete("-1"), siteComplete("-10")])
+      .toEqual([true, false, true, false, true, true, false, true]);
   });
 });

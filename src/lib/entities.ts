@@ -3,8 +3,13 @@ import type { Opt } from "@/lib/labels";
 import type { Lang } from "@/lib/i18n";
 import type { Row } from "@/lib/types";
 import { normText } from "@/lib/dedupe";
+import { isWholeMouth, summarizeBoneLevels, type BoneLevels } from "@/lib/dental-imaging";
 
-export type FieldKind = "text" | "textarea" | "date" | "datetime" | "number" | "select" | "checkbox" | "specialty" | "teeth";
+export type FieldKind = "text" | "textarea" | "date" | "datetime" | "number" | "select" | "checkbox" | "specialty" | "teeth"
+  /** the bone level read per sextant on a dental image (stored as jsonb, see src/lib/dental-imaging.ts) */
+  | "bonelevels"
+  /** the open imaging request this study fulfils (offered from FormContext.orders) */
+  | "imaging_order";
 
 export interface FieldDef {
   name: string;
@@ -47,6 +52,8 @@ export interface FormContext {
   pick?: string[];
   /** note templates offered above the text */
   templates?: { id: string; title: string; body: string; mine?: boolean }[];
+  /** open imaging requests a new study can fulfil */
+  orders?: { id: string; label: string }[];
 }
 const teethChip = (r: Row, lang: Lang): Chip[] =>
   Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info", text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : [];
@@ -242,17 +249,26 @@ export const ENTITIES: Record<string, EntityDef> = {
     order: ["performed_on", "desc"], hasSpecialty: true, dateOf: (r) => (r.performed_on as string) ?? null, datePrecision: PREC, bodyField: "impression",
     dupKey: (r) => `${s(r, "modality")}|${n(r, "body_site")}|${day(r.performed_on)}`,
     titleOf: (r, lang) => [L.lbl(L.IMAGING_MODALITY, s(r, "modality"), lang), s(r, "body_site")].filter(Boolean).join(" — "),
-    chipsOf: (r, lang) => teethChip(r, lang),
+    chipsOf: (r, lang) => [
+      ...(isWholeMouth(s(r, "modality"), r.teeth as number[] | null) ? [{ tone: "info" as const, text: lang === "ar" ? "كامل الفم" : "Whole mouth" }] : []),
+      ...teethChip(r, lang),
+      ...(r.bone_levels ? [{ tone: "muted" as const, text: `${lang === "ar" ? "فقد العظم" : "Bone"}: ${summarizeBoneLevels(r.bone_levels as BoneLevels, lang)}` }] : []),
+      ...(r.test_order_id ? [{ tone: "ok" as const, text: lang === "ar" ? "لتلبية طلب" : "Fulfils a request" }] : []),
+    ],
     fields: [
       f("modality", "نوع الفحص", "Modality", "select", { options: L.IMAGING_MODALITY, dflt: "xray" }),
       f("body_site", "المنطقة", "Body site", "text"),
       teethField(),
       f("performed_on", "تاريخ الفحص", "Date", "date", { precision: PREC, hint: unknownDate }),
+      f("test_order_id", "يلبّي طلب التصوير", "Fulfils the imaging request", "imaging_order",
+        { wide: true, hint: ["اختر الطلب المفتوح الذي أُجريت هذه الصورة من أجله؛ يُغلق الطلب تلقائياً.", "Choose the open request this image was taken for; it is closed automatically."] }),
       spec,
       f("facility_name", "المنشأة", "Facility", "text"),
       f("radiologist_name", "طبيب الأشعة", "Radiologist", "text"),
       f("findings", "الموجودات", "Findings", "textarea", { wide: true }),
       f("impression", "الانطباع / الخلاصة", "Impression", "textarea", { wide: true }),
+      f("bone_levels", "قراءة مستوى العظم (لكل سدس)", "Bone level reading (per sextant)", "bonelevels", { wide: true, only: "dental",
+        hint: ["اتركها فارغة إن لم تُقرأ الصورة لمستوى العظم.", "Leave empty if the bone level was not read on this image."] }),
     ],
   },
   immunizations: {

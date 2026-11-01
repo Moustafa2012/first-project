@@ -6,7 +6,9 @@ import { getAccess, getPatient, getProcedureCatalog, getSpecialties } from "@/li
 import { getTz } from "@/lib/auth";
 import { fmtPartialDate, localDate } from "@/lib/format";
 import { ENTITIES } from "@/lib/entities";
-import { SOURCE, lbl } from "@/lib/labels";
+import { IMAGING_MODALITY, SOURCE, lbl } from "@/lib/labels";
+import { isWholeMouth, type AnnotationRow } from "@/lib/dental-imaging";
+import { addImagingAnnotation, invalidateImagingAnnotation } from "@/app/actions/imaging";
 import {
   ABSENT_STATUSES, ANXIETY, BRUSHING, DENTITION, EXAM_KIND, FINDING_KIND, FLOSSING, ORAL_HYGIENE, TOOTH_STATUS, chartDentition, compareExams, deriveChart, fmtSurfaces,
   type ExamRow, type FindingRow,
@@ -34,7 +36,7 @@ import { RECALL_KIND } from "@/lib/labels";
 
 type Profile = Record<string, string | boolean | null>;
 
-export default async function DentalPage({ params, searchParams }: { params: { pid: string }; searchParams: { asof?: string; a?: string; b?: string; tab?: string; pv?: string; pa?: string; pb?: string; pnew?: string } }) {
+export default async function DentalPage({ params, searchParams }: { params: { pid: string }; searchParams: { uploaded?: string; error?: string; asof?: string; a?: string; b?: string; tab?: string; pv?: string; pa?: string; pb?: string; pnew?: string } }) {
   const { lang, t } = i18n();
   const tz = getTz();
   const p = await getPatient(params.pid);
@@ -49,7 +51,8 @@ export default async function DentalPage({ params, searchParams }: { params: { p
     supabase.from("conditions").select("id, name, teeth, certainty, clinical_status, contributed_by, resolved_date, onset_date, specialty_id").eq("patient_id", p.id).eq("record_status", "active"),
     supabase.from("share_contributors").select("id, full_name").eq("patient_id", p.id),
     supabase.from("procedures").select("id, name, kind, teeth, performed_on, date_precision, operator_name, contributed_by").eq("patient_id", p.id).eq("record_status", "active"),
-    supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression").eq("patient_id", p.id).eq("record_status", "active"),
+    supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression, findings, bone_levels, specialty_id, contributed_by")
+      .eq("patient_id", p.id).eq("record_status", "active").order("performed_on", { ascending: false, nullsFirst: false }),
     supabase.from("dental_pulp_tests").select("exam_id, tooth, test, result, value, note").eq("patient_id", p.id).order("tooth"),
   ]);
   const pulpOf = (examId: string) => ((pulpRows ?? []) as (PulpTest & { exam_id: string })[]).filter((x) => x.exam_id === examId);
@@ -66,11 +69,19 @@ export default async function DentalPage({ params, searchParams }: { params: { p
     .map((i) => ({ id: i.id, name: i.name, status: i.status, plan: pl.title, plan_id: pl.id, teeth: i.teeth })));
   const imgIds = (imgRows ?? []).map((i) => i.id as string);
   const { data: imgDocs } = imgIds.length
-    ? await supabase.from("medical_documents").select("id, title, imaging_id").eq("patient_id", p.id).eq("record_status", "active").in("imaging_id", imgIds)
-    : { data: [] as { id: string; title: string; imaging_id: string }[] };
+    ? await supabase.from("medical_documents").select("id, title, imaging_id, mime_type").eq("patient_id", p.id).eq("record_status", "active").in("imaging_id", imgIds).order("uploaded_at")
+    : { data: [] as { id: string; title: string; imaging_id: string; mime_type: string }[] };
+  const { data: annRows } = imgIds.length
+    ? await supabase.from("imaging_annotations").select("id, imaging_id, document_id, shapes, recorded_at, contributed_by, source_detail").eq("patient_id", p.id)
+      .eq("record_status", "active").in("imaging_id", imgIds).order("recorded_at")
+    : { data: [] as { id: string; imaging_id: string; document_id: string; shapes: AnnotationRow["shapes"]; recorded_at: string; contributed_by: string | null; source_detail: string | null }[] };
   const procedures = ((procRows ?? []) as ToothProcedure[]).filter((x) => Array.isArray(x.teeth) && x.teeth.length);
-  const images = ((imgRows ?? []) as ToothImage[]).filter((x) => Array.isArray(x.teeth) && x.teeth.length)
-    .map((i) => ({ ...i, documents: (imgDocs ?? []).filter((d) => d.imaging_id === i.id).map((d) => ({ id: d.id as string, title: d.title as string })) }));
+  // images that name teeth, and the whole-mouth ones (a panoramic, CBCT or cephalometric image of dentistry) that name none
+  const images = ((imgRows ?? []) as (ToothImage & { specialty_id?: string | null })[])
+    .filter((x) => (Array.isArray(x.teeth) && x.teeth.length) || (isWholeMouth(x.modality, x.teeth) && (!x.specialty_id || x.specialty_id === dent?.id)))
+    .map((i) => ({ ...i, documents: (imgDocs ?? []).filter((d) => d.imaging_id === i.id).map((d) => ({ id: d.id as string, title: d.title as string, mime_type: d.mime_type as string })) }));
+  const annotations: AnnotationRow[] = (annRows ?? []).map((a) => ({ id: a.id, imaging_id: a.imaging_id, document_id: a.document_id, shapes: a.shapes, recorded_at: a.recorded_at,
+    contributed_by: a.contributed_by, by: a.source_detail }));
   const exams: ExamRow[] = (examRows ?? []).map((e) => ({ ...e, states: (stateRows ?? []).filter((s) => s.exam_id === e.id) })) as ExamRow[];
   const findings = (findingRows ?? []) as FindingRow[];
   const allConds = (condRows ?? []) as (DentalDiagnosis & { specialty_id: string | null })[];
@@ -164,7 +175,11 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         <DentalChart dentition={dentition} exams={exams} findings={findings} diagnoses={diagnoses} contributors={contributors} lang={lang}
           pid={p.id} canWrite={access.canWrite} today={today} asOf={asExam?.exam_date ?? null} specialtyId={dent?.id ?? null}
           procedures={procedures} images={images} problemsHref={`${base}?tab=problems#diagnoses`} toothAdd={toothAdd}
-          planned={planned} treatmentHref={`${base}?tab=treatment`} />
+          planned={planned} treatmentHref={`${base}?tab=treatment`}
+          viewer={{ docBase: "/api/documents/", annotations: {
+            rows: annotations,
+            ...(access.canWrite ? { add: addImagingAnnotation, addHidden: { _pid: p.id }, remove: invalidateImagingAnnotation, removeHidden: { _pid: p.id } } : {}),
+          } }} />
       </Card>
 
       {access.canWrite && (
@@ -177,7 +192,8 @@ export default async function DentalPage({ params, searchParams }: { params: { p
               <ExamEditor action={saveDentalExam} hidden={{ _pid: p.id }} lang={lang} today={today} defaultDentition={dentition}
                 conditions={diagnoses.map((d) => ({ id: d.id, name: d.name, teeth: d.teeth }))} idPrefix="px" evidenceDefault="patient_reported"
                 knownStates={[...deriveChart(exams, findings).values()].filter((v) => v.status).map((v) => ({ tooth: v.tooth, status: v.status! }))}
-                suggestBaseline={!exams.some((e) => (e as ExamRow & { is_baseline?: boolean }).is_baseline)} />
+                suggestBaseline={!exams.some((e) => (e as ExamRow & { is_baseline?: boolean }).is_baseline)}
+                images={images.map((i) => ({ id: i.id, label: `${lbl(IMAGING_MODALITY, i.modality, lang)}${i.performed_on ? ` ${fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang)}` : ""}` }))} />
             </div>
           </details>
         </Card>
@@ -331,6 +347,27 @@ export default async function DentalPage({ params, searchParams }: { params: { p
       {tab === "imaging" && (<>
         <EntitySection entity={ENTITIES.imaging} pid={p.id} returnPath={base} title={t("صور وأشعة الأسنان", "Dental images & X-rays")} compact
           filter={dent ? { specialty_id: dent.id } : {}} defaults={{ modality: "dental_xray" }} context={{ fixed: dent ? { specialty_id: dent.id } : {}, dental: true }} addLabel={t("إضافة صورة أو أشعة", "Add an image or X-ray")} />
+        {searchParams.uploaded === "1" && <Banner tone="ok">{t("أُرفق ملف الصورة بالدراسة. افتحه من المخطط ثم «عرض».", "The image file was attached to the study. Open it from the chart, then “View”.")}</Banner>}
+        {searchParams.error && <Banner tone="bad">{t("تعذر رفع الملف (JPG أو PNG أو WebP حتى 20 ميغابايت).", "The file could not be uploaded (JPG, PNG or WebP up to 20 MB).")}</Banner>}
+        {access.canWrite && (imgRows ?? []).some((x) => x.specialty_id === dent?.id || (Array.isArray(x.teeth) && x.teeth.length)) && (
+          <Card id="attach-image" title={t("إرفاق ملف صورة بدراسة تصوير", "Attach an image file to an imaging study")}>
+            <p className="small muted" style={{ marginBlockStart: 0 }}>{t("الدراسة سجل (النوع والتاريخ والقراءة)، والملف هو الصورة نفسها. بعد الإرفاق تُفتح الصورة في العارض: تكبير وتدوير وسطوع وتباين ومقارنة وتعليقات.",
+              "The study is the record (type, date, reading); the file is the picture itself. Once attached it opens in the viewer: zoom, rotate, brightness, contrast, compare and annotations.")}</p>
+            <form method="post" action={`/api/patients/${p.id}/documents`} encType="multipart/form-data" className="stack" id="attach-image-form">
+              <input type="hidden" name="_return" value={`${base}?tab=imaging`} /><input type="hidden" name="doc_type" value="dental_image" />
+              {dent && <input type="hidden" name="specialty_id" value={dent.id} />}
+              <div className="form-grid">
+                <div className="field"><label htmlFor="ai_study">{t("الدراسة", "Study")}</label>
+                  <select id="ai_study" name="imaging_id" required>{(imgRows ?? []).filter((x) => x.specialty_id === dent?.id || (Array.isArray(x.teeth) && x.teeth.length))
+                    .map((x) => <option key={x.id} value={x.id}>{lbl(IMAGING_MODALITY, x.modality, lang)}{x.performed_on ? ` — ${fmtPartialDate(x.performed_on, x.date_precision ?? "day", lang)}` : ""}{Array.isArray(x.teeth) && x.teeth.length ? ` — ${x.teeth.join(", ")}` : ""}</option>)}</select></div>
+                <div className="field"><label htmlFor="ai_file">{t("ملف الصورة (JPG / PNG / WebP)", "Image file (JPG / PNG / WebP)")}</label>
+                  <input id="ai_file" name="file" type="file" required accept="image/jpeg,image/png,image/webp" /></div>
+                <div className="field"><label htmlFor="ai_title">{t("العنوان", "Title")}</label><input id="ai_title" name="title" maxLength={200} /></div>
+              </div>
+              <div><button className="btn primary">{t("إرفاق الصورة", "Attach the image")}</button></div>
+            </form>
+          </Card>
+        )}
         <p className="small"><Link href={`/patients/${p.id}/documents${dent ? `?specialty=${dent.id}` : ""}`}>{t("ملفات الصور والتقارير (المستندات) ←", "Image files and reports (documents) →")}</Link></p>
       </>)}
 

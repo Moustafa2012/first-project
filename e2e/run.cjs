@@ -27,6 +27,17 @@ function watch(page, label) {
 }
 
 const pdf = (extra = "") => Buffer.from(`%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n${extra}%%EOF\n`);
+
+// a real, valid PNG (w × h, grey gradient) for the image viewer steps; every size is a different file
+function makePng(w, h) {
+  const zlib = require("node:zlib");
+  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) { c ^= b; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; } return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type), data]); const sum = Buffer.alloc(4); sum.writeUInt32BE(crc(body)); return Buffer.concat([len, body, sum]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+  const raw = Buffer.alloc((w + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw[y * (w + 1) + 1 + x] = Math.floor(40 + 160 * (x / w) * (0.5 + y / (2 * h)));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
 const localInput = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const daysAgo = (n) => new Date(Date.now() - n * 86_400_000);
 
@@ -1205,6 +1216,236 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     assert((await page.getByText("Invalidated", { exact: true }).count()) >= 4, "all four additions are invalidated");
     await page.goto(`${BASE}/patients/${pid}/audit`);
     await page.getByText("Doctor via a share link").first().waitFor();
+  });
+
+  // ---------------------------------------------------------------- dental images: the image as a source, the viewer, the doctor on a link (ح2 / هـ)
+  await step("images: a panoramic is recorded with its bone reading and fulfils the imaging request; the files are attached; the whole-mouth image is on the chart and in every tooth panel", async () => {
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await openSummary(page, "Add test request");
+    await page.fill("#test-orders_new_name", "Panoramic X-ray (requested by Dr Abdullah)");
+    await page.selectOption("#test-orders_new_kind", "imaging");
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+    await openSummary(page, "Add an image or X-ray");
+    const form = page.locator("form", { has: page.locator("#imaging_new_modality") });
+    await form.locator("#imaging_new_modality").selectOption("panoramic");
+    await form.locator("#imaging_new_performed_on").fill(new Date().toISOString().slice(0, 10));
+    await form.locator("#imaging_new_test_order_id").selectOption(await form.locator("#imaging_new_test_order_id option", { hasText: "Panoramic X-ray (requested by Dr Abdullah)" }).getAttribute("value"));
+    await form.locator('select[name="bone_s1_level"]').selectOption("coronal_third");
+    await form.locator('select[name="bone_s1_pattern"]').selectOption("horizontal");
+    await form.locator('select[name="bone_s5_level"]').selectOption("apical_third");
+    await form.locator('select[name="bone_s5_pattern"]').selectOption("vertical");
+    await form.locator("#imaging_new_impression").fill("Generalised horizontal bone loss, vertical defect lower anterior");
+    await form.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    const study = page.locator("article.rec", { hasText: "Generalised horizontal bone loss" }).first();
+    await study.getByText("Whole mouth", { exact: true }).waitFor();
+    await study.getByText("Fulfils a request", { exact: true }).waitFor();
+    await study.getByText(/Bone: S1 Coronal third \(15–33%\) \(Horizontal\) · S5 Apical third \(Vertical \(angular\)\)/).waitFor();
+    // the request is closed by the study itself
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await page.locator("article.rec", { hasText: "Panoramic X-ray (requested by Dr Abdullah)" }).getByText("Done", { exact: true }).first().waitFor();
+    // a bad bone reading never reaches the database: a pattern without a level is refused by the form's own check
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+    await openSummary(page, "Add an image or X-ray");
+    const f2 = page.locator("form", { has: page.locator("#imaging_new_modality") });
+    await f2.locator('select[name="bone_s2_pattern"]').selectOption("mixed");
+    await f2.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText(/Invalid bone level reading/).waitFor();
+    // two image files are attached to the study (a different file each: the duplicate check stays quiet)
+    for (const [w, h, title] of [[640, 320, "Panoramic file A"], [480, 240, "Panoramic file B"]]) {
+      await page.goto(`${BASE}/patients/${pid}/dental?tab=imaging`);
+      await page.locator("#ai_study").selectOption(await page.locator("#ai_study option", { hasText: "Panoramic" }).first().getAttribute("value"));
+      await page.setInputFiles("#ai_file", { name: `${title}.png`, mimeType: "image/png", buffer: makePng(w, h) });
+      await page.fill("#ai_title", title);
+      await page.locator("#attach-image-form").getByRole("button", { name: "Attach the image" }).click();
+      await page.getByText("The image file was attached to the study.").waitFor();
+    }
+    // the chart: the whole-mouth card lists it with its reading and its files
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const wm = page.locator("section.whole-mouth");
+    await wm.getByRole("heading", { name: "Whole-mouth images" }).waitFor();
+    await wm.getByText("Panoramic", { exact: false }).first().waitFor();
+    await wm.getByText(/S1 Coronal third/).waitFor();
+    await wm.getByRole("button", { name: /Open Panoramic file A in the viewer/ }).waitFor();
+    // and in the panel of any tooth, even one the image does not name
+    await page.locator("#chart-27").click();
+    await page.locator(".tooth-panel").getByRole("heading", { name: "Images & X-rays" }).waitFor();
+    await page.locator(".tooth-panel li[data-image]", { hasText: "Whole mouth" }).waitFor();
+  });
+
+  await step("images: a radiographic finding names the image it was read on (the exam editor, the tooth panel and its history)", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await openSummary(page, "New exam on the chart");
+    await page.locator("#px-t-36").click();
+    await page.selectOption("#px_fk", "bone_loss");
+    await page.selectOption("#px_fe", "radiographic");
+    const sel = page.locator("#px_fi");
+    await sel.waitFor();                                                         // offered only for a radiographic finding
+    await sel.selectOption(await sel.locator("option", { hasText: "Panoramic" }).first().getAttribute("value"));
+    await page.getByRole("button", { name: "Add to this tooth" }).click();
+    await page.locator(".exam-summary").getByText(/from Panoramic/).waitFor();
+    await page.selectOption("#px_fe", "clinical");
+    assert((await page.locator("#px_fi").count()) === 0, "a clinical finding is not asked for an image");
+    let saved = false;
+    for (let i = 0; i < 2 && !saved; i++) {
+      await page.locator("#px-form").getByRole("button", { name: "Save the exam" }).click();
+      const dup = page.getByText("Yes, a different exam — save it");
+      const ok = page.locator("#px-form").getByText("Exam saved.");
+      await Promise.race([dup.waitFor(), ok.waitFor()]);
+      if (await ok.isVisible().catch(() => false)) saved = true; else await dup.click();
+    }
+    await page.reload();
+    await page.locator("#chart-36").click();
+    await page.locator(".tooth-panel .tooth-list li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+    await page.locator(".tooth-panel .tooth-hist li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+  });
+
+  await step("images: the viewer zooms, pans, rotates, adjusts brightness and contrast, resets, compares two images and keeps annotations apart from the file", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("section.whole-mouth").getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    const dlg = page.getByRole("dialog", { name: "Image viewer" });
+    await dlg.waitFor();
+    const img = dlg.locator(".iv-viewport img").first();
+    await page.waitForFunction(() => { const i = document.querySelector(".iv-viewport img"); return i && i.naturalWidth > 0; });
+    const stage = dlg.locator(".iv-stage").first();
+    const tf = () => stage.evaluate((el) => el.style.transform);
+    const zoomText = () => dlg.locator(".iv-zoom").first().innerText();
+    assert((await zoomText()) === "100%", "starts at 100%");
+    await dlg.getByRole("button", { name: "Zoom in" }).first().click();
+    assert((await zoomText()) === "125%", "the button zooms by a quarter: " + await zoomText());
+    // the wheel zooms about the pointer
+    const vp = dlg.locator(".iv-viewport").first();
+    const box = await vp.boundingBox();
+    await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 20);
+    await page.mouse.wheel(0, -300);
+    assert(parseInt(await zoomText(), 10) > 125, "the wheel zooms in: " + await zoomText());
+    // dragging pans
+    const before = await tf();
+    await page.mouse.move(box.x + 100, box.y + 100); await page.mouse.down(); await page.mouse.move(box.x + 160, box.y + 130, { steps: 4 }); await page.mouse.up();
+    assert((await tf()) !== before, "dragging moves the image");
+    // rotate 90°, brightness and contrast through CSS filters; the file is never changed
+    await dlg.getByRole("button", { name: "Rotate 90° clockwise" }).first().click();
+    assert(/rotate\(90deg\)/.test(await tf()), "rotated: " + await tf());
+    await dlg.getByLabel("Brightness").first().fill("150");
+    await dlg.getByLabel("Contrast").first().fill("180");
+    const filter = await img.evaluate((el) => el.style.filter);
+    assert(/brightness\(150%\)/.test(filter) && /contrast\(180%\)/.test(filter), "filters: " + filter);
+    await dlg.getByRole("button", { name: "Reset" }).first().click();
+    assert((await zoomText()) === "100%" && /rotate\(0deg\)/.test(await tf()) && /brightness\(100%\)/.test(await img.evaluate((el) => el.style.filter)), "reset restores the view");
+    // from the keyboard
+    await vp.focus();
+    await page.keyboard.press("+"); await page.keyboard.press("+");
+    assert((await zoomText()) === "156%", "the keyboard zooms: " + await zoomText());
+    await page.keyboard.press("r");
+    assert(/rotate\(90deg\)/.test(await tf()), "R rotates");
+    await page.keyboard.press("0");
+    assert((await zoomText()) === "100%", "0 resets");
+    // side by side with the other image of the same patient
+    await dlg.getByRole("button", { name: "Compare with another image" }).click();
+    assert((await dlg.locator(".iv-pane").count()) === 2, "two images side by side");
+    await dlg.getByLabel("Image to compare with").selectOption({ index: 0 });
+    await dlg.getByRole("button", { name: "Compare with another image" }).click();
+    assert((await dlg.locator(".iv-pane").count()) === 1, "back to one image");
+    // annotations: a circle and an arrow, drawn in normalised coordinates, saved apart from the file
+    const draw = async (from, to) => {
+      const b = await vp.boundingBox();
+      await page.mouse.move(b.x + b.width * from[0], b.y + b.height * from[1]); await page.mouse.down();
+      await page.mouse.move(b.x + b.width * to[0], b.y + b.height * to[1], { steps: 5 }); await page.mouse.up();
+    };
+    await dlg.getByRole("button", { name: "Circle" }).click();
+    await draw([0.45, 0.5], [0.55, 0.5]);
+    await dlg.getByRole("button", { name: "Arrow" }).click();
+    await draw([0.3, 0.3], [0.42, 0.45]);
+    await dlg.getByText("2 shape(s) waiting to be saved").waitFor();
+    await dlg.getByRole("button", { name: "Save the annotation" }).click();
+    await dlg.getByText("The annotation was saved").waitFor();
+    await dlg.getByText("Annotations on this image (1)").waitFor();
+    assert((await dlg.locator(".iv-overlay-svg ellipse").count()) === 1 && (await dlg.locator(".iv-overlay-svg line").count()) === 1, "the shapes are drawn as an SVG overlay");
+    // the original file is untouched: it is still served as the PNG that was attached
+    const sh = await page.evaluate(async () => {
+      const r = await fetch(document.querySelector(".iv-viewport img").src);
+      return { ok: r.ok, type: r.headers.get("content-type"), len: (await r.arrayBuffer()).byteLength };
+    });
+    assert(sh.ok && /image\/png/.test(sh.type) && sh.len > 100, "the original file is still served untouched");
+    await page.keyboard.press("Escape");
+    await dlg.waitFor({ state: "detached" });
+    // after a reload the annotation is still there, and the file's size did not change
+    await page.reload();
+    await page.locator("section.whole-mouth").getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    await page.getByRole("dialog", { name: "Image viewer" }).locator(".iv-overlay-svg ellipse").waitFor();
+    await page.screenshot({ path: path.join(OUT, "image-viewer.png") });
+    await page.keyboard.press("Escape");
+  });
+
+  await step("images: a doctor on a link sees the whole-mouth panoramic, its reading, the finding linked to it and the patient's annotation; he links a finding and annotates; download stays blocked", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    await page.check('input[name="include"][value="documents"]');
+    await fillClinician(page, "Dr Nadia Perio", { specialty: "Periodontics", facility: "Gum Clinic" });
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin = await page.locator('input[aria-label="PIN"]').inputValue();
+    const cp = await newContext(browser); const dp = await cp.newPage(); watch(dp, "periodontist");
+    await dp.goto(link); await dp.fill("#pin", pin); await dp.getByRole("button", { name: "Open file" }).click(); await dp.waitForURL(/\/view$/);
+    await dp.getByRole("button", { name: "I am Dr Nadia Perio — start" }).click();
+    await dp.getByText("Adding as").waitFor();
+    // the panoramic has no tooth, yet the dentist's chart carries it, with the structured reading
+    const wm = dp.locator("section.whole-mouth");
+    await wm.getByRole("heading", { name: "Whole-mouth images" }).waitFor();
+    await wm.getByText(/S5 Apical third/).waitFor();
+    await wm.getByText("Generalised horizontal bone loss").waitFor();
+    // the finding the patient linked to it, in tooth 36's panel
+    await dp.locator("#chart-36").click();
+    await dp.locator(".tooth-panel .tooth-list li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+    // the viewer opens through the share's own document route, and shows the patient's annotation
+    await wm.getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    const dlg = dp.getByRole("dialog", { name: "Image viewer" });
+    await dp.waitForFunction(() => { const i = document.querySelector(".iv-viewport img"); return i && i.naturalWidth > 0; });
+    assert(/\/s\/[^/]+\/doc\//.test(await dlg.locator(".iv-viewport img").first().getAttribute("src")), "the file comes from the share document route");
+    await dlg.locator(".iv-overlay-svg ellipse").waitFor();
+    // the doctor draws his own
+    await dlg.getByRole("button", { name: "Text" }).click();
+    const vp = dlg.locator(".iv-viewport").first(); const b = await vp.boundingBox();
+    await dp.mouse.click(b.x + b.width * 0.7, b.y + b.height * 0.6);
+    await dlg.getByLabel("Annotation text, then Enter").fill("Vertical defect distal 46");
+    await dp.keyboard.press("Enter");
+    await dlg.getByText("1 shape(s) waiting to be saved").waitFor();
+    await dlg.getByRole("button", { name: "Save the annotation" }).click();
+    await dlg.getByText("The annotation was saved under your name").waitFor();
+    await dlg.getByText(/Annotations on this image \(2\)/).waitFor();
+    // download is blocked for this link, with or without the viewer
+    const src = await dlg.locator(".iv-viewport img").first().getAttribute("src");
+    const dl = await dp.request.get(`${BASE}${src}?dl=1`);
+    assert(dl.status() === 403, "download is not allowed on this share: " + dl.status());
+    await dp.keyboard.press("Escape");
+    // the doctor records a finding read on the same panoramic
+    await dp.locator("summary", { hasText: "Add: Dental exam on the chart" }).click();
+    await dp.locator("#cx-t-46").click();
+    await dp.selectOption("#cx_fk", "bone_loss");
+    await dp.selectOption("#cx_fe", "radiographic");
+    await dp.selectOption("#cx_fi", await dp.locator("#cx_fi option", { hasText: "Panoramic" }).first().getAttribute("value"));
+    await dp.getByRole("button", { name: "Add to this tooth" }).click();
+    await dp.getByRole("button", { name: "Save the exam" }).click();
+    await dp.getByText("The exam was saved to the patient's file under your name.").waitFor();
+    await dp.reload();
+    await dp.locator("#chart-46").click();
+    await dp.locator(".tooth-panel .tooth-list li", { hasText: "Bone loss" }).getByText(/from Panoramic/).first().waitFor();
+    await dp.screenshot({ path: path.join(OUT, "periodontist-view.png"), fullPage: true });
+    await cp.close();
+    // the patient sees the doctor's annotation with his name in the viewer's list
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    await page.locator("section.whole-mouth").getByRole("button", { name: /Open Panoramic file A in the viewer/ }).click();
+    const pd = page.getByRole("dialog", { name: "Image viewer" });
+    await pd.getByText(/Annotations on this image \(2\)/).waitFor();
+    await pd.locator("summary", { hasText: "Annotations on this image" }).click();
+    await pd.getByText(/Dr Nadia Perio/).first().waitFor();
+    await page.keyboard.press("Escape");
   });
 
   await step("another user cannot see or reach Alice's file, documents or exports", async () => {

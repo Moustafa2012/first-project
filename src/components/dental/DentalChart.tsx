@@ -15,8 +15,14 @@ import { ActionForm, ConfirmButton, SubmitButton } from "@/components/ui/client"
 import { addDentalFinding, invalidateDental, resolveDentalFinding } from "@/app/actions/dental";
 import { Odontogram, OdontoLegend, type ChartTooth } from "./Odontogram";
 import { Panoramic, PanoLegend } from "./Panoramic";
+import { ImageViewer, type ViewerAnnotations, type ViewerDoc } from "./ImageViewer";
+import { isWholeMouth, summarizeBoneLevels } from "@/lib/dental-imaging";
 
 export type DentalDiagnosis = ToothDiagnosis;
+
+const IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+/** how the image viewer reaches the files (the patient's own route, or the doctor's share route) and what it may do with annotations */
+export interface ChartViewer { docBase: string; annotations: ViewerAnnotations }
 
 /**
  * A form offered in the panel of the chosen tooth ("add a diagnosis for this tooth"…). The form is rendered by the page
@@ -27,12 +33,14 @@ export interface ToothAddForm { id: string; label: string; node: ReactNode }
 
 /** The current chart (or the chart as it was on a past date), with a panel for the chosen tooth. */
 export function DentalChart({
-  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref, toothAdd = [], toothAddTitle, planned = [], treatmentHref,
+  dentition, exams, findings, diagnoses, contributors, lang, pid, canWrite, today, asOf, specialtyId, procedures = [], images = [], problemsHref, toothAdd = [], toothAddTitle, planned = [], treatmentHref, viewer,
 }: {
   dentition: Dentition; exams: ExamRow[]; findings: FindingRow[]; diagnoses: DentalDiagnosis[]; contributors: Record<string, string>;
   procedures?: ToothProcedure[]; images?: ToothImage[]; problemsHref?: string; toothAdd?: ToothAddForm[]; toothAddTitle?: string;
   /** treatments still to happen (current plans), and where the plans are */
   planned?: ToothPlanned[]; treatmentHref?: string;
+  /** opens the image files of the studies in the viewer (zoom, compare, annotate); without it files open as plain links */
+  viewer?: ChartViewer;
   lang: Lang; pid?: string; canWrite: boolean; today: string; asOf?: string | null; specialtyId?: string | null;
 }) {
   const ar = lang === "ar";
@@ -57,7 +65,28 @@ export function DentalChart({
     .sort((a, b) => b.date.localeCompare(a.date)) : [];
   const dx = sel ? diagnoses.filter((d) => d.teeth?.includes(sel)).sort((a, b) => Number(OPEN_PROBLEM.has(b.clinical_status ?? "active")) - Number(OPEN_PROBLEM.has(a.clinical_status ?? "active"))) : [];
   const px = sel ? procedures.filter((p) => p.teeth?.includes(sel)) : [];
-  const ix = sel ? images.filter((i) => i.teeth?.includes(sel)) : [];
+  // an image naming the tooth, and the whole-mouth images (a panoramic shows every tooth)
+  const ix = sel ? images.filter((i) => i.teeth?.includes(sel) || isWholeMouth(i.modality, i.teeth)) : [];
+  const wholeMouth = images.filter((i) => isWholeMouth(i.modality, i.teeth));
+  const [viewing, setViewing] = useState<string | null>(null);
+  const imgOf = (id: string | null | undefined) => (id ? images.find((i) => i.id === id) : undefined);
+  const imgLabel = (i: ToothImage) => `${lbl(IMAGING_MODALITY, i.modality, lang)}${i.performed_on ? ` ${fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang)}` : ""}`;
+  const viewDocs: ViewerDoc[] = useMemo(() => images.flatMap((i) => (i.documents ?? []).filter((d) => !d.mime_type || IMAGE_MIME.has(d.mime_type))
+    .map((d) => ({ id: d.id, title: d.title, imaging_id: i.id, label: `${imgLabel(i)} · ${d.title}` }))), [images, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+  const docBase = viewer?.docBase ?? "/api/documents/";
+  const docLink = (d: { id: string; title: string; mime_type?: string | null }) =>
+    viewer && viewDocs.some((v) => v.id === d.id)
+      ? <button type="button" className="btn sm" onClick={() => setViewing(d.id)} aria-label={t(`عرض ${d.title} في العارض`, `Open ${d.title} in the viewer`)}>{t("عرض", "View")} · {d.title}</button>
+      : <a href={`${docBase}${d.id}`} target="_blank" rel="noopener noreferrer">{d.title}</a>;
+  const imageLine = (i: ToothImage) => (
+    <li key={i.id} data-image={i.id}><strong>{lbl(IMAGING_MODALITY, i.modality, lang)}</strong>{i.body_site ? ` — ${i.body_site}` : ""}
+      <span className="muted small"> · {i.performed_on ? fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang) : t("التاريخ غير معروف", "date unknown")}</span>
+      {isWholeMouth(i.modality, i.teeth) && <Chip tone="info">{t("كامل الفم", "Whole mouth")}</Chip>}
+      {i.contributed_by && <Chip tone="info">{t("أضافه طبيب عبر رابط", "Added by a doctor via a link")}</Chip>}
+      {i.bone_levels && <div className="small"><span className="muted">{t("فقد العظم", "Bone level")}:</span> <span className="ltr">{summarizeBoneLevels(i.bone_levels, lang)}</span></div>}
+      {i.impression && <div className="small">{i.impression}</div>}
+      {(i.documents ?? []).map((d) => <div key={d.id} className="small">{docLink(d)}</div>)}</li>
+  );
   const tx = sel && !asOf ? planned.filter((p) => p.teeth?.includes(sel)) : [];
   const examOf = (id: string | null) => exams.find((e) => e.id === id);
   const day = (v: string | null | undefined) => fmtPartialDate(v ?? null, "day", lang);
@@ -74,6 +103,7 @@ export function DentalChart({
       {f.material && <span> · {lbl(MATERIAL, f.material, lang)}</span>}
       {f.severity && <span> · {lbl(FINDING_SEVERITY, f.severity, lang)}</span>}
       <span className="muted small"> · {fmtPartialDate(f.observed_on, f.date_precision ?? "day", lang)} · {lbl(EVIDENCE, f.evidence, lang)}</span>
+      {imgOf(f.imaging_id) && <span className="muted small finding-image"> · {t("من صورة", "from")} {imgLabel(imgOf(f.imaging_id)!)}</span>}
     </>
   );
 
@@ -93,6 +123,13 @@ export function DentalChart({
           `Teeth with exam data: ${sum.examined} · missing/extracted: ${sum.absent} · with a problem: ${sum.disease} · with existing work: ${sum.work}`)}
       </p>
       {view === "pano" ? <PanoLegend lang={lang} /> : <OdontoLegend lang={lang} />}
+
+      {wholeMouth.length > 0 && (
+        <section className="whole-mouth" aria-label={t("صور الفم كاملاً", "Whole-mouth images")}>
+          <h4>{t("صور الفم كاملاً", "Whole-mouth images")}</h4>
+          <ul className="tooth-list">{wholeMouth.map(imageLine)}</ul>
+        </section>
+      )}
 
       {!sel ? <p className="hint">{t("اختر سناً لعرض تفاصيله وتاريخه.", "Choose a tooth to see its details and history.")}</p> : (
         <section className="tooth-panel" aria-live="polite" aria-label={t(`السن ${sel}`, `Tooth ${sel}`)}>
@@ -172,12 +209,7 @@ export function DentalChart({
 
           {ix.length > 0 && (<>
             <h4>{t("الصور والأشعة", "Images & X-rays")}</h4>
-            <ul className="tooth-list">{ix.map((i) => (
-              <li key={i.id}><strong>{lbl(IMAGING_MODALITY, i.modality, lang)}</strong>{i.body_site ? ` — ${i.body_site}` : ""}
-                <span className="muted small"> · {i.performed_on ? fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang) : t("التاريخ غير معروف", "date unknown")}</span>
-                {i.impression && <div className="small">{i.impression}</div>}
-                {(i.documents ?? []).map((d) => <div key={d.id} className="small"><a href={`/api/documents/${d.id}`} target="_blank" rel="noopener noreferrer">{d.title}</a></div>)}</li>
-            ))}</ul>
+            <ul className="tooth-list">{ix.map(imageLine)}</ul>
           </>)}
 
           <h4>{t("تاريخ السن", "Tooth history")}</h4>
@@ -218,6 +250,9 @@ export function DentalChart({
             </details>
           )}
         </section>
+      )}
+      {viewing && viewer && viewDocs.length > 0 && (
+        <ImageViewer docs={viewDocs} startId={viewing} docBase={docBase} lang={lang} annotations={viewer.annotations} onClose={() => setViewing(null)} />
       )}
     </div>
   );

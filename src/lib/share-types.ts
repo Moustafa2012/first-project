@@ -24,6 +24,8 @@ export interface ShareDental {
   my_costs?: import("@/lib/treatment").TreatmentCost[];
   /** pulp tests per exam id */
   pulp?: Record<string, import("@/lib/dental-exam").PulpTest[]>;
+  /** annotations on the image files of the images above */
+  annotations?: import("@/lib/dental-imaging").AnnotationRow[];
 }
 
 export interface ShareNoteAmendment { body: string; reason: string; amended_at: string; amended_name: string | null }

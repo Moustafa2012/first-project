@@ -3,6 +3,7 @@ import { SOURCE } from "@/lib/labels";
 import { UUID_RE } from "@/lib/uuid";
 import { isPrecision, normalizePartialDate } from "@/lib/format";
 import { parseTeeth } from "@/lib/dental";
+import { boneLevelsFromForm } from "@/lib/dental-imaging";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -19,6 +20,12 @@ export function parseEntityForm(def: EntityDef, fd: FormData, t: (ar: string, en
   for (const fld of fields) {
     const label = t(fld.ar, fld.en);
     if (fld.kind === "checkbox") { row[fld.name] = fd.get(fld.name) === "on"; continue; }
+    if (fld.kind === "bonelevels") {
+      const r = boneLevelsFromForm((n) => String(fd.get(n) ?? ""));
+      if ("error" in r) return { error: t(`قراءة مستوى العظم غير صالحة: ${label}`, `Invalid bone level reading: ${label}`) };
+      row[fld.name] = r.levels;
+      continue;
+    }
     const raw = String(fd.get(fld.name) ?? "").trim();
     if (raw === "") {
       if (fld.required) return { error: t(`الحقل مطلوب: ${label}`, `Required: ${label}`) };
@@ -58,6 +65,9 @@ export function parseEntityForm(def: EntityDef, fd: FormData, t: (ar: string, en
         if (!teeth) return { error: t(`أرقام أسنان غير صالحة (FDI: 11–48، اللبنية 51–85): ${label}`, `Invalid tooth numbers (FDI: 11–48, primary 51–85): ${label}`) };
         row[fld.name] = teeth.length ? teeth : null; break;
       }
+      case "imaging_order":
+        if (!UUID_RE.test(raw)) return { error: t("طلب تصوير غير صالح.", "Invalid imaging request.") };
+        row[fld.name] = raw; break;
       case "specialty":
         if (!UUID_RE.test(raw)) return { error: t(`تخصص غير صالح`, `Invalid specialty`) };
         row[fld.name] = raw; break;

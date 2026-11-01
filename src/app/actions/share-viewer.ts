@@ -18,6 +18,7 @@ import { parseExamForm } from "@/lib/dental";
 import { localDate } from "@/lib/format";
 import { parseTreatmentItem } from "@/lib/treatment-form";
 import { COST_KIND, CURRENCIES, treatmentError } from "@/lib/treatment";
+import { parseShapes } from "@/lib/dental-imaging";
 
 /** The doctor's PIN gate. Every failure path returns a generic message; the database enforces limits. */
 export async function openShare(_: FormState, fd: FormData): Promise<FormState> {
@@ -310,4 +311,26 @@ export async function shareAmendNote(_: FormState, fd: FormData): Promise<FormSt
   if (bad) return bad;
   revalidatePath(`/s/${s.token}/view`);
   return { ok: true, message: t("أُضيف التعديل الموثّق؛ النص الأصلي محفوظ.", "The amendment was added; the original text is kept.") };
+}
+
+/** The dentist draws on an image of the patient (arrows, circles, rectangles, text). Saved under their name; the file is not changed. */
+export async function shareAddAnnotation(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const imaging = String(fd.get("imaging_id") ?? ""), doc = String(fd.get("document_id") ?? "");
+  if (!UUID_RE.test(imaging) || !UUID_RE.test(doc)) return { error: t(...CONTRIB_STATUS.invalid) };
+  let raw: unknown;
+  try { raw = JSON.parse(String(fd.get("shapes") ?? "[]")); } catch { return { error: t("الرسم غير صالح.", "Invalid drawing.") }; }
+  const parsed = parseShapes(raw);
+  if ("error" in parsed) return { error: t("ارسم شكلاً واحداً على الأقل (حتى 50).", "Draw at least one shape (up to 50).") };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_add_annotation", {
+    p_session_token: s.session, p_imaging: imaging, p_document: doc, p_shapes: parsed.shapes, p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  if (error) return { error: explainError(error, t) };
+  const st = (data as { status?: string } | null)?.status ?? "invalid";
+  if (st !== "ok") return { error: t(...(CONTRIB_STATUS[st] ?? CONTRIB_STATUS.invalid)) };
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("حُفظ التعليق باسمك (الصورة الأصلية لم تتغير).", "The annotation was saved under your name (the original image is unchanged).") };
 }

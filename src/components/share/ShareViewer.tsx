@@ -17,7 +17,7 @@ import type { ObservationRow, ObservationType } from "@/lib/types";
 import { Banner, Card, Chip, Empty, InterpChip, KV } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { TrendChart } from "@/components/observations/TrendChart";
-import { endShare, addShareNote, contributeTreatment, shareSetCost, shareTreatmentStatus } from "@/app/actions/share-viewer";
+import { endShare, addShareNote, contributeTreatment, retractContribution, shareAddAnnotation, shareSetCost, shareTreatmentStatus } from "@/app/actions/share-viewer";
 import { TreatmentItemForm, TreatmentPlans } from "@/components/dental/TreatmentPlans";
 import { OPEN_ITEM, OPEN_PLAN, type CatalogItem } from "@/lib/treatment";
 import type { ContribState } from "@/lib/share-contrib";
@@ -53,8 +53,10 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
   // the chosen tooth; what has no section on this page gathers in "other additions"
   const dentition = dental ? chartDentition(dental.profile as { dentition?: string } | null, dental.exams) : "permanent";
   const known = dental ? [...deriveChart(dental.exams, dental.findings).values()].filter((v) => v.status).map((v) => ({ tooth: v.tooth, status: v.status! })) : [];
+  // the dental images the link shows: a finding read on one names it, and a file can be attached to one
+  const studyOptions = (dental?.imaging ?? []).map((i) => ({ id: i.id, label: `${lbl(IMAGING_MODALITY, i.modality, lang)}${i.performed_on ? ` ${fmtPartialDate(i.performed_on, i.date_precision ?? "day", lang, tz)}` : ""}` }));
   const add = (table: string) => (contrib ? <ContribAdd token={token} st={contrib} table={table} dentition={dentition} uploadError={uploadError} templates={templates}
-    knownStates={known} noBaseline={Boolean(dental) && !dental!.exams.some((e) => e.is_baseline)} /> : null);
+    knownStates={known} noBaseline={Boolean(dental) && !dental!.exams.some((e) => e.is_baseline)} images={studyOptions} /> : null);
   const placed = new Set<string>();
   const place = (table: string, shown: boolean) => { if (shown) placed.add(table); return shown; };
   const showEnc = place("encounters", inc.has("encounters"));
@@ -159,7 +161,13 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
           })()}
           <DentalChart dentition={chartDentition(dental.profile as { dentition?: string } | null, dental.exams)} exams={dental.exams} findings={dental.findings}
             diagnoses={dental.diagnoses} contributors={{}} lang={lang} canWrite={false} today={localDate(new Date(), tz)}
-            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} planned={planned} />
+            procedures={dental.procedures ?? []} images={dental.imaging ?? []} toothAdd={toothAdd} planned={planned}
+            viewer={{ docBase: `/s/${token}/doc/`, annotations: {
+              rows: dental.annotations ?? [],
+              ...(canAdd(contrib, "imaging_studies") && contrib?.covers_dentistry
+                ? { add: shareAddAnnotation, addHidden: { _t: token }, remove: retractContribution, removeHidden: { _t: token, _table: "imaging_annotations" }, removeMineOnly: true }
+                : {}),
+            } }} />
           {canAdd(contrib, "dental_exams") && <div style={{ marginBlockStart: ".75rem" }}>{add("dental_exams")}</div>}
           {(plans.length > 0 || txWrite) && (<>
             <h3 id="treatment">{t("خطط العلاج", "Treatment plans")}</h3>

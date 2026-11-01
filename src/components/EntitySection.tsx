@@ -73,6 +73,13 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
       .filter((x) => x.owner_id || x.lang === lang).map((x) => ({ id: x.id, title: x.title, body: x.body, mine: Boolean(x.owner_id) }));
     ctx = { ...(context ?? {}), templates: list };
   }
+  // a new imaging study can fulfil an open imaging request
+  if (entity.table === "imaging_studies" && access.canWrite) {
+    const { data: ords } = await createClient().from("test_orders").select("id, name, status, requested_on").eq("patient_id", pid).eq("record_status", "active")
+      .eq("kind", "imaging").in("status", ["suggested", "requested"]).order("requested_on", { ascending: false });
+    ctx = { ...(ctx ?? {}), orders: ((ords ?? []) as { id: string; name: string; status: string; requested_on: string }[])
+      .map((o) => ({ id: o.id, label: `${o.name} — ${fmtDate(o.requested_on, lang, tz)}` })) };
+  }
   const today = localDate(new Date(), tz);
   const live = rows.filter((r) => r.record_status !== "entered_in_error");
   const dead = rows.filter((r) => r.record_status === "entered_in_error");
@@ -90,7 +97,7 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
     const chipTexts = new Set(chips.map((c) => c.text));
     const body = entity.bodyField ? (r[entity.bodyField] as string | null) : null;
     const kv: [string, React.ReactNode][] = entity.fields
-      .filter((fd) => fd.name !== entity.bodyField && fd.kind !== "specialty" && fd.kind !== "checkbox")
+      .filter((fd) => fd.name !== entity.bodyField && fd.kind !== "specialty" && fd.kind !== "checkbox" && fd.kind !== "bonelevels" && fd.kind !== "imaging_order")
       .map((fd): [string, React.ReactNode] => {
         const raw = r[fd.name];
         if (raw == null || raw === "") return [lang === "ar" ? fd.ar : fd.en, null];

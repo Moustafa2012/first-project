@@ -70,8 +70,9 @@ function ExamSections({ value, onChange, lang, idPrefix }: { value: Sections; on
   );
 }
 
-interface Draft { key: number; tooth: number; surfaces: Surface[]; kind: string; evidence: string; severity: string; material: string; notes: string; condition_id: string }
-const EMPTY = { kind: "caries", surfaces: [] as Surface[], evidence: "clinical", severity: "", material: "", notes: "", condition_id: "" };
+interface Draft { key: number; tooth: number; surfaces: Surface[]; kind: string; evidence: string; severity: string; material: string; notes: string; condition_id: string; imaging_id: string }
+const EMPTY = { kind: "caries", surfaces: [] as Surface[], evidence: "clinical", severity: "", material: "", notes: "", condition_id: "", imaging_id: "" };
+const RADIOGRAPHIC = new Set(["radiographic", "clinical_radiographic"]);
 
 const Sel = ({ id, label, value, onChange, opts, lang, blank }: { id: string; label: string; value: string; onChange: (v: string) => void; opts: Opt[]; lang: Lang; blank?: boolean }) => (
   <div className="field"><label htmlFor={id}>{label}</label>
@@ -87,7 +88,7 @@ const Sel = ({ id, label, value, onChange, opts, lang, blank }: { id: string; la
  */
 export function ExamEditor({
   action, hidden, lang, today, defaultDentition, conditions = [], encounters = [], examiner = "", idPrefix = "ex", evidenceDefault = "clinical",
-  knownStates = [], suggestBaseline = false,
+  knownStates = [], suggestBaseline = false, images = [],
 }: {
   action: FormAction; hidden: Record<string, string>; lang: Lang; today: string; defaultDentition: Dentition;
   conditions?: { id: string; name: string; teeth: number[] | null }[]; encounters?: { id: string; label: string }[]; examiner?: string;
@@ -96,6 +97,8 @@ export function ExamEditor({
   knownStates?: { tooth: number; status: string }[];
   /** no baseline exam yet: offer this one as the baseline */
   suggestBaseline?: boolean;
+  /** the patient's dental images: a radiographic finding can name the one it was read on */
+  images?: { id: string; label: string }[];
 }) {
   const ar = lang === "ar";
   const t = (a: string, e: string) => (ar ? a : e);
@@ -227,7 +230,11 @@ export function ExamEditor({
           </fieldset>
           <div className="form-grid">
             <Sel id={`${idPrefix}_fk`} label={t("ما وُجد", "Finding")} value={draft.kind} onChange={(v) => setDraft((d) => ({ ...d, kind: v }))} opts={FINDING_KIND} lang={lang} />
-            <Sel id={`${idPrefix}_fe`} label={t("الإثبات", "Evidence")} value={draft.evidence} onChange={(v) => setDraft((d) => ({ ...d, evidence: v }))} opts={EVIDENCE} lang={lang} />
+            <Sel id={`${idPrefix}_fe`} label={t("الإثبات", "Evidence")} value={draft.evidence} onChange={(v) => setDraft((d) => ({ ...d, evidence: v, imaging_id: RADIOGRAPHIC.has(v) ? d.imaging_id : "" }))} opts={EVIDENCE} lang={lang} />
+            {RADIOGRAPHIC.has(draft.evidence) && images.length > 0 && (
+              <Sel id={`${idPrefix}_fi`} label={t("الصورة التي قُرئ عليها", "Image it was read on")} value={draft.imaging_id} onChange={(v) => setDraft((d) => ({ ...d, imaging_id: v }))}
+                opts={images.map((im) => ({ value: im.id, ar: im.label, en: im.label }))} lang={lang} blank />
+            )}
             {DISEASE_KINDS.has(draft.kind)
               ? <Sel id={`${idPrefix}_fs`} label={t("الشدة", "Severity")} value={draft.severity} onChange={(v) => setDraft((d) => ({ ...d, severity: v }))} opts={FINDING_SEVERITY} lang={lang} blank />
               : <Sel id={`${idPrefix}_fm`} label={t("المادة", "Material")} value={draft.material} onChange={(v) => setDraft((d) => ({ ...d, material: v }))} opts={MATERIAL} lang={lang} blank />}
@@ -284,7 +291,8 @@ export function ExamEditor({
             {findings.map((f) => (
               <li key={f.key} className="row between">
                 <span><span className="ltr">{f.tooth}{f.surfaces.length ? ` ${fmtSurfaces(f.surfaces, f.tooth)}` : ""}</span> — {lbl(FINDING_KIND, f.kind, lang)}
-                  {f.material && ` (${lbl(MATERIAL, f.material, lang)})`} · <span className="muted">{lbl(EVIDENCE, f.evidence, lang)}</span></span>
+                  {f.material && ` (${lbl(MATERIAL, f.material, lang)})`} · <span className="muted">{lbl(EVIDENCE, f.evidence, lang)}</span>
+                  {f.imaging_id && <span className="muted small"> · {t("من صورة", "from")} {images.find((im) => im.id === f.imaging_id)?.label}</span>}</span>
                 <button type="button" className="btn ghost sm" onClick={() => setFindings((fs) => fs.filter((x) => x.key !== f.key))}
                   aria-label={t(`حذف ${f.tooth} من المسودة`, `Remove ${f.tooth} from the draft`)}><Trash2 size={14} aria-hidden="true" /></button>
               </li>

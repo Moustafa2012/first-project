@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PGBIN="${PGBIN:-/usr/lib/postgresql/16/bin}"
 PORT="${PGPORT_TEST:-54329}"
 API_PORT="${BACKEND_PORT:-54321}"
+APP_PORT="${APP_PORT:-3000}"
 WORK="${WORK:-/tmp/shifa-dev-backend}"
 rm -rf "$WORK"; mkdir -p "$WORK/storage"
 if [ "$(id -u)" = "0" ]; then chown postgres "$WORK"; RUN=(runuser -u postgres --); chmod -R a+rX "$ROOT/supabase"; else RUN=(); fi
@@ -27,7 +28,7 @@ cat > "$WORK/env" <<ENV
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:$API_PORT
 NEXT_PUBLIC_SUPABASE_ANON_KEY=$(mint anon)
 SUPABASE_SERVICE_ROLE_KEY=$(mint service_role)
-NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3000
+NEXT_PUBLIC_SITE_URL=http://127.0.0.1:$APP_PORT
 SHARE_HASH_SALT=local-test-salt
 JWT_SECRET=$SECRET
 ENV

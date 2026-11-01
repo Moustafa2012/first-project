@@ -90,12 +90,13 @@ export async function EntitySection({ entity, pid, returnPath, title, filter = {
     const chipTexts = new Set(chips.map((c) => c.text));
     const body = entity.bodyField ? (r[entity.bodyField] as string | null) : null;
     const kv: [string, React.ReactNode][] = entity.fields
-      .filter((fd) => fd.name !== entity.bodyField && fd.kind !== "specialty" && fd.kind !== "checkbox")
+      .filter((fd) => fd.name !== entity.bodyField && fd.kind !== "specialty" && fd.kind !== "checkbox" && (fd.kind !== "link" || Boolean(r[fd.name])))
       .map((fd): [string, React.ReactNode] => {
         const raw = r[fd.name];
         if (raw == null || raw === "") return [lang === "ar" ? fd.ar : fd.en, null];
         let shown: string;
         if (fd.kind === "select") shown = lbl(fd.options!, String(raw), lang);
+        else if (fd.kind === "link") shown = context?.choices?.[fd.name]?.find((o) => o.value === String(raw))?.[lang] ?? "—";
         else if (fd.kind === "date") shown = fd.precision ? fmtPartialDate(String(raw), r[fd.precision], lang, tz) : fmtDate(String(raw), lang, tz);
         else if (fd.kind === "datetime") shown = fmtDateTime(String(raw), lang, tz);
         else shown = String(raw);

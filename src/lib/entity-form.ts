@@ -61,6 +61,9 @@ export function parseEntityForm(def: EntityDef, fd: FormData, t: (ar: string, en
       case "specialty":
         if (!UUID_RE.test(raw)) return { error: t(`تخصص غير صالح`, `Invalid specialty`) };
         row[fld.name] = raw; break;
+      case "link":
+        if (!UUID_RE.test(raw)) return { error: t(`ارتباط غير صالح: ${label}`, `Invalid link: ${label}`) };
+        row[fld.name] = raw; break;
     }
   }
   return { row };

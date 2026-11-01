@@ -58,6 +58,9 @@ export default async function NewSharePage({ params, searchParams }: { params: {
           title: t("أُنشئت المشاركة", "Share created"), warn: t("انسخ الرابط والرمز الآن: لن يُعرضا مرة أخرى ولا نحتفظ بهما بصيغة مقروءة. أرسلهما بقناتين مختلفتين.", "Copy the link and PIN now: they will not be shown again and are not stored in readable form. Send them through two different channels."),
           link: t("رابط المشاركة", "Share link"), pin: t("رمز PIN", "PIN"), copy: t("نسخ", "Copy"), copied: t("تم النسخ", "Copied"), expires: t("تنتهي الصلاحية", "Expires"),
           done: t("إدارة المشاركة", "Manage this share"), hidePin: t("إخفاء", "Hide"), showPin: t("إظهار", "Show"),
+          qr: t("رمز QR للرابط", "QR code of the link"), qrHint: t("يمسحه الطبيب بكاميرا هاتفه ليفتح الرابط. الرمز يحوي الرابط فقط، لا الـ PIN.", "The doctor scans it with a phone camera to open the link. It holds the link only, never the PIN."),
+          whatsapp: t("إرسال الرابط عبر واتساب", "Send the link by WhatsApp"), whatsappText: t("رابط ملفي الصحي من بوابة شفاء:", "The link to my health file on Shifa Portal:"),
+          pinSeparate: t("أرسل رمز PIN بشكل منفصل (مكالمة أو رسالة أخرى): لا يُضاف إلى رسالة واتساب.", "Send the PIN separately (a call or another message): it is not added to the WhatsApp message."),
         }}>
           <input type="hidden" name="_pid" value={p.id} />
           <div className="form-grid">

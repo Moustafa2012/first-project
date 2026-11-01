@@ -3,7 +3,7 @@ import { HeartPulse, Pencil, TriangleAlert } from "lucide-react";
 import type { Lang } from "@/lib/i18n";
 import { fmtDate, fmtNum, fmtPartialDate } from "@/lib/format";
 import { bmiClass } from "@/lib/clinical/derived";
-import { ACTIVITY_LEVEL, ALCOHOL_STATUS, ALLERGY_SEVERITY, CLINICAL_STATUS, DEVICE_KIND, lbl, PREGNANCY_STATUS, SEX, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
+import { ACTIVITY_LEVEL, ALCOHOL_STATUS, ALLERGY_SEVERITY, CLINICAL_STATUS, DEVICE_KIND, DIET_PATTERN, EXPOSURE_KIND, LIVING_SITUATION, lbl, PREGNANCY_STATUS, PROTECTIVE_EQUIPMENT, SEX, SLEEP_QUALITY, SUBSTANCE_STATUS, SUBSTANCE_TYPE, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
 import { ageOf, bodyMetrics, contextPackYears, coreGaps, matchHighlights, type ClinicalContextData } from "@/lib/clinical-context";
 import { Chip } from "@/components/ui";
 import { BMI_LABEL } from "@/components/observations/DerivedCard";
@@ -100,7 +100,20 @@ export function ClinicalContext({
               {l.tobacco_status === "former" && l.tobacco_quit_year ? ` · ${t(`أقلع ${l.tobacco_quit_year}`, `quit ${l.tobacco_quit_year}`)}` : ""}</p>
           )}
           {l?.alcohol_status && l.alcohol_status !== "unknown" && <p className="small">{t("الكحول", "Alcohol")}: {lbl(ALCOHOL_STATUS, l.alcohol_status, lang)}</p>}
-          {l?.activity_level && <p className="small">{t("النشاط البدني", "Physical activity")}: {lbl(ACTIVITY_LEVEL, l.activity_level, lang)}</p>}
+          {l?.activity_level && <p className="small">{t("النشاط البدني", "Physical activity")}: {lbl(ACTIVITY_LEVEL, l.activity_level, lang)}
+            {l.activity_minutes_per_week ? ` · ${t(`${fmtNum(Number(l.activity_minutes_per_week), 0)} دقيقة/أسبوع`, `${fmtNum(Number(l.activity_minutes_per_week), 0)} min/week`)}` : ""}</p>}
+          {!l?.activity_level && l?.activity_minutes_per_week ? <p className="small">{t("النشاط البدني", "Physical activity")}: {t(`${fmtNum(Number(l.activity_minutes_per_week), 0)} دقيقة/أسبوع`, `${fmtNum(Number(l.activity_minutes_per_week), 0)} min/week`)}</p> : null}
+          {l?.occupation && <p className="small">{t("المهنة", "Occupation")}: {l.occupation}</p>}
+          {(ctx.exposures ?? []).length > 0 && (
+            <p className="small">{t("التعرضات", "Exposures")}: {(ctx.exposures ?? []).map((e) => `${lbl(EXPOSURE_KIND, e.kind, lang)}${e.agent ? ` (${e.agent})` : ""}${e.years != null ? ` · ${fmtNum(Number(e.years), 1)} ${t("سنة", "y")}` : ""} · ${lbl(PROTECTIVE_EQUIPMENT, e.protective_equipment, lang)}`).join(t("؛ ", "; "))}</p>
+          )}
+          {l?.diet_pattern && <p className="small">{t("الغذاء", "Diet")}: {lbl(DIET_PATTERN, l.diet_pattern, lang)}</p>}
+          {(l?.sleep_hours || l?.sleep_quality) ? <p className="small">{t("النوم", "Sleep")}: {[l?.sleep_hours ? t(`${fmtNum(Number(l.sleep_hours), 1)} ساعة`, `${fmtNum(Number(l.sleep_hours), 1)} h`) : "", l?.sleep_quality ? lbl(SLEEP_QUALITY, l.sleep_quality, lang) : ""].filter(Boolean).join(" · ")}</p> : null}
+          {l?.living_situation && <p className="small">{t("السكن", "Living")}: {lbl(LIVING_SITUATION, l.living_situation, lang)}</p>}
+          {coreHref && l?.substance_use_status && l.substance_use_status !== "unknown" && (
+            <p className="small">{t("مواد أخرى", "Other substances")}: {lbl(SUBSTANCE_STATUS, l.substance_use_status, lang)}
+              {(l.substance_types ?? []).length > 0 && ` (${(l.substance_types ?? []).map((x) => lbl(SUBSTANCE_TYPE, x, lang)).join("، ")})`}</p>
+          )}
         </div>
         {female && (
           <div>

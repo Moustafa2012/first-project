@@ -7,6 +7,8 @@ export interface ChartInput {
   /** x-axis extent; defaults to the data extent */
   domain?: { from: number; to: number };
   refLines?: { v: number; label: string }[];
+  /** values the y-axis must cover even when no point reaches them (e.g. a 0-10 scale) */
+  include?: number[];
   margin?: { l: number; r: number; t: number; b: number };
 }
 
@@ -47,7 +49,7 @@ export function buildChart(input: ChartInput): ChartOutput {
   if (!Number.isFinite(tMin)) tMin = Math.min(...all.map((p) => p.t));
   if (tMin === tMax) { tMin -= 43_200_000; tMax += 43_200_000; }
 
-  const vals = all.map((p) => p.v).concat((input.refLines ?? []).map((r) => r.v));
+  const vals = all.map((p) => p.v).concat((input.refLines ?? []).map((r) => r.v), input.include ?? []);
   const ticks = niceTicks(Math.min(...vals), Math.max(...vals));
   const yMin = ticks[0];
   const yMax = ticks[ticks.length - 1];

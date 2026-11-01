@@ -43,8 +43,9 @@ export default async function PatientLayout({ children, params }: { children: Re
     href: u.code === "dentistry" ? P("dental") : P(`specialties/${u.code}`), label: lang === "ar" ? u.name_ar : u.name_en, specialtyIcon: u.icon,
   }));
   const follow = [item("vitals", t("القياسات (ضغط، سكر…)", "Vitals (BP, glucose…)")), item("labs", t("التحاليل المخبرية", "Lab results")),
-    item("test-orders", t("الفحوصات المطلوبة", "Requested tests")), item("care-plans", t("خطط المتابعة", "Care plans"))];
-  const records = [item("conditions", t("الأمراض والتشخيصات", "Conditions")), item("allergies", t("الحساسية", "Allergies")), item("medications", t("الأدوية", "Medications")),
+    item("test-orders", t("الفحوصات المطلوبة", "Requested tests")), item("care-plans", t("خطط المتابعة", "Care plans")),
+    item("symptoms", t("سجل الأعراض", "Symptom log"))];
+  const records = [item("search", t("بحث داخل الملف", "Search this file")), item("conditions", t("الأمراض والتشخيصات", "Conditions")), item("allergies", t("الحساسية", "Allergies")), item("medications", t("الأدوية", "Medications")),
     item("visits", t("الزيارات", "Visits")), item("procedures", t("العمليات والإجراءات", "Procedures")), item("imaging", t("الأشعة والتصوير", "Imaging")),
     item("appointments", t("المواعيد", "Appointments")), item("notes", t("الملاحظات", "Notes")), item("immunizations", t("التطعيمات", "Immunizations")),
     item("family-history", t("التاريخ العائلي", "Family history"))];
@@ -89,6 +90,7 @@ export default async function PatientLayout({ children, params }: { children: Re
   const list = allergies ?? [];
   return (
     <AppShell nav={nav} crumbs={[{ href: "/patients", label: t("المرضى", "Patients") }]}
+      search={{ action: `${base}/search`, label: t("بحث داخل هذا الملف", "Search inside this file"), placeholder: t("بحث في الملف…", "Search this file…") }}
       switcher={{ current: name, addHref: "/patients/new", items: (mine ?? []).map((x) => ({ href: `/patients/${x.id}`, label: lang === "en" && x.full_name_en ? x.full_name_en : x.full_name, sub: x.mrn })) }}
       user={{ name: profile?.full_name ?? "", email: authed.email ?? "", admin, avatar: profile?.avatar_path ? `/api/avatar?v=${encodeURIComponent(profile.updated_at)}` : null }}>
       <header className="card patient-head" style={{ marginBlockEnd: "1.25rem" }}>

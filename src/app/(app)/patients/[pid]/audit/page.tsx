@@ -6,7 +6,7 @@ import { getTz } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
 import { Card, Chip, Empty, PageHead } from "@/components/ui";
 
-const ACTION: Record<string, [string, string]> = { insert: ["إضافة", "Added"], update: ["تعديل", "Changed"], invalidate: ["إبطال", "Invalidated"] };
+const ACTION: Record<string, [string, string]> = { insert: ["إضافة", "Added"], update: ["تعديل", "Changed"], invalidate: ["إبطال", "Invalidated"], export: ["تصدير كامل", "Full export"] };
 
 export default async function AuditPage({ params }: { params: { pid: string } }) {
   const { lang, t } = i18n();

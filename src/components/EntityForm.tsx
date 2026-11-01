@@ -1,12 +1,12 @@
 import { i18n, type Lang } from "@/lib/i18n";
-import { DATE_PRECISION, SOURCE } from "@/lib/labels";
+import { DATE_PRECISION, SOURCE, type Opt } from "@/lib/labels";
 import type { EntityDef, FieldDef, FormContext } from "@/lib/entities";
 import type { Row, Specialty } from "@/lib/types";
 import { ActionForm, DateTimeField, SubmitButton } from "@/components/ui/client";
 import { TemplatePicker } from "@/components/TemplatePicker";
 import { saveEntity } from "@/app/actions/entities";
 
-export function FieldInput({ def, value, lang, specialties, prefix, precision, suggest }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string; precision?: unknown; suggest?: string[] }) {
+export function FieldInput({ def, value, lang, specialties, prefix, precision, suggest, choices }: { def: FieldDef; value: unknown; lang: Lang; specialties: Specialty[]; prefix: string; precision?: unknown; suggest?: string[]; choices?: Opt[] }) {
   const id = `${prefix}_${def.name}`;
   const label = lang === "ar" ? def.ar : def.en;
   // a NOT NULL date with a database default ("today") is prefilled, never sent empty
@@ -34,6 +34,13 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision, s
         <select id={id} name={def.name} defaultValue={v}>
           <option value="">—</option>
           {specialties.map((s) => <option key={s.id} value={s.id}>{lang === "ar" ? s.name_ar : s.name_en}</option>)}
+        </select>,
+      );
+    case "link":
+      return wrap(
+        <select id={id} name={def.name} defaultValue={v}>
+          <option value="">—</option>
+          {(choices ?? []).map((o) => <option key={o.value} value={o.value}>{o[lang]}</option>)}
         </select>,
       );
     case "checkbox":
@@ -69,13 +76,15 @@ export function FieldInput({ def, value, lang, specialties, prefix, precision, s
 }
 
 export function EntityForm({
-  entity, pid, row, specialties, returnPath, links = {}, defaults = {}, submitLabel, context, formId,
+  entity, pid, row, specialties, returnPath, links = {}, defaults = {}, submitLabel, context, formId, idPrefix,
 }: {
   entity: EntityDef; pid: string; row?: Row; specialties: Specialty[]; returnPath: string;
   links?: Record<string, string>; defaults?: Record<string, string>; submitLabel?: string; context?: FormContext; formId?: string;
+  /** keeps element ids unique when the same form appears twice on one page (e.g. a quick form above the full one) */
+  idPrefix?: string;
 }) {
   const { lang, t } = i18n();
-  const prefix = `${entity.slug}_${row?.id ?? "new"}`;
+  const prefix = `${idPrefix ? `${idPrefix}_` : ""}${entity.slug}_${row?.id ?? "new"}`;
   // what the place already knows is sent, not asked; fields that do not belong here are not shown (and left untouched)
   const fixed = context?.fixed ?? {};
   const narrow = context?.options ?? {};
@@ -99,7 +108,7 @@ export function EntityForm({
       )}
       <div className="form-grid">
         {fields.map((fd) => (
-          <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix} suggest={context?.suggest?.[fd.name]}
+          <FieldInput key={fd.name} def={fd} lang={lang} specialties={specialties} prefix={prefix} suggest={context?.suggest?.[fd.name]} choices={context?.choices?.[fd.name]}
             value={row ? row[fd.name] : defaults[fd.name]} precision={fd.precision && row ? row[fd.precision] : undefined} />
         ))}
       </div>

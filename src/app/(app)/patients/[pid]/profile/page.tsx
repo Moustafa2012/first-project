@@ -3,7 +3,7 @@ import { CircleCheck, Trash2 } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getPatient } from "@/lib/data";
-import { ALLERGY_ASSERTION, ABO, ACTIVITY_LEVEL, ALCOHOL_STATUS, PREGNANCY_STATUS, RH, SEX, TOBACCO_STATUS, TOBACCO_TYPE, type Opt } from "@/lib/labels";
+import { ALLERGY_ASSERTION, ABO, ACTIVITY_LEVEL, ALCOHOL_STATUS, DIET_PATTERN, LIVING_SITUATION, PREGNANCY_STATUS, RH, SEX, SLEEP_QUALITY, SUBSTANCE_STATUS, SUBSTANCE_TYPE, TOBACCO_STATUS, TOBACCO_TYPE, type Opt } from "@/lib/labels";
 import { ENTITIES } from "@/lib/entities";
 import { getTz } from "@/lib/auth";
 import { fmtDateTime, fmtNum } from "@/lib/format";
@@ -153,9 +153,33 @@ export default async function ProfilePage({ params, searchParams }: { params: { 
               <div className="field"><label htmlFor="hp_units">{t("وحدات في الأسبوع", "Units per week")}</label><input id="hp_units" name="alcohol_units_per_week" inputMode="decimal" dir="ltr" defaultValue={(life as { alcohol_units_per_week?: number } | null)?.alcohol_units_per_week ?? ""} /></div>
               {sel("activity_level", t("النشاط البدني", "Physical activity"), ACTIVITY_LEVEL, life?.activity_level, true)}
               <div className="field"><label htmlFor="hp_occ">{t("المهنة", "Occupation")}</label><input id="hp_occ" name="occupation" maxLength={200} defaultValue={(life as { occupation?: string } | null)?.occupation ?? ""} /></div>
-              <div className="field wide"><label htmlFor="hp_exp">{t("تعرضات (غبار، مواد كيميائية، إشعاع…)", "Exposures (dust, chemicals, radiation…)")}</label><input id="hp_exp" name="exposures" maxLength={1000} defaultValue={(life as { exposures?: string } | null)?.exposures ?? ""} /></div>
-              <div className="field wide"><label htmlFor="hp_diet">{t("النظام الغذائي", "Diet")}</label><input id="hp_diet" name="diet" maxLength={500} defaultValue={(life as { diet?: string } | null)?.diet ?? ""} /></div>
+              {(life as { exposures?: string } | null)?.exposures ? (
+                <div className="field wide"><label htmlFor="hp_exp">{t("تعرضات (ملاحظة قديمة — استخدم قائمة التعرضات أدناه)", "Exposures (old note — use the exposure list below)")}</label><input id="hp_exp" name="exposures" maxLength={1000} defaultValue={(life as { exposures?: string }).exposures ?? ""} /></div>
+              ) : null}
+              <div className="field wide"><label htmlFor="hp_diet">{t("النظام الغذائي (تفاصيل)", "Diet (details)")}</label><input id="hp_diet" name="diet" maxLength={500} defaultValue={(life as { diet?: string } | null)?.diet ?? ""} /></div>
             </div>
+            <h3>{t("النشاط البدني الأسبوعي", "Weekly physical activity")}</h3>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="hp_actmin">{t("دقائق النشاط في الأسبوع", "Minutes of activity per week")}</label><input id="hp_actmin" name="activity_minutes_per_week" inputMode="numeric" dir="ltr" defaultValue={life?.activity_minutes_per_week ?? ""} /></div>
+              <div className="field"><label htmlFor="hp_actdays">{t("أيام النشاط في الأسبوع", "Active days per week")}</label><input id="hp_actdays" name="activity_days_per_week" inputMode="numeric" dir="ltr" defaultValue={life?.activity_days_per_week ?? ""} /></div>
+            </div>
+            <p className="hint">{t("المعتاد للبالغين نحو 150 دقيقة أسبوعياً من نشاط متوسط. للعلم فقط وليس حكماً على الحالة.", "A common adult guide is about 150 minutes a week of moderate activity. For information only, not a judgement.")}</p>
+            <h3>{t("الغذاء والنوم والسكن", "Diet, sleep & living situation")}</h3>
+            <div className="form-grid">
+              {sel("diet_pattern", t("النمط الغذائي", "Diet pattern"), DIET_PATTERN, life?.diet_pattern ?? undefined, true)}
+              <div className="field"><label htmlFor="hp_sleep">{t("ساعات النوم في الليلة", "Hours of sleep per night")}</label><input id="hp_sleep" name="sleep_hours" inputMode="decimal" dir="ltr" defaultValue={life?.sleep_hours ?? ""} /></div>
+              {sel("sleep_quality", t("جودة النوم", "Sleep quality"), SLEEP_QUALITY, life?.sleep_quality ?? undefined, true)}
+              {sel("living_situation", t("السكن", "Living situation"), LIVING_SITUATION, life?.living_situation ?? undefined, true)}
+            </div>
+            <h3>{t("مواد أخرى (حساسة — لا تُشارك ولا تُطبع)", "Other substances (sensitive — never shared or printed)")}</h3>
+            <div className="form-grid">
+              {sel("substance_use_status", t("التعاطي", "Use"), SUBSTANCE_STATUS, life?.substance_use_status ?? "unknown")}
+              <fieldset className="field wide surf-pick"><legend>{t("النوع", "Kind")}</legend>
+                {SUBSTANCE_TYPE.map((o) => <label key={o.value} className="pill"><input type="checkbox" name="substance_types" value={o.value} defaultChecked={life?.substance_types?.includes(o.value)} />{o[lang]}</label>)}
+              </fieldset>
+              <div className="field wide"><label htmlFor="hp_subnotes">{t("ملاحظات", "Notes")}</label><input id="hp_subnotes" name="substance_notes" maxLength={500} defaultValue={(life as { substance_notes?: string } | null)?.substance_notes ?? ""} /></div>
+            </div>
+            <p className="hint">{t("يُحفظ النوع والملاحظات للمتعاطي الحالي أو السابق فقط. لا يدخل في المشاركة مع الأطباء ولا في تقرير PDF.", "Kind and notes are kept for current or former use only. They are not part of shares with doctors or of the PDF report.")}</p>
             {!male && (<>
               <h3>{t("الحمل والإرضاع", "Pregnancy & breastfeeding")}</h3>
               <div className="form-grid">
@@ -170,6 +194,10 @@ export default async function ProfilePage({ params, searchParams }: { params: { 
           {!ro && <div><SubmitButton>{t("حفظ", "Save")}</SubmitButton></div>}
         </ActionForm>
       </Card>
+
+      <EntitySection entity={ENTITIES.exposures} pid={p.id} returnPath={base} id="exposures" compact
+        title={t("التعرضات المهنية والبيئية", "Occupational & environmental exposures")} addLabel={t("إضافة تعرّض", "Add an exposure")}
+        empty={<Empty>{t("لا تعرضات مسجلة (غير مسجل ≠ لا يوجد).", "No exposures recorded (not recorded is not the same as none).")}</Empty>} />
 
       <Card id="contacts" title={t("جهات الطوارئ والممثل القانوني", "Emergency contacts & legal representative")}>
         {(contacts ?? []).length === 0 ? <Empty>{t("لا توجد جهات اتصال.", "No contacts.")}</Empty> : (contacts ?? []).map((c) => (

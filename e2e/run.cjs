@@ -1002,7 +1002,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("#log article.rec").first().locator('input[name="reason"]').fill("duplicate entry");
     page.once("dialog", (d) => d.accept());
     await page.locator("#log article.rec").first().getByRole("button", { name: "Invalidate" }).click();
-    await page.getByText("Record invalidated and kept in the history.").first().waitFor();
+    await page.locator("#log summary", { hasText: "Invalidated records (1)" }).waitFor();   // the card moves there, taking its message with it
     await page.reload();
     assert((await page.locator("svg.chart circle.dot").count()) === 1, "invalidated entry leaves the chart");
     await page.locator("#log summary", { hasText: "Invalidated records (1)" }).waitFor();

@@ -5,6 +5,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
+// The admin step talks to the test backend directly: its settings come from the stack's env file (scripts/dev-backend/start.sh writes it),
+// which wins over whatever the shell happens to export, so this suite can never reach a real project by accident.
+{
+  const envFile = path.join(process.env.WORK || "/tmp/shifa-dev-backend", "env");
+  if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").split("\n")) { const m = /^([A-Z_]+)=(.*)$/.exec(line); if (m) process.env[m[1]] = m[2]; }
+}
 const BASE = process.env.E2E_BASE || "http://localhost:3000";
 const OUT = process.env.E2E_OUT || "/tmp/shifa-e2e";
 fs.mkdirSync(OUT, { recursive: true });
@@ -1857,14 +1863,22 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const top = page.locator('#safety [data-alert="anticoagulant_before_surgery"]');
     await top.waitFor();
     await top.getByText(/Because of: Warfarin/).waitFor();
-    await top.getByText(/Concerns: Simple extraction/).waitFor();
+    // the rule concerns every planned surgical treatment in the file (the periodontal plan's surgery too), so the extraction is among those named, not necessarily the first
+    await top.getByText(/Concerns: .*Simple extraction \(38\)/).waitFor();
     await top.getByText(/not yet clinically reviewed/).waitFor();
     assert((await page.locator('#safety [data-alert="local_anesthetic_allergy"], #safety [data-alert="latex_allergy"], #safety [data-alert="pregnancy_imaging_drugs"]').count()) === 0, "no alert for what is not in the file");
     await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
-    const ext = page.locator("li.treat-item", { hasText: "Simple extraction" }).first();
-    await ext.locator('[data-alert="anticoagulant_before_surgery"]').waitFor();
-    assert((await page.locator("li.treat-item:not(:has-text('Simple extraction')) [data-alert]").count()) === 0, "only the extraction carries the alert");
-    const planId = (await page.locator("article.plan-card").first().getAttribute("id")).replace("plan-", "");
+    // the open extraction carries the alert (the cancelled one in the superseded version of the plan does not)
+    const ext = page.locator('li.treat-item:has-text("Simple extraction"):has([data-alert="anticoagulant_before_surgery"])');
+    await ext.first().waitFor();
+    assert((await ext.count()) === 1, "exactly one open extraction carries the alert");
+    await ext.getByText("Surgical", { exact: true }).waitFor();
+    // only the treatments the rule names carry it (surgical ones, and root planing which the rule lists by code): hygiene instruction, re-evaluation, maintenance show none
+    const carrying = page.locator('li.treat-item[data-item]:has([data-alert="anticoagulant_before_surgery"])');
+    assert((await carrying.filter({ hasNotText: /Simple extraction|Periodontal surgery|root planing/i }).count()) === 0, "an unrelated treatment carries the anticoagulant alert");
+    assert((await page.locator('li.treat-item:has-text("hygiene") [data-alert], li.treat-item:has-text("maintenance") [data-alert], li.treat-item:has-text("re-evaluation") [data-alert]').count()) === 0, "non-surgical periodontal treatments the rule does not name carry no alert");
+    // the plan holding that extraction (not simply the first plan on the page)
+    const planId = (await page.locator('article.plan-card', { has: ext }).getAttribute("id")).replace("plan-", "");
     fs.writeFileSync(path.join(OUT, "treatment-plan-safety.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/treatment-plans/${planId}/pdf`, "plan"));
     await page.screenshot({ path: path.join(OUT, "safety-alerts.png"), fullPage: true });
   });
@@ -1895,7 +1909,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     fs.writeFileSync(path.join(OUT, "consent.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${consentId}/pdf`, "consent"));
     const sig = await page.request.get(`${BASE}/api/patients/${pid}/consents/${consentId}/signature`);
     assert(sig.status() === 200 && /image\/png/.test(sig.headers()["content-type"]), "the signature is served to the file's members");
-    await page.locator("[data-plan-consents]").first().getByText(/Simple extraction/).waitFor();     // next to the plan it covers
+    // next to the plan that holds the treatment it covers (other plans in the file have none)
+    const coveredPlan = (await page.locator("article.plan-card", { has: page.locator(`li[data-item="${target.replace(/^item:/, "")}"]`) }).getAttribute("id")).replace("plan-", "");
+    await page.locator(`[data-plan-consents="${coveredPlan}"]`).getByText(/Simple extraction/).waitFor();
 
     // a new version supersedes the old one
     await c1.locator("summary", { hasText: "New version" }).click();
@@ -1995,6 +2011,8 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
     const pc = page.locator('#consents article.consent-card[data-status="signed"]', { hasText: "Presented by Dr Rana Writer via a link" });
     await pc.waitFor();
+    // the signatures are lazy images: bring each into view (the page can be long) before asking that they all loaded
+    for (const img of await page.locator("#consents img.sig-img").all()) await img.scrollIntoViewIfNeeded();
     await page.waitForFunction(() => [...document.querySelectorAll("#consents img.sig-img")].every((i) => i.complete && i.naturalWidth > 0));
     await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${await pc.getAttribute("data-consent")}/pdf`, "presented consent");
   });
@@ -2008,7 +2026,7 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const up = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?full_name=eq.${encodeURIComponent(who)}`, {
       method: "PATCH", headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ role: "admin" }),
-    });
+    }).catch((e) => { throw new Error(`promoting the test account: ${e.message} (${e.cause?.code ?? e.cause?.message ?? "no cause"}) url=${process.env.NEXT_PUBLIC_SUPABASE_URL}`); });
     assert(up.ok, "promoting the test account: " + up.status);
     await adm.goto(`${BASE}/admin/safety-rules`);
     await adm.getByRole("heading", { name: "Safety alert rules" }).waitFor();

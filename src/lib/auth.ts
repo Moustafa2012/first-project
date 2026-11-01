@@ -57,6 +57,10 @@ export function explainError(e: unknown, t: T): string {
   const rules: [RegExp, string, string][] = [
     [/possible_duplicate/, "يوجد ملف بنفس الاسم وتاريخ الميلاد في حسابك. أكّد أنه شخص مختلف للمتابعة.", "A file with the same name and birth date already exists in your account. Confirm it is a different person to continue."],
     [/contributed_record_readonly/, "هذا السجل أضافه طبيب عبر رابط مشاركة: يمكن إبطاله لكن لا يمكن تعديل محتواه.", "A doctor added this record through a share link: it can be invalidated but its content cannot be edited."],
+    [/imaging_needs_radiographic_evidence/, "الصورة تُربط بموجود إثباته «صورة أشعة» أو «سريري وشعاعي» فقط.", "An image can be linked only to a finding whose evidence is radiographic."],
+    [/imaging_invalid/, "الصورة المختارة غير متاحة لهذا الملف.", "The chosen image is not available for this file."],
+    [/order_not_open/, "طلب التصوير المختار لم يعد مفتوحاً (أُنجز أو أُلغي).", "The chosen imaging request is no longer open (done or cancelled)."],
+    [/annotation_target_invalid/, "يُعلَّق على ملف صورة مرفق بهذه الدراسة فقط.", "Annotate an image file attached to this study."],
     [/choose what the clinician may add/, "اختر ما يمكن للطبيب إضافته.", "Choose what the doctor may add."],
     [/specialty_not_applicable/, "هذا التخصص لا ينطبق على جنس المريض المسجَّل.", "This specialty does not apply to the sex recorded for this patient."],
     [/measurement_not_applicable/, "هذا القياس لا ينطبق على جنس المريض المسجَّل.", "This measurement does not apply to the sex recorded for this patient."],

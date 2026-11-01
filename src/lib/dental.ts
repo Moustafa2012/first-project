@@ -1,6 +1,7 @@
 import type { Lang } from "@/lib/i18n";
 import type { Opt } from "@/lib/labels";
 import { parsePulpTests, parseSections } from "@/lib/dental-exam";
+import type { BoneLevels } from "@/lib/dental-imaging";
 
 /**
  * Dental chart logic shared by the patient pages, the share viewer and the tests.
@@ -204,6 +205,8 @@ export interface FindingRow {
   severity?: string | null; material?: string | null; observed_on: string; date_precision?: string | null; resolved_on?: string | null;
   resolved_note?: string | null; notes?: string | null; source?: string | null; source_detail?: string | null; verification?: string | null;
   contributed_by?: string | null; recorded_at?: string | null;
+  /** the imaging study a radiographic finding was read on */
+  imaging_id?: string | null;
 }
 export interface ToothView {
   tooth: number;
@@ -297,7 +300,7 @@ export function chartSummary(chart: Map<number, ToothView>) {
 export interface ExamPayload {
   exam: Record<string, unknown>;
   states: { tooth: number; status: string; note?: string }[];
-  findings: { tooth: number; surfaces: Surface[]; kind: string; evidence: string; severity?: string; material?: string; notes?: string; condition_id?: string }[];
+  findings: { tooth: number; surfaces: Surface[]; kind: string; evidence: string; severity?: string; material?: string; notes?: string; condition_id?: string; imaging_id?: string }[];
 }
 const has = (list: Opt[], v: unknown) => typeof v === "string" && list.some((x) => x.value === v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -343,7 +346,9 @@ export function parseExamForm(fd: FormData, t: (ar: string, en: string) => strin
     if (!isFdi(tooth) || !has(FINDING_KIND, f?.kind) || !has(EVIDENCE, f?.evidence ?? "unknown")
         || surfaces.some((x) => !SURFACES.includes(x as Surface)) || new Set(surfaces).size !== surfaces.length
         || (f.severity && !has(FINDING_SEVERITY, f.severity)) || (f.material && !has(MATERIAL, f.material))
-        || (f.condition_id && !UUID.test(String(f.condition_id)))) {
+        || (f.condition_id && !UUID.test(String(f.condition_id)))
+        // the image a radiographic finding was read on
+        || (f.imaging_id && (!UUID.test(String(f.imaging_id)) || !["radiographic", "clinical_radiographic"].includes(String(f.evidence))))) {
       return { error: t("موجود سني غير صالح.", "Invalid dental finding.") };
     }
     const notes = String(f.notes ?? "").trim().slice(0, 2000);
@@ -351,6 +356,7 @@ export function parseExamForm(fd: FormData, t: (ar: string, en: string) => strin
       tooth, surfaces: WHOLE_TOOTH_KINDS.has(f.kind as string) ? [] : (surfaces as Surface[]), kind: f.kind as string, evidence: (f.evidence as string) ?? "unknown",
       ...(f.severity ? { severity: f.severity as string } : {}), ...(f.material ? { material: f.material as string } : {}),
       ...(notes ? { notes } : {}), ...(f.condition_id ? { condition_id: String(f.condition_id) } : {}),
+      ...(f.imaging_id ? { imaging_id: String(f.imaging_id) } : {}),
     });
   }
   // the rest of a comprehensive exam: sections, pulp tests, and whether it is the baseline
@@ -404,7 +410,12 @@ export function diagnosisCode(name: string): string {
 export const OPEN_PROBLEM = new Set(["active", "recurrence"]);
 export interface ToothDiagnosis { id: string; name: string; teeth: number[] | null; clinical_status?: string | null; certainty?: string | null; contributed_by?: string | null; resolved_date?: string | null; onset_date?: string | null }
 export interface ToothProcedure { id: string; name: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; kind?: string | null; operator_name?: string | null; contributed_by?: string | null }
-export interface ToothImage { id: string; modality: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; impression?: string | null; body_site?: string | null; documents?: { id: string; title: string }[] }
+export interface ToothImage {
+  id: string; modality: string; teeth: number[] | null; performed_on?: string | null; date_precision?: string | null; impression?: string | null; body_site?: string | null;
+  /** the structured reading of the bone level per sextant, and the free-text findings */
+  bone_levels?: BoneLevels | null; findings?: string | null; contributed_by?: string | null;
+  documents?: { id: string; title: string; mime_type?: string | null }[];
+}
 
 /** For each tooth: its open problems (with a chart label), and how many procedures and images name it. */
 /** A treatment still to happen, from a current plan (see src/lib/treatment.ts). */

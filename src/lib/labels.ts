@@ -71,7 +71,10 @@ export const PROCEDURE_KIND: Opt[] = [
   o("endoscopy", "منظار", "Endoscopy"), o("biopsy", "خزعة", "Biopsy"), o("therapy", "علاج", "Therapy"), o("other", "أخرى", "Other"),
 ];
 export const IMAGING_MODALITY: Opt[] = [
-  o("xray", "أشعة سينية", "X-ray"), o("dental_xray", "أشعة أسنان", "Dental X-ray"), o("panoramic", "بانوراما أسنان", "Panoramic"), o("ct", "أشعة مقطعية", "CT"),
+  o("xray", "أشعة سينية", "X-ray"), o("dental_xray", "أشعة أسنان", "Dental X-ray"), o("panoramic", "بانوراما أسنان", "Panoramic"),
+  o("periapical", "أشعة ذروية (Periapical)", "Periapical X-ray"), o("bitewing", "أشعة مجنّحة (Bitewing)", "Bitewing X-ray"), o("occlusal", "أشعة إطباقية", "Occlusal X-ray"),
+  o("intraoral_photo", "صورة داخل الفم", "Intraoral photo"), o("extraoral_photo", "صورة خارج الفم", "Extraoral photo"),
+  o("cbct", "أشعة مقطعية مخروطية (CBCT)", "Cone-beam CT (CBCT)"), o("cephalometric", "أشعة جانبية للجمجمة (Ceph)", "Cephalometric X-ray"), o("ct", "أشعة مقطعية", "CT"),
   o("mri", "رنين مغناطيسي", "MRI"), o("ultrasound", "سونار", "Ultrasound"), o("echo", "إيكو القلب", "Echocardiography"), o("mammography", "ماموغرام", "Mammography"),
   o("fluoroscopy", "تنظير شعاعي", "Fluoroscopy"), o("nuclear", "طب نووي", "Nuclear medicine"), o("other", "أخرى", "Other"),
 ];

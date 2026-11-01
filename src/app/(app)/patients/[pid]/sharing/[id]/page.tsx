@@ -18,13 +18,14 @@ const CONTRIB_LABEL: Record<string, string> = {
   test_orders: "id, name, recorded_at, record_status, contributed_by", imaging_studies: "id, modality, body_site, recorded_at, record_status, contributed_by",
   medical_documents: "id, title, uploaded_at, record_status, contributed_by",
   dental_exams: "id, exam_date, recorded_at, record_status, contributed_by",
+  perio_exams: "id, exam_date, recorded_at, record_status, contributed_by",
   treatment_plans: "id, title, recorded_at, record_status, contributed_by",
   treatment_costs: "id, amount, currency, recorded_at, record_status, contributed_by",
   imaging_annotations: "id, recorded_at, record_status, contributed_by",
 };
 const CONTRIB_PAGE: Record<string, string> = {
   encounters: "visits", conditions: "conditions", procedures: "procedures", clinical_notes: "notes", medications: "medications",
-  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents", dental_exams: "dental",
+  appointments: "appointments", test_orders: "test-orders", imaging_studies: "imaging", medical_documents: "documents", dental_exams: "dental", perio_exams: "dental?tab=perio",
   treatment_plans: "dental?tab=treatment", treatment_costs: "dental?tab=treatment", imaging_annotations: "dental",
 };
 

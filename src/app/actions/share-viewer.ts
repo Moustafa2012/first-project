@@ -19,6 +19,10 @@ import { localDate } from "@/lib/format";
 import { parseTreatmentItem } from "@/lib/treatment-form";
 import { COST_KIND, CURRENCIES, treatmentError } from "@/lib/treatment";
 import { parseShapes } from "@/lib/dental-imaging";
+import { parsePerioTeeth, type PerioTooth } from "@/lib/perio";
+import { buildPerioPlan } from "@/lib/perio-plan";
+import { dxErrorText, parseDx } from "@/lib/perio-staging";
+import type { SharePerio } from "@/lib/share-types";
 
 /** The doctor's PIN gate. Every failure path returns a generic message; the database enforces limits. */
 export async function openShare(_: FormState, fd: FormData): Promise<FormState> {
@@ -333,4 +337,73 @@ export async function shareAddAnnotation(_: FormState, fd: FormData): Promise<Fo
   if (st !== "ok") return { error: t(...(CONTRIB_STATUS[st] ?? CONTRIB_STATUS.invalid)) };
   revalidatePath(`/s/${s.token}/view`);
   return { ok: true, message: t("حُفظ التعليق باسمك (الصورة الأصلية لم تتغير).", "The annotation was saved under your name (the original image is unchanged).") };
+}
+
+// ---------------------------------------------------------------- the periodontal chart through the link
+/** The periodontist saves their chart as a draft, or finalises it (with the periodontal diagnosis and the visit it belongs to). */
+export async function sharePerioSave(_: FormState, fd: FormData): Promise<FormState> {
+  const { t } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const finalize = fd.get("_finalize") === "1";
+  const id = String(fd.get("_id") ?? "");
+  if (id && !UUID_RE.test(id)) return { error: t(...CONTRIB_STATUS.invalid) };
+  const date = String(fd.get("exam_date") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: t("أدخل تاريخ الفحص.", "Enter the exam date.") };
+  if (date > localDate(new Date(), getTz())) return { error: t("تاريخ الفحص في المستقبل.", "The exam date is in the future.") };
+  const parsed = parsePerioTeeth(String(fd.get("teeth") ?? "[]"));
+  if ("error" in parsed) return { error: parsed.error === "range"
+    ? t("قيمة خارج النطاق: العمق 0–20 مم، حافة اللثة من −15 إلى +15 مم، الحركة 0–3، انقسام الجذور 0–3.", "A value is out of range: depth 0–20 mm, margin −15 to +15 mm, mobility 0–3, furcation 0–3.")
+    : t("بيانات المخطط غير صالحة.", "The chart data is invalid.") };
+  if (finalize && !parsed.teeth.some((x) => x.missing || x.pd)) {
+    return { error: t("لا يُعتمد مخطط فارغ: سجّل أعماق الجيوب أولاً.", "An empty chart is not finalised: record the pocket depths first.") };
+  }
+  const dx = parseDx((k) => String(fd.get(k) ?? ""), finalize);
+  if ("error" in dx) return { error: dxErrorText(dx.error, t) ?? t(...CONTRIB_STATUS.invalid) };
+  const enc = String(fd.get("encounter_id") ?? "");
+  if (enc && !UUID_RE.test(enc)) return { error: t(...CONTRIB_STATUS.invalid) };
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await createAdminClient().rpc("share_perio_save", {
+    p_session_token: s.session, p_exam_id: id || null,
+    p_exam: { exam_date: date, notes: String(fd.get("notes") ?? "").slice(0, 4000), facility_name: String(fd.get("facility_name") ?? "").slice(0, 200), encounter_id: enc || null, ...dx.dx },
+    p_teeth: parsed.teeth, p_finalize: finalize, p_ip_hash: ipHash, p_user_agent: ua,
+  });
+  if (error) return { error: dxErrorText(error.message, t) ?? explainError(error, t) };
+  const r = (data ?? {}) as { status?: string; id?: string; reason?: string };
+  if (r.status !== "ok") {
+    if (r.status === "invalid" && r.reason) {
+      if (/exam_empty/.test(r.reason)) return { error: t("لا يُعتمد مخطط فارغ.", "An empty chart is not finalised.") };
+      return { error: dxErrorText(r.reason, t) ?? t(...CONTRIB_STATUS.invalid) };
+    }
+    return { error: t(...(CONTRIB_STATUS[r.status ?? "invalid"] ?? CONTRIB_STATUS.invalid)) };
+  }
+  revalidatePath(`/s/${s.token}/view`);
+  return {
+    ok: true, data: { id: String(r.id ?? id) }, redirectTo: finalize ? `/s/${s.token}/view?pdone=1#perio` : undefined,
+    message: finalize ? t("اعتُمد مخطط اللثة باسمك.", "The periodontal chart was finalised under your name.") : t("حُفظت المسودة.", "Draft saved."),
+  };
+}
+
+/** The periodontist lays out the phased plan from a final chart in range (proposed under their name; the patient accepts it). */
+export async function sharePerioPlan(_: FormState, fd: FormData): Promise<FormState> {
+  const { t, lang } = i18n();
+  const s = txSession(fd);
+  if (!s) return { error: t(...CONTRIB_STATUS.expired) };
+  const id = String(fd.get("_id") ?? "");
+  if (!UUID_RE.test(id)) return { error: t(...CONTRIB_STATUS.invalid) };
+  const admin = createAdminClient();
+  const { data: pd } = await admin.rpc("share_perio", { p_session_token: s.session });
+  const perio = pd as SharePerio | null;
+  const exam = perio?.status === "ok" ? perio.exams.find((e) => e.id === id && e.status === "final") : undefined;
+  if (!exam) return { error: t(...CONTRIB_STATUS.not_found) };
+  const plan = buildPerioPlan({ examDate: exam.exam_date, teeth: exam.teeth as PerioTooth[], dx: exam, lang });
+  const { ipHash, ua } = clientMeta();
+  const { data, error } = await admin.rpc("share_contribute_treatment_plan", {
+    p_session_token: s.session, p_ip_hash: ipHash, p_user_agent: ua, p_items: plan.items,
+    p_plan: { title: plan.title, lang, notes: plan.notes },
+  });
+  const bad = txAnswer(data, error, t);
+  if (bad) return bad;
+  revalidatePath(`/s/${s.token}/view`);
+  return { ok: true, message: t("اقترحت خطة اللثة بمراحلها باسمك؛ يعتمدها المريض.", "The phased gum plan was proposed under your name; the patient accepts it.") };
 }

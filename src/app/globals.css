@@ -1176,3 +1176,12 @@ fieldset.bone-levels legend { font-weight: 600; font-size: .9rem; padding-inline
 .iv-save { flex-wrap: wrap; align-items: center; }
 .iv-list ul { list-style: none; padding: 0; margin: .4rem 0 0; display: grid; gap: .35rem; }
 .iv-list li input { height: 28px; }
+/* ---- Periodontal diagnosis (2017 AAP/EFP), the specialist's chart and the visit link (migration 0026) */
+.perio-dx { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3, .9rem); margin-block: var(--space-3, .9rem); display: grid; gap: var(--space-2, .6rem); min-width: 0; }
+.perio-dx legend { font-weight: 700; padding-inline: .4rem; }
+.perio-dx-suggest { background: var(--surface-2); border: 1px dashed var(--border); border-radius: var(--radius); padding: .6rem .8rem; display: grid; gap: .25rem; }
+.perio-dx-sug-line { margin: 0; font-weight: 700; }
+.perio-dx-reasons { margin: 0; padding-inline-start: 1.1rem; }
+.perio-dx-view { display: grid; gap: .25rem; margin-block: .4rem; }
+.perio-dx-line { margin: 0; }
+.share-perio { margin-block-start: .75rem; }

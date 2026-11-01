@@ -35,7 +35,7 @@ const DEFAULTS: Record<string, Record<string, string>> = { medications: { origin
 /** May this clinician add to `table` now (identified, and the patient allowed that kind of record)? */
 export function canAdd(st: ContribState | null | undefined, table: string): boolean {
   if (!st?.contributor || !(st.modules ?? []).includes(table)) return false;
-  return table === "dental_exams" || table === "treatment_plans" ? Boolean(st.covers_dentistry) : true;
+  return table === "dental_exams" || table === "treatment_plans" || table === "perio_exams" ? Boolean(st.covers_dentistry) : true;
 }
 const EXTRA_LABELS: Record<string, [string, string]> = { treatment_costs: ["تكلفة علاج", "Treatment cost"], treatment_plans: ["خطة علاج", "Treatment plan"], imaging_annotations: ["تعليق على صورة", "Image annotation"] };
 export const contribLabel = (table: string, lang: "ar" | "en") =>

@@ -9,6 +9,8 @@ import {
 } from "@/lib/perio";
 import { toothName } from "@/lib/dental";
 import type { FormAction, FormState } from "@/components/ui/client";
+import type { DxLike, PerioFactors } from "@/lib/perio-staging";
+import { PerioDxFields, type VisitOption } from "./PerioDx";
 import { SubmitButton } from "@/components/ui/client";
 import { isLocalPath } from "@/lib/safe-path";
 
@@ -86,6 +88,10 @@ export interface PerioChartProps {
   edit?: {
     action: FormAction; hidden: Record<string, string>; examId: string | null; today: string; seedMissing: number[];
     header: { exam_date: string; examiner_name: string; facility_name: string; notes: string };
+    /** the periodontal diagnosis and the visit link; omit to leave them out of the form */
+    dx?: { factors: PerioFactors; initial: DxLike; visits: VisitOption[]; visitId: string };
+    /** the examiner is the signed-in clinician (a share link): the field is shown but not typed */
+    examinerLocked?: boolean;
   };
 }
 
@@ -93,13 +99,22 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
   const ar = lang === "ar";
   const t = (a: string, e: string) => (ar ? a : e);
   const readOnly = !edit;
+  // `edit` is a new object on every render: the typed values are reset only when the saved chart itself changes
+  // (another draft, or different saved teeth), never by a revalidation that brings back what was already saved
+  const teethRef = useRef(teeth);
+  teethRef.current = teeth;
+  const seedRef = useRef(edit?.seedMissing ?? []);
+  seedRef.current = edit?.seedMissing ?? [];
+  const savedSig = useMemo(() => JSON.stringify(teeth), [teeth]);
+  const propExamId = edit?.examId ?? "";
+  const seedSig = edit && !edit.examId ? edit.seedMissing.join(",") : "";
   const initial = useMemo(() => {
-    const by = new Map(teeth.map((x) => [x.tooth, x]));
-    const seed = new Set(edit && !edit.examId ? edit.seedMissing : []);
+    const by = new Map(teethRef.current.map((x) => [x.tooth, x]));
+    const seed = new Set(seedSig ? seedRef.current : []);
     const out: Record<number, Edit> = {};
     for (const n of [...PERIO_ARCHES.upper, ...PERIO_ARCHES.lower]) out[n] = toEdit(by.get(n), seed.has(n));
     return out;
-  }, [teeth, edit]);
+  }, [savedSig, propExamId, seedSig]); // eslint-disable-line react-hooks/exhaustive-deps
   const [state, setState] = useState(initial);
   const [auto, setAuto] = useState(true);
   // the redirect after finalising happens as soon as the action answers: the revalidation that comes with the answer
@@ -111,7 +126,9 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
     return r;
   }, undefined);
   const finalizeRef = useRef<HTMLInputElement>(null);
-  const [examId, setExamId] = useState(edit?.examId ?? "");
+  const [examId, setExamId] = useState(propExamId);
+  // the draft behind the editor can change under it (discarded, or started in another tab): follow the saved one
+  useEffect(() => { setExamId(propExamId); }, [propExamId]);
   useEffect(() => {
     if (finalizeRef.current) finalizeRef.current.value = "0";   // a refused "finalise" must not turn the next draft save into one
     if (form?.ok && form.data?.id) setExamId(form.data.id);
@@ -123,9 +140,12 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
     for (const [k, v] of Object.entries(state)) out.set(Number(k), toTooth(Number(k), v));
     return out;
   }, [state]);
-  const summary = useMemo(() => summarize([...model.values()]), [model]);
-  const payload = useMemo(() => JSON.stringify([...model.values()].filter((x) => x.missing || x.implant || x.pd || x.gm || x.bop || x.plaque
-    || x.suppuration || x.mobility !== null || [x.furcation_b, x.furcation_l, x.furcation_m, x.furcation_d].some((f) => f !== null))), [model]);
+  const modelTeeth = useMemo(() => [...model.values()], [model]);
+  const summary = useMemo(() => summarize(modelTeeth), [modelTeeth]);
+  // teeth with something on them, and teeth already in the saved draft even when emptied now (so that clearing a tooth is saved)
+  const savedTeeth = useMemo(() => new Set((JSON.parse(savedSig) as { tooth: number }[]).map((x) => x.tooth)), [savedSig]);
+  const payload = useMemo(() => JSON.stringify(modelTeeth.filter((x) => savedTeeth.has(x.tooth) || x.missing || x.implant || x.pd || x.gm || x.bop || x.plaque
+    || x.suppuration || x.mobility !== null || [x.furcation_b, x.furcation_l, x.furcation_m, x.furcation_d].some((f) => f !== null))), [modelTeeth, savedTeeth]);
 
   const set = (tooth: number, f: (e: Edit) => Edit) => setState((s) => ({ ...s, [tooth]: f(s[tooth]) }));
   const focusNext = (row: string, i: number) => {
@@ -137,7 +157,8 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
   const onSite = (row: string, i: number, tooth: number, kind: "pd" | "gm", site: Site, v: string) => {
     if (!/^[-+]?\d{0,2}$/.test(v)) return;
     set(tooth, (e) => { const a = [...e[kind]]; a[site] = v; return { ...e, [kind]: a }; });
-    if (auto && siteComplete(v, kind === "pd")) focusNext(row, i);
+    // a depth may continue 1 → 10–20, and a negative margin −1 → −10…−15
+    if (auto && siteComplete(v, kind === "pd" || v.startsWith("-"))) focusNext(row, i);
   };
   const onKey = (row: string, i: number) => (ev: React.KeyboardEvent<HTMLInputElement>) => {
     if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); focusNext(row, i); }
@@ -168,7 +189,7 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
             if (e.missing) return <td key={`${n}-${k}`} className="pc-site is-missing" />;
             if (kind === "cal") {
               const c = calAt(m?.pd?.[s], m?.gm?.[s]);
-              return <td key={`${n}-${k}`} className={`pc-site pc-calv ${depthTone(c) ?? ""}`}>{c ?? ""}</td>;
+              return <td key={`${n}-${k}`} className={`pc-site pc-calv ${depthTone(c) ?? ""}`} aria-label={c === null ? undefined : `${name}: ${t("مستوى الارتباط", "attachment level")} ${c}`}>{c ?? ""}</td>;
             }
             if (kind === "bop" || kind === "plaque" || kind === "supp") {
               const on = e[kind][s];
@@ -186,9 +207,9 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
             const bad = readSite(v, kind === "pd" ? 0 : GM_MIN, kind === "pd" ? PD_MAX : GM_MAX) === "bad";
             const tone = kind === "pd" ? depthTone(m?.pd?.[s]) : null;
             return (
-              <td key={`${n}-${k}`} className={`pc-site ${tone ?? ""}`}>
+              <td key={`${n}-${k}`} className={`pc-site ${tone ?? ""}`} aria-label={readOnly && v.trim() !== "" ? `${name}: ${kind === "pd" ? t("عمق الجيب", "probing depth") : t("حافة اللثة", "gingival margin")} ${v}` : undefined}>
                 {readOnly ? <span>{v}</span> : (
-                  <input value={v} inputMode="numeric" maxLength={3} autoComplete="off" data-row={row} data-i={i} aria-invalid={bad || undefined}
+                  <input value={v} inputMode="text" pattern="[+\-]?[0-9]{0,2}" maxLength={3} autoComplete="off" data-row={row} data-i={i} aria-invalid={bad || undefined}
                     aria-label={`${name}: ${kind === "pd" ? t("عمق الجيب", "probing depth") : t("حافة اللثة", "gingival margin")}`}
                     onChange={(ev) => onSite(row, i, n, kind, s, ev.target.value)} onKeyDown={onKey(row, i)} onFocus={(ev) => ev.target.select()} />
                 )}
@@ -275,7 +296,7 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
       </tr>,
     ];
     return (
-      <div className="table-wrap perio-wrap" key={which}>
+      <div className="table-wrap perio-wrap" key={which} dir="ltr">
         <table className="perio-chart" dir="ltr" aria-label={upper ? t("الفك العلوي", "Upper arch") : t("الفك السفلي", "Lower arch")}>
           <colgroup><col className="pc-label-col" />{list.map((n) => <Fragment key={n}><col /><col /><col /></Fragment>)}</colgroup>
           <tbody>
@@ -321,7 +342,7 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
       <input type="hidden" name="_finalize" defaultValue="0" ref={finalizeRef} />
       <div className="grid cols-4 perio-head">
         <div className="field"><label htmlFor="pe-date">{t("تاريخ الفحص", "Exam date")}</label><input id="pe-date" name="exam_date" type="date" required max={edit!.today} defaultValue={h.exam_date} /></div>
-        <div className="field"><label htmlFor="pe-examiner">{t("الفاحص", "Examiner")}</label><input id="pe-examiner" name="examiner_name" maxLength={200} defaultValue={h.examiner_name} /></div>
+        <div className="field"><label htmlFor="pe-examiner">{t("الفاحص", "Examiner")}</label><input id="pe-examiner" name="examiner_name" maxLength={200} defaultValue={h.examiner_name} readOnly={edit!.examinerLocked} /></div>
         <div className="field"><label htmlFor="pe-facility">{t("المنشأة", "Facility")}</label><input id="pe-facility" name="facility_name" maxLength={200} defaultValue={h.facility_name} /></div>
         <div className="field perio-auto"><label><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> {t("انتقال تلقائي بعد كل رقم", "Move on after each digit")}</label>
           <span className="small muted">{t("Enter أو مسافة للانتقال يدوياً؛ بعد «1» في العمق انتظر رقماً ثانياً.", "Enter or space moves on; after “1” in depth, a second digit may follow.")}</span></div>
@@ -330,6 +351,7 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
       {arch("upper")}
       {arch("lower")}
       {legend}
+      {edit!.dx && <PerioDxFields lang={lang} teeth={modelTeeth} factors={edit!.dx.factors} initial={edit!.dx.initial} visits={edit!.dx.visits} visitId={edit!.dx.visitId} />}
       <div className="field"><label htmlFor="pe-notes">{t("ملاحظات", "Notes")}</label><textarea id="pe-notes" name="notes" rows={2} maxLength={4000} defaultValue={h.notes} /></div>
       <div aria-live="polite">
         {form?.error && <p className="form-msg err" role="alert">{form.error}</p>}

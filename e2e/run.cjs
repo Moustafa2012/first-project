@@ -660,6 +660,16 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.keyboard.type("2");
     assert((await pd(9).inputValue()) === "12", "two digits make 12");
     await pd(9).fill("");
+    // a negative margin can be typed (text keypad) and waits for a second digit after "-1" (down to -15)
+    const gmIn = (i) => page.locator(`input[data-row="upper-buccal-gm"][data-i="${i}"]`);
+    assert((await gmIn(6).getAttribute("inputmode")) === "text", "the site inputs show a keypad with a minus sign");
+    await gmIn(6).click();
+    await page.keyboard.type("-1");
+    assert(await page.evaluate(() => document.activeElement?.getAttribute("data-i")) === "6", "after -1 the margin waits for a second digit");
+    await page.keyboard.type("0");
+    assert((await gmIn(6).inputValue()) === "-10" && await page.evaluate(() => document.activeElement?.getAttribute("data-i")) === "7", "-10 is typed in sequence and moves on");
+    await gmIn(6).fill("");
+    assert((await page.locator("#perio .perio-wrap").first().getAttribute("dir")) === "ltr", "the chart scrolls left-to-right inside an RTL page");
     await page.locator('input[data-row="upper-buccal-gm"][data-i="8"]').fill("-2");
     await page.getByRole("button", { name: "16 mesiobuccal: bleeding" }).click();
     await page.getByRole("checkbox", { name: "46: missing" }).check();
@@ -673,6 +683,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
     assert((await pd(8).inputValue()) === "5" && await page.getByRole("checkbox", { name: "46: missing" }).isChecked(), "the draft keeps what was typed");
     await page.locator("nav.product-menu .pm-badge", { hasText: "draft" }).waitFor();
+    // clearing persists: un-ticking "missing" and saving, then reloading, keeps it un-ticked
+    await page.getByRole("checkbox", { name: "46: missing" }).uncheck();
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
+    assert(!(await page.getByRole("checkbox", { name: "46: missing" }).isChecked()), "un-ticking missing and saving persists");
+    await page.getByRole("checkbox", { name: "46: missing" }).check();
     page.once("dialog", (dl) => dl.accept());
     await page.getByRole("button", { name: "Finalise the chart" }).click();
     await page.waitForURL(/[?&]pv=/);
@@ -695,6 +713,30 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("#perio-compare").getByRole("button", { name: "Compare" }).click();
     await page.locator("table.perio-cmp-worse tr", { hasText: "mesiobuccal" }).getByText("7 → 10 (+3)").waitFor();
     await page.locator("#perio").screenshot({ path: path.join(OUT, "perio.png") });
+    // a chosen final chart shows even while a draft is open
+    await page.getByRole("link", { name: "New periodontal chart" }).click();
+    await pd(6).click();
+    await page.keyboard.type("3");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    await page.locator("#perio-history a", { hasText: "View" }).last().click();
+    await page.waitForURL(/[?&]pv=/);
+    await page.locator("#perio .chip", { hasText: "Final" }).first().waitFor();
+    assert((await page.locator("#perio input[data-row]").count()) === 0, "the chosen final chart is shown, not the open draft");
+    // discarding the draft while a new chart is requested, then saving again, starts a fresh draft (no stale id)
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio&pnew=1#perio`);
+    await page.locator("#perio .chip", { hasText: "Draft" }).waitFor();
+    page.once("dialog", (dl) => dl.accept());
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await page.locator("#perio .perio-draft-bar").waitFor({ state: "detached" });
+    await pd(6).click();
+    await page.keyboard.type("4");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByText("Draft saved.").waitFor();
+    await page.locator("#perio .perio-draft-bar").waitFor();
+    page.once("dialog", (dl) => dl.accept());
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await page.locator("#perio .perio-draft-bar").waitFor({ state: "detached" });
   });
 
   await step("documents: valid PDF accepted; disguised executable and active-content PDF rejected", async () => {
@@ -1446,6 +1488,136 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await pd.locator("summary", { hasText: "Annotations on this image" }).click();
     await pd.getByText(/Dr Nadia Perio/).first().waitFor();
     await page.keyboard.press("Escape");
+  });
+
+  let periodShareHref;
+  await step("periodontist: a link naming the periodontist, quick entry through the link, the diagnosis from the suggestion, finalise, the phased plan; the patient sees it; a later doctor sees chart and diagnosis", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    assert(await page.locator('input[name="contribute"][value="perio_exams"]').isChecked(), "the gum chart is one of the things the doctor may add");
+    await fillClinician(page, "Dr Noura Gum", { specialty: "Periodontics", facility: "Gum Care Centre", city: "Jeddah", license: "PER-777" });
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link4 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin4 = await page.locator('input[aria-label="PIN"]').inputValue();
+    periodShareHref = await page.getByRole("link", { name: "Manage this share" }).getAttribute("href");
+
+    const c4 = await newContext(browser); const dp = await c4.newPage(); watch(dp, "periodontist");
+    await dp.goto(link4); await dp.fill("#pin", pin4); await dp.getByRole("button", { name: "Open file" }).click(); await dp.waitForURL(/\/view$/);
+    await dp.getByRole("button", { name: "I am Dr Noura Gum — start" }).click();
+    await dp.getByText("Adding as").waitFor();
+    // the periodontist sees the charts already in the file, read-only, and who recorded them
+    await dp.locator("#perio").getByText("Periodontal chart").first().waitFor();
+    await dp.locator('#perio [data-testid="share-perio-chart"]').waitFor();
+    assert((await dp.locator("#perio article.share-perio input[data-row]").count()) === 0, "the charts already in the file are read-only");
+    // a visit of their own to link the chart to
+    await dp.locator("summary", { hasText: "Add: Visit (reason, exam, assessment, plan)" }).first().click();
+    await dp.fill("#c_encounters_reason", "Gum consultation");
+    await dp.selectOption("#c_encounters_kind", "dental");
+    await dp.locator("form", { has: dp.locator("#c_encounters_reason") }).getByRole("button", { name: "Add to the file" }).click();
+    await dp.getByText("Added to the patient's file under your name.").first().waitFor();
+    await dp.reload();
+
+    // quick entry: depths and margins on 17, 16 and 26
+    await dp.locator("summary", { hasText: "Add: periodontal chart" }).click();
+    const pd = (i) => dp.locator(`input[data-row="upper-buccal-pd"][data-i="${i}"]`);
+    const gm = (i) => dp.locator(`input[data-row="upper-buccal-gm"][data-i="${i}"]`);
+    await pd(3).click(); await dp.keyboard.type("546");
+    await pd(6).click(); await dp.keyboard.type("647");
+    assert((await pd(6).inputValue()) === "6" && (await pd(7).inputValue()) === "4" && (await pd(8).inputValue()) === "7", "quick entry works through the link");
+    await pd(39).click(); await dp.keyboard.type("435");
+    for (const i of [3, 5, 6, 39, 41]) await gm(i).fill("-1");
+    await gm(8).fill("-2");
+    await dp.locator('#contrib-perio input[name="exam_date"]').waitFor();
+    assert((await dp.locator('#contrib-perio input[name="examiner_name"]').inputValue()) === "Dr Noura Gum"
+           && (await dp.locator('#contrib-perio input[name="examiner_name"]').getAttribute("readonly")) !== null, "the examiner is the doctor named on the link");
+    // the suggestion, with its reasons; the doctor adds the bone loss they read on the radiograph
+    await dp.fill("#dx-rbl", "35");
+    await dp.fill("#dx-lost", "1");
+    const sug = await dp.locator('[data-testid="dx-suggestion"]').innerText();
+    assert(/Periodontitis — Stage III/.test(sug) && /Generalized/.test(sug), "the suggestion: " + sug);
+    await dp.locator(".perio-dx-reasons").first().waitFor();
+    assert(/Worst interdental attachment loss \d+ mm/.test(await dp.locator("#perio-dx").innerText()), "the suggestion shows its reasons");
+    await dp.getByRole("button", { name: "Use the suggestion" }).click();
+    assert((await dp.locator("#dx-kind").inputValue()) === "periodontitis" && (await dp.locator("#dx-stage").inputValue()) === "III"
+           && (await dp.locator("#dx-extent").inputValue()) === "generalized" && (await dp.locator("#dx-grade").inputValue()) !== "", "the fields take the suggestion");
+    // the doctor decides: the grade is theirs to change
+    const suggestedGrade = await dp.locator("#dx-grade").inputValue();
+    const grade = suggestedGrade === "C" ? "B" : "C";
+    await dp.selectOption("#dx-grade", grade);
+    await dp.fill("#dx-note", "Smoker, generalized deep pockets");
+    await dp.selectOption("#pe-visit", { index: 1 });
+    await dp.getByRole("button", { name: "Save draft" }).click();
+    await dp.getByText("Draft saved.").waitFor();
+    await dp.reload();
+    assert((await pd(7).inputValue()) === "4" && (await dp.locator("#dx-stage").inputValue()) === "III" && (await dp.locator("#dx-grade").inputValue()) === grade,
+      "the draft resumes with its diagnosis");
+    await dp.locator("#perio").screenshot({ path: path.join(OUT, "perio-specialist-edit.png") });
+    dp.once("dialog", (dl) => dl.accept());
+    await dp.getByRole("button", { name: "Finalise the chart" }).click();
+    await dp.waitForURL(/pdone=1/);
+    const mineChart = dp.locator('#perio article.share-perio').first();
+    await mineChart.getByText(new RegExp(`Periodontitis — Stage III, Grade ${grade}, Generalized`)).waitFor();
+    await mineChart.getByText("Recorded by Dr Noura Gum via a link").waitFor();
+    await mineChart.getByText(/Linked to the visit/).waitFor();
+    assert((await mineChart.locator("input[data-row]").count()) === 0, "a final chart has no inputs");
+    // the periodontist lays out the plan in phases from the chart
+    await mineChart.getByRole("button", { name: "Phased gum treatment plan" }).click();
+    await dp.getByText("The phased gum plan was proposed under your name").waitFor();
+    await dp.reload();
+    await dp.locator("#dental").getByText(/Periodontal treatment plan/).first().waitFor();
+    const planText = await dp.locator("#dental").innerText();
+    assert(/Scaling & root planing/.test(planText) && /re-evaluation/i.test(planText) && /Periodontal maintenance/.test(planText), "the plan lists the phases");
+    await dp.screenshot({ path: path.join(OUT, "periodontist-contribute.png"), fullPage: true });
+    await c4.close();
+
+    // the patient: the chart with the doctor's name and diagnosis, not editable; the plan with the doctor's name
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    const shown = page.locator("#perio .perio-dx-view");
+    await shown.getByText("Recorded by Dr Noura Gum via a link").waitFor();
+    await shown.getByText(new RegExp(`Periodontitis — Stage III, Grade ${grade}, Generalized`)).waitFor();
+    await shown.getByText(/Smoker, generalized deep pockets/).waitFor();
+    await shown.getByText(/Linked to the visit.*Gum consultation/).waitFor();
+    assert((await page.locator("#perio input[data-row]").count()) === 0, "the patient does not edit a doctor's chart");
+    await page.locator("#perio-history li", { hasText: "Recorded by Dr Noura Gum via a link" }).first().waitFor();
+    await page.locator("#perio-history li", { hasText: "Periodontitis — Stage III" }).first().waitFor();
+    const pdfDoc = await page.request.get(`${BASE}${await page.locator("#perio a", { hasText: "PDF" }).first().getAttribute("href")}`);
+    assert(pdfDoc.ok() && (pdfDoc.headers()["content-type"] ?? "").includes("pdf"), "the doctor's chart prints, diagnosis included");
+    fs.writeFileSync(path.join(OUT, "perio-specialist.pdf"), await pdfDoc.body());
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    await page.getByText(/Periodontal treatment plan/).first().waitFor();
+    await page.getByText(/Dr Noura Gum/).first().waitFor();
+    // the patient can make the same plan from their account
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=perio`);
+    await page.locator("#perio").getByRole("button", { name: "Phased gum treatment plan" }).click();
+    await page.waitForURL(/tab=treatment/);
+    assert((await page.getByText(/Periodontal treatment plan/).count()) >= 2, "a second phased plan, from the patient's own account");
+
+    // a later doctor, on a read-only link, sees the chart and the diagnosis
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await fillClinician(page, "Dr Later Reader");
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link5 = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin5 = await page.locator('input[aria-label="PIN"]').inputValue();
+    const c5 = await newContext(browser); const dl2 = await c5.newPage(); watch(dl2, "later-doctor");
+    await dl2.goto(link5); await dl2.fill("#pin", pin5); await dl2.getByRole("button", { name: "Open file" }).click(); await dl2.waitForURL(/\/view$/);
+    const first = dl2.locator('#perio [data-testid="share-perio-chart"]');
+    await first.getByText(new RegExp(`Periodontitis — Stage III, Grade ${grade}, Generalized`)).waitFor();
+    await first.getByText("Recorded by Dr Noura Gum via a link").waitFor();
+    assert((await dl2.locator("summary", { hasText: "Add: periodontal chart" }).count()) === 0, "a read-only link has no chart editor");
+    assert((await dl2.locator("#perio input[data-row]").count()) === 0, "and no inputs");
+    await dl2.screenshot({ path: path.join(OUT, "later-doctor-perio.png"), fullPage: true });
+    await c5.close();
+
+    // the owner's page for the link names the chart among the additions
+    await page.goto(`${BASE}${periodShareHref}`);
+    await page.getByText("Doctors who added to your file").waitFor();
+    await page.getByText("PER-777").first().waitFor();
   });
 
   await step("another user cannot see or reach Alice's file, documents or exports", async () => {

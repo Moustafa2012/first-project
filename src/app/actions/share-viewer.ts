@@ -153,8 +153,7 @@ export async function contributeRecord(_: FormState, fd: FormData): Promise<Form
   }
   // the clinic the patient named on the link: the doctor does not type it
   if (["encounters", "procedures", "imaging_studies", "appointments"].includes(table) && !payload.facility_name) {
-    const { data: cl } = await createAdminClient().rpc("share_clinician", { p_session_token: session });
-    const facility = (cl as { status?: string; facility?: string | null } | null)?.facility;
+    const facility = await namedFacility(session);
     if (facility) payload.facility_name = facility;
   }
   const { ipHash, ua } = clientMeta();
@@ -185,6 +184,12 @@ export async function retractContribution(_: FormState, fd: FormData): Promise<F
   return { ok: true, message: t("سُحب السجل وبقي في التاريخ مع السبب.", "Withdrawn; it stays in the history with the reason.") };
 }
 
+/** The clinic the patient named on the link, so the clinician does not type it. */
+async function namedFacility(session: string): Promise<string | null> {
+  const { data } = await createAdminClient().rpc("share_clinician", { p_session_token: session });
+  return (data as { facility?: string | null } | null)?.facility ?? null;
+}
+
 /** A whole dental exam on the chart (tooth states + findings), saved under the clinician's name in one step. */
 export async function contributeDentalExam(_: FormState, fd: FormData): Promise<FormState> {
   const { t } = i18n();
@@ -193,6 +198,10 @@ export async function contributeDentalExam(_: FormState, fd: FormData): Promise<
   if (!session) return { error: t(...CONTRIB_STATUS.expired) };
   const parsed = parseExamForm(fd, t, localDate(new Date(), getTz()));
   if ("error" in parsed) return { error: parsed.error };
+  if (!parsed.exam.facility_name) {
+    const facility = await namedFacility(session);
+    if (facility) parsed.exam.facility_name = facility;
+  }
   const { ipHash, ua } = clientMeta();
   const { data, error } = await createAdminClient().rpc("share_contribute_dental_exam", {
     p_session_token: session, p_exam: parsed.exam, p_states: parsed.states, p_findings: parsed.findings, p_ip_hash: ipHash, p_user_agent: ua,

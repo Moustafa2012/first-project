@@ -10,6 +10,7 @@ import {
 import { toothName } from "@/lib/dental";
 import type { FormAction, FormState } from "@/components/ui/client";
 import { SubmitButton } from "@/components/ui/client";
+import { isLocalPath } from "@/lib/safe-path";
 
 /** what is typed, per tooth: numbers stay text while being typed ("-", "1" of "12") */
 interface Edit {
@@ -106,7 +107,7 @@ export function PerioChart({ lang, teeth, edit }: PerioChartProps) {
   const [form, formAction] = useFormState<FormState, FormData>(async (prev: FormState, fd: FormData) => {
     const r = edit ? await edit.action(prev, fd) : undefined;
     const to = r?.redirectTo;
-    if (to && to.startsWith("/") && !to.startsWith("//")) window.location.assign(to);
+    if (isLocalPath(to)) window.location.assign(to);
     return r;
   }, undefined);
   const finalizeRef = useRef<HTMLInputElement>(null);

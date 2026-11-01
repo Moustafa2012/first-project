@@ -21,7 +21,7 @@ import { setConditionTeeth } from "@/app/actions/dental";
 import { ExamEditor } from "@/components/dental/ExamEditor";
 import { PerioSection } from "@/components/dental/PerioSection";
 import { ExamExtras } from "@/components/dental/ExamExtras";
-import type { PulpTest, Sections } from "@/lib/dental-exam";
+import { baselineExam, openSoftTissueAlert, type PulpTest, type Sections } from "@/lib/dental-exam";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import { getClinicalContext } from "@/lib/clinical-context-server";
 import { invalidateDental, saveDentalExam, saveDentalProfile } from "@/app/actions/dental";
@@ -41,17 +41,17 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const [access, specs, ctx, catalog] = await Promise.all([getAccess(p.id), getSpecialties(), getClinicalContext(p.id), getProcedureCatalog()]);
   const dent = specs.find((s) => s.code === "dentistry");
   const supabase = createClient();
-  const [{ data: profile }, { data: examRows }, { data: stateRows }, { data: findingRows }, { data: condRows }, { data: ctrRows }, { data: procRows }, { data: imgRows }] = await Promise.all([
+  const [{ data: profile }, { data: examRows }, { data: stateRows }, { data: findingRows }, { data: condRows }, { data: ctrRows }, { data: procRows }, { data: imgRows }, { data: pulpRows }] = await Promise.all([
     supabase.from("dental_profiles").select("*").eq("patient_id", p.id).maybeSingle(),
-    supabase.from("dental_exams").select("*").eq("patient_id", p.id).eq("record_status", "active").order("exam_date", { ascending: false }),
+    supabase.from("dental_exams").select("*").eq("patient_id", p.id).eq("record_status", "active").order("exam_date", { ascending: false }).order("recorded_at", { ascending: false }),
     supabase.from("dental_tooth_states").select("exam_id, tooth, status, note").eq("patient_id", p.id),
     supabase.from("dental_findings").select("*").eq("patient_id", p.id).eq("record_status", "active").order("observed_on", { ascending: false }),
     supabase.from("conditions").select("id, name, teeth, certainty, clinical_status, contributed_by, resolved_date, onset_date, specialty_id").eq("patient_id", p.id).eq("record_status", "active"),
     supabase.from("share_contributors").select("id, full_name").eq("patient_id", p.id),
     supabase.from("procedures").select("id, name, kind, teeth, performed_on, date_precision, operator_name, contributed_by").eq("patient_id", p.id).eq("record_status", "active"),
     supabase.from("imaging_studies").select("id, modality, body_site, teeth, performed_on, date_precision, impression").eq("patient_id", p.id).eq("record_status", "active"),
+    supabase.from("dental_pulp_tests").select("exam_id, tooth, test, result, value, note").eq("patient_id", p.id).order("tooth"),
   ]);
-  const { data: pulpRows } = await supabase.from("dental_pulp_tests").select("exam_id, tooth, test, result, value, note").eq("patient_id", p.id).order("tooth");
   const pulpOf = (examId: string) => ((pulpRows ?? []) as (PulpTest & { exam_id: string })[]).filter((x) => x.exam_id === examId);
   // treatment plans, their treatments and the private costs
   const [{ data: planRows }, { data: itemRows }, { data: costRows }] = await Promise.all([
@@ -130,11 +130,10 @@ export default async function DentalPage({ params, searchParams }: { params: { p
 
       {tab === "chart" && (<>
       {(() => {
-        const baseline = exams.find((e) => (e as ExamRow & { is_baseline?: boolean }).is_baseline);
-        const latestSoft = exams.find((e) => (e as ExamRow & { sections?: Sections | null }).sections?.soft_tissue);
-        const suspicious = (latestSoft as (ExamRow & { sections?: Sections | null }) | undefined)?.sections?.soft_tissue?.cancer_screening === "suspicious";
+        const baseline = baselineExam(exams);
+        const latestSoft = openSoftTissueAlert(exams);
         return (<>
-          {suspicious && latestSoft && (
+          {latestSoft && (
             <Banner tone="bad" title={t("آفة مشتبهة في الأنسجة الرخوة", "Suspicious soft-tissue lesion")}>
               {t(`سُجّلت في فحص ${day(latestSoft.exam_date)} وتحتاج متابعة أو تحويلاً لأخصائي.`, `Recorded at the exam of ${day(latestSoft.exam_date)}; it needs follow-up or a specialist.`)}
               {" "}<a href={`#exam-${latestSoft.id}`}>{t("عرض الفحص", "See the exam")}</a>

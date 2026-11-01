@@ -119,6 +119,20 @@ select public.share_revoke(:'rw_id'::uuid, 'done');
 select test.as_service();
 select test.ok(public.share_contribute(:'rw_sess', 'conditions', '{"name":"After revoke"}') ->> 'status' = 'expired', 'a revoked share takes no more additions');
 
+-- a contributing link made before links named the clinician still opens, counts wrong PINs and can be revoked
+select test.as_user(:'alice'::uuid);
+select public.share_create(p_patient => :'pc', p_title => 'Legacy', p_scope_kind => 'full', p_expires_at => now() + interval '1 day',
+  p_allow_contribute => true, p_contribute_modules => array['conditions'], p_clinician => '{"name":"Dr Legacy"}') as lg \gset
+select (:'lg'::jsonb ->> 'token') as lg_tok, (:'lg'::jsonb ->> 'pin') as lg_pin, (:'lg'::jsonb ->> 'share_id') as lg_id \gset
+select test.as_super();
+update public.medical_shares set clinician_name = null where id = :'lg_id';
+select test.as_service();
+select test.ok(public.share_open(:'lg_tok', :'lg_pin', 'ip-lg', 'UA') ->> 'session_token' is not null, 'a legacy contributing link still opens');
+select test.ok(public.share_open(:'lg_tok', '000000', 'ip-lg', 'UA') ->> 'status' = 'invalid_pin', 'a wrong PIN on a legacy link is counted');
+select test.as_user(:'alice'::uuid);
+select public.share_revoke(:'lg_id'::uuid, 'old link');
+select test.ok((select revoked_at is not null from public.medical_shares where id = :'lg_id'), 'a legacy contributing link can be revoked');
+
 -- a file with clinician additions can still be erased completely
 select test.as_user(:'alice'::uuid);
 select public.patient_request_deletion(:'pc', 'Contrib Patient');

@@ -71,6 +71,9 @@ select test.as_user(:'alice'::uuid);
 select test.throws(format($$insert into public.dental_pulp_tests (patient_id, exam_id, tooth, test, result) values (%L, %L, 22, 'cold', 'normal')$$, :'pb', :'dex'),
   'contributed_record_readonly', 'the patient does not add to the dentist''s exam');
 
+select test.throws(format($$insert into public.dental_pulp_tests (patient_id, exam_id, tooth, test, result, contributed_by) values (%L, %L, 22, 'cold', 'normal', (select contributed_by from public.dental_exams where id = %L))$$, :'pb', :'ex', :'dex'),
+  'set by the share functions only', 'the patient cannot attribute a pulp test to a clinician');
+
 select public.patient_request_deletion(:'pb', 'Baseline Patient');
 select test.as_service();
 select public.patient_purge(:'pb', true);

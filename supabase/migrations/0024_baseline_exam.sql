@@ -70,6 +70,7 @@ create index dental_pulp_tests_exam_idx on public.dental_pulp_tests (exam_id);
 create index dental_pulp_tests_patient_idx on public.dental_pulp_tests (patient_id, tooth);
 -- the same rules as the other rows of an exam (nothing added to an invalidated exam or to a clinician's exam from an account)
 create trigger dental_pulp_tests_exam_guard before insert on public.dental_pulp_tests for each row execute function app.dental_exam_child_guard();
+create trigger dental_pulp_tests_contrib_guard before insert on public.dental_pulp_tests for each row execute function app.contribution_guard();
 create trigger dental_pulp_tests_audit after insert on public.dental_pulp_tests for each row execute function app.audit_row();
 alter table public.dental_pulp_tests enable row level security;
 create policy dental_pulp_tests_sel on public.dental_pulp_tests for select to authenticated using (app.has_patient_access(patient_id));

@@ -139,7 +139,7 @@ export function parsePulpTests(raw: unknown): { tests: PulpTest[] } | { error: t
   const tests: PulpTest[] = [];
   for (const r of raw as Record<string, unknown>[]) {
     const tooth = Number(r?.tooth), test = String(r?.test ?? ""), result = String(r?.result ?? "");
-    if (!isFdi(tooth) || !PULP_RESULTS_FOR[test]?.includes(result)) return { error: true };
+    if (!isFdi(tooth) || !Object.hasOwn(PULP_RESULTS_FOR, test) || !PULP_RESULTS_FOR[test].includes(result)) return { error: true };
     const value = String(r.value ?? "").trim().slice(0, 40), noteV = String(r.note ?? "").trim().slice(0, 500);
     tests.push({ tooth, test, result, ...(value ? { value } : {}), ...(noteV ? { note: noteV } : {}) });
   }
@@ -147,3 +147,22 @@ export function parsePulpTests(raw: unknown): { tests: PulpTest[] } | { error: t
 }
 /** a result worth flagging (a non-vital or symptomatic tooth) */
 export const pulpAbnormal = (r: string) => r !== "normal";
+
+interface ExamLike { exam_date: string; recorded_at?: string | null; verification?: string | null; is_baseline?: boolean; sections?: Sections | null }
+/** Exams newest first: same-day exams by the time they were recorded. */
+export const examsNewestFirst = <T extends ExamLike>(exams: T[]) =>
+  [...exams].sort((a, b) => b.exam_date.localeCompare(a.exam_date) || String(b.recorded_at ?? "").localeCompare(String(a.recorded_at ?? "")));
+/**
+ * The exam whose suspicious soft-tissue lesion is still open: the newest exam that answered the cancer screening said
+ * "suspicious". Only a clinician's later "no suspicious lesion" closes it; one the patient reported does not.
+ */
+export function openSoftTissueAlert<T extends ExamLike>(exams: T[]): T | undefined {
+  for (const e of examsNewestFirst(exams)) {
+    const answer = e.sections?.soft_tissue?.cancer_screening;
+    if (answer === "suspicious") return e;
+    if (answer === "no_suspicious" && e.verification !== "reported") return undefined;
+  }
+  return undefined;
+}
+/** The starting picture: the earliest exam marked baseline. */
+export const baselineExam = <T extends ExamLike>(exams: T[]) => examsNewestFirst(exams).reverse().find((e) => e.is_baseline);

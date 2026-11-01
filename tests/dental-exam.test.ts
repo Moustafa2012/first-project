@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { EXAM_SECTIONS, PULP_RESULTS_FOR, parsePulpTests, parseSections, summarizeSections } from "@/lib/dental-exam";
+import { baselineExam, EXAM_SECTIONS, openSoftTissueAlert, PULP_RESULTS_FOR, parsePulpTests, parseSections, summarizeSections } from "@/lib/dental-exam";
 import { parseExamForm } from "@/lib/dental";
 
 describe("exam sections", () => {
@@ -60,5 +60,32 @@ describe("the exam form", () => {
   it("accepts the new findings", () => {
     const r = parseExamForm(fd({ exam_date: "2026-01-10", findings: JSON.stringify([{ tooth: 26, kind: "retained_root", evidence: "radiographic", surfaces: ["M"] }]) }), t, "2026-10-31");
     expect("findings" in r && r.findings[0]).toMatchObject({ kind: "retained_root", surfaces: [] });
+  });
+});
+
+describe("open soft-tissue alert and baseline", () => {
+  const ex = (exam_date: string, screening?: string, verification = "confirmed", extra: { is_baseline?: boolean } = {}) => {
+    const soft: Record<string, string> = screening ? { cancer_screening: screening } : { lips: "normal" };
+    return { exam_date, recorded_at: `${exam_date}T10:00:00Z`, verification, sections: { soft_tissue: soft }, ...extra };
+  };
+  it("stays open until a clinician answers the screening", () => {
+    const suspicious = ex("2026-01-01", "suspicious");
+    expect(openSoftTissueAlert([ex("2026-03-01"), suspicious])).toBe(suspicious);                      // a later exam that did not answer
+    expect(openSoftTissueAlert([ex("2026-03-01", "no_suspicious", "reported"), suspicious])).toBe(suspicious); // the patient's own report
+    expect(openSoftTissueAlert([ex("2026-03-01", "no_suspicious"), suspicious])).toBeUndefined();     // a clinician cleared it
+    expect(openSoftTissueAlert([suspicious, ex("2026-03-01", "no_suspicious")])).toBeUndefined();    // the order of the input does not matter
+  });
+  it("orders same-day exams by when they were recorded", () => {
+    const a = { ...ex("2026-01-01", "suspicious"), recorded_at: "2026-01-01T09:00:00Z" };
+    const b = { ...ex("2026-01-01", "no_suspicious"), recorded_at: "2026-01-01T11:00:00Z" };
+    expect(openSoftTissueAlert([a, b])).toBeUndefined();
+  });
+  it("takes the earliest baseline", () => {
+    const first = ex("2025-01-01", undefined, "confirmed", { is_baseline: true });
+    expect(baselineExam([ex("2026-01-01", undefined, "confirmed", { is_baseline: true }), ex("2025-06-01"), first])).toBe(first);
+  });
+  it("refuses a pulp test named after an object property", () => {
+    expect(parsePulpTests([{ tooth: 11, test: "constructor", result: "normal" }])).toEqual({ error: true });
+    expect(parsePulpTests([{ tooth: 11, test: "__proto__", result: "normal" }])).toEqual({ error: true });
   });
 });

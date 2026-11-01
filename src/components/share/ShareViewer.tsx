@@ -1,5 +1,6 @@
 import { TriangleAlert, ShieldCheck, CircleHelp, FileText, LogOut, Printer } from "lucide-react";
 import { ExamExtras } from "@/components/dental/ExamExtras";
+import { baselineExam, openSoftTissueAlert } from "@/lib/dental-exam";
 import { i18n } from "@/lib/i18n";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtPartialDate } from "@/lib/format";
@@ -144,10 +145,10 @@ export function ShareViewer({ b, token, contrib, dental, ctx, uploaded, uploadEr
         <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">
           <p className="small muted" style={{ marginBlockStart: 0 }}>{canAdd(contrib, "conditions") || canAdd(contrib, "procedures") ? t("اختر سناً لعرض تاريخه وصوره، وللإضافة إليه مباشرة.", "Choose a tooth to see its history and images, and to add to it directly.") : t("اختر سناً لعرض تاريخه وصوره.", "Choose a tooth to see its history and images.")}</p>
           {(() => {
-            const soft = dental.exams.find((e) => e.sections?.soft_tissue);
-            const base = dental.exams.find((e) => e.is_baseline);
+            const soft = openSoftTissueAlert(dental.exams);
+            const base = baselineExam(dental.exams);
             return (<>
-              {soft?.sections?.soft_tissue?.cancer_screening === "suspicious" && (
+              {soft?.sections?.soft_tissue && (
                 <Banner tone="bad" title={t("آفة مشتبهة في الأنسجة الرخوة", "Suspicious soft-tissue lesion")}>
                   {t(`سُجّلت في فحص ${d(soft.exam_date)}${soft.examiner_name ? ` (${soft.examiner_name})` : ""}.`, `Recorded at the exam of ${d(soft.exam_date)}${soft.examiner_name ? ` (${soft.examiner_name})` : ""}.`)}
                   {soft.sections.soft_tissue.note ? ` ${s(soft.sections.soft_tissue.note)}` : ""}

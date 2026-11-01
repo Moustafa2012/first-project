@@ -15,9 +15,8 @@ alter table public.medical_shares
   add column clinician_phone text check (clinician_phone is null or length(clinician_phone) <= 40);
 grant select (clinician_name, clinician_specialty, clinician_license, clinician_facility, clinician_city, clinician_phone)
   on public.medical_shares to authenticated;
--- a link that lets the clinician add must say who the clinician is (links made before this change keep working)
-alter table public.medical_shares add constraint medical_shares_contribute_clinician_chk
-  check (not allow_contribute or clinician_name is not null) not valid;
+-- A link that lets the clinician add must say who the clinician is: share_create enforces it. It is not a table check,
+-- because links made before this change have no name and every later update of them (opening, revoking) would fail.
 
 -- the clinician no longer signs on screen when the patient named them: the confirmation is recorded instead
 alter table public.share_contributors alter column signature_path drop not null;

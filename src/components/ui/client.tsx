@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFormState, useFormStatus } from "react-dom";
+import { isLocalPath } from "@/lib/safe-path";
 
 export type FormState = {
   ok?: boolean; error?: string; message?: string; data?: Record<string, string>; redirectTo?: string;
@@ -29,7 +30,7 @@ export function ActionForm({
   const [state, formAction] = useFormState(async (prev: FormState, fd: FormData) => {
     const result = await action(prev, fd);
     const to = result?.redirectTo;
-    if (to && to.startsWith("/") && !to.startsWith("//")) window.location.assign(to);
+    if (isLocalPath(to)) window.location.assign(to);
     return result;
   }, undefined);
   const ref = useRef<HTMLFormElement>(null);

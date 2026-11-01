@@ -6,10 +6,11 @@ import { createClient } from "@/lib/supabase/server";
 import { i18n } from "@/lib/i18n";
 import { siteUrl } from "@/lib/env";
 import type { FormState } from "@/components/ui/client";
+import { isLocalPath } from "@/lib/safe-path";
 
 function safeNext(v: FormDataEntryValue | null): string {
   const s = typeof v === "string" ? v : "";
-  return s.startsWith("/") && !s.startsWith("//") && !s.startsWith("/s/") ? s : "/patients";
+  return isLocalPath(s) && !s.startsWith("/s/") ? s : "/patients";
 }
 
 export async function login(_: FormState, fd: FormData): Promise<FormState> {

@@ -3,6 +3,7 @@
 const { chromium } = require("playwright");
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
 const BASE = process.env.E2E_BASE || "http://localhost:3000";
 const OUT = process.env.E2E_OUT || "/tmp/shifa-e2e";
@@ -933,6 +934,136 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("Recent out-of-range results").waitFor();
   });
 
+
+  await step("social history: weekly activity, sleep, diet, living, other substances (sensitive) and the exposure list", async () => {
+    await page.goto(`${BASE}/patients/${pid}/profile`);
+    await page.fill("#hp_actmin", "150");
+    await page.fill("#hp_actdays", "4");
+    await page.selectOption("#hp_diet_pattern", "balanced");
+    await page.fill("#hp_sleep", "7.5");
+    await page.selectOption("#hp_sleep_quality", "fair");
+    await page.selectOption("#hp_living_situation", "with_family");
+    await page.fill("#hp_occ", "Quarry worker");
+    await page.selectOption("#hp_substance_use_status", "former");
+    await page.locator('#lifestyle input[name="substance_types"][value="cannabis"]').check();
+    await page.locator("form:has(#hp_tobacco_status)").getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#lifestyle").getByText("Saved.").waitFor();
+    await page.reload();
+    assert((await page.inputValue("#hp_actmin")) === "150" && (await page.inputValue("#hp_sleep")) === "7.5", "social history reloads");
+    // tobacco and pregnancy entered earlier are untouched by the new fields
+    assert((await page.inputValue("#hp_tobacco_status")) === "current" && (await page.inputValue("#hp_cpd")) === "10", "tobacco kept");
+    // an exposure with years and protective equipment
+    await page.locator("#exposures summary", { hasText: "Add an exposure" }).click();
+    await page.selectOption("#exposures_new_kind", "silica");
+    await page.fill("#exposures_new_agent", "Quarry dust");
+    await page.fill("#exposures_new_years", "12");
+    await page.selectOption("#exposures_new_protective_equipment", "sometimes");
+    await page.locator("form:has(#exposures_new_agent)").getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#exposures").getByText("Silica — Quarry dust").waitFor();
+    await page.locator("#exposures").getByText("Protection: Sometimes").waitFor();
+    // the context shows it, with the other substances only on the patient's side
+    await page.goto(`${BASE}/patients/${pid}`);
+    const ctx = page.locator("section.ctx");
+    await ctx.getByText("Occupation: Quarry worker").waitFor();
+    await ctx.getByText(/Silica \(Quarry dust\)/).waitFor();
+    await ctx.getByText(/150 min\/week/).waitFor();
+    await ctx.getByText(/Other substances: Former \(Cannabis\)/).waitFor();
+  });
+
+  await step("symptom log: two entries of one symptom are charted over time; filter, edit fields, invalidate", async () => {
+    await page.goto(`${BASE}/patients/${pid}/symptoms`);
+    await page.getByRole("heading", { name: "Symptom log" }).waitFor();
+    const quick = page.locator("#quick");
+    for (const [sev, ago] of [["7", 3], ["4", 1]]) {
+      await quick.locator("#quick_symptoms_new_symptom").fill("Throbbing headache");
+      await quick.locator("#quick_symptoms_new_severity").fill(sev);
+      await quick.locator("input[type=datetime-local]").first().fill(localInput(daysAgo(ago)));
+      await quick.getByRole("button", { name: "Log symptom" }).click();
+      await page.getByText("Saved.").first().waitFor();
+      await page.reload();
+    }
+    await quick.locator("#quick_symptoms_new_symptom").fill("Cough");
+    await quick.locator("#quick_symptoms_new_severity").fill("2");
+    await quick.getByRole("button", { name: "Log symptom" }).click();
+    await page.getByText("Saved.").first().waitFor();
+    await page.reload();
+    await page.locator("nav.tabs a", { hasText: "Throbbing headache" }).click();
+    await page.getByText("Severity of “Throbbing headache” over time").waitFor();
+    assert((await page.locator("svg.chart circle.dot").count()) === 2, "two points on the severity chart");
+    assert(await page.locator("svg.chart").first().getAttribute("aria-label").then((x) => /Throbbing/.test(x)), "chart is labelled");
+    await page.locator(".tile", { hasText: "Latest severity" }).getByText("4").first().waitFor();
+    await page.locator(".tile", { hasText: "Highest" }).getByText("7").first().waitFor();
+    // the list follows the symptom filter
+    await page.locator("#log").getByText("Throbbing headache").first().waitFor();
+    assert((await page.locator("#log article.rec").count()) === 2, "log filtered to the symptom");
+    assert((await page.locator("#log .rec-title", { hasText: "Cough" }).count()) === 0, "other symptom not in the filtered log");
+    // invalidate one entry: it leaves the chart but stays in the history
+    await page.locator("#log article.rec").first().locator("summary", { hasText: "Entered in error" }).click();
+    await page.locator("#log article.rec").first().locator('input[name="reason"]').fill("duplicate entry");
+    page.once("dialog", (d) => d.accept());
+    await page.locator("#log article.rec").first().getByRole("button", { name: "Invalidate" }).click();
+    await page.getByText("Record invalidated and kept in the history.").first().waitFor();
+    await page.reload();
+    assert((await page.locator("svg.chart circle.dot").count()) === 1, "invalidated entry leaves the chart");
+    await page.locator("#log summary", { hasText: "Invalidated records (1)" }).waitFor();
+    // the timeline and the dashboard know about symptoms
+    await page.goto(`${BASE}/patients/${pid}/timeline?kind=symptom`);
+    await page.locator(".timeline li").getByText("Cough").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.getByText("Ongoing symptoms").waitFor();
+    await page.screenshot({ path: path.join(OUT, "symptoms.png"), fullPage: false });
+  });
+
+  await step("search inside the file: finds a medication and a note, links to the record, ignores other files", async () => {
+    await page.goto(`${BASE}/patients/${pid}/symptoms`);
+    await page.locator(".shell-search input").fill("metformin");
+    await page.locator(".shell-search input").press("Enter");
+    await page.waitForURL(/\/search\?q=metformin/);
+    const hit = page.locator(".search-hits li", { hasText: "Medication" }).first();
+    await hit.waitFor();
+    await hit.getByRole("link").first().click();
+    await page.waitForURL(/\/medications$/);
+    await page.goto(`${BASE}/patients/${pid}/search?q=${encodeURIComponent("Filling 36")}`);
+    await page.locator(".search-hits li", { hasText: "Note" }).getByRole("link", { name: /Filling 36 note/ }).waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=${encodeURIComponent("throbbing")}`);
+    await page.locator(".search-hits li", { hasText: "Symptom" }).first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=a`);
+    await page.getByText("Type at least two characters.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=zzqqxxnothing`);
+    await page.getByText("Nothing in this file matches.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}/search?q=metformin`);
+    await page.screenshot({ path: path.join(OUT, "search.png"), fullPage: false });
+  });
+
+  await step("full export: a ZIP that unzip accepts, with record.json, fhir.json, README and the document files; the export is audited", async () => {
+    await page.goto(`${BASE}/patients/${pid}/documents`);
+    const href = await page.locator("#export-zip").getAttribute("href");
+    const res = await ctx.request.get(BASE + href);
+    assert(res.status() === 200, "export status " + res.status());
+    assert(/application\/zip/.test(res.headers()["content-type"]), "zip content type");
+    assert(/attachment; filename="shifa-SH-\d+-\d{4}-\d{2}-\d{2}\.zip"/.test(res.headers()["content-disposition"]), "download name: " + res.headers()["content-disposition"]);
+    const zipPath = path.join(OUT, "export.zip");
+    fs.writeFileSync(zipPath, await res.body());
+    const tested = execFileSync("unzip", ["-t", zipPath], { encoding: "utf8" });
+    assert(/No errors detected/.test(tested), "unzip -t: " + tested.slice(-200));
+    const names = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" }).trim().split("\n");
+    for (const n of ["record.json", "fhir.json", "README.txt"]) assert(names.includes(n), n + " in the archive: " + names.join(","));
+    assert(names.filter((n) => n.startsWith("documents/")).length >= 1, "document files are in the archive");
+    const fhir = JSON.parse(execFileSync("unzip", ["-p", zipPath, "fhir.json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+    assert(fhir.resourceType === "Bundle" && fhir.type === "collection", "FHIR bundle");
+    const types = new Set(fhir.entry.map((e) => e.resource.resourceType));
+    for (const t of ["Patient", "Condition", "AllergyIntolerance", "MedicationStatement", "Observation", "Encounter", "DocumentReference"]) assert(types.has(t), "FHIR " + t + " present: " + [...types]);
+    const rec = JSON.parse(execFileSync("unzip", ["-p", zipPath, "record.json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+    assert(rec.patients.length === 1 && rec.symptom_entries.some((x) => x.record_status === "entered_in_error"), "record.json holds the invalidated symptom too");
+    assert(!("audit_logs" in rec) && !("medical_shares" in rec), "no audit log or share links in the export");
+    // every document file the DocumentReferences point at is in the archive
+    for (const e of fhir.entry.filter((x) => x.resource.resourceType === "DocumentReference")) {
+      assert(names.includes(e.resource.content[0].attachment.url), "document file present: " + e.resource.content[0].attachment.url);
+    }
+    await page.goto(`${BASE}/patients/${pid}/audit`);
+    await page.locator("table.t").getByText("Full export").first().waitFor();
+  });
+
   // every share names the doctor it is for (the doctor types nothing)
   const fillClinician = async (pg, name = "Dr Test Reader", extra = {}) => {
     await pg.fill("#cl_name", name);
@@ -953,6 +1084,18 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     sharePin = await page.locator('input[aria-label="PIN"]').inputValue();
     assert(/\/s\/[A-Za-z0-9_-]{30,}$/.test(shareLink), "link shape: " + shareLink);
     assert(/^\d{6}$/.test(sharePin), "pin shape");
+    // a QR code of the link (not the PIN) and a WhatsApp button that reminds to send the PIN separately
+    const qr = page.locator('[data-testid="share-qr"] svg');
+    await qr.waitFor();
+    assert((await qr.locator("path").count()) === 1 && Number((await qr.getAttribute("viewBox")).split(" ")[2]) >= 29, "QR drawn");
+    fs.writeFileSync(path.join(OUT, "share-qr.svg"), await qr.evaluate((el) => el.outerHTML));
+    fs.writeFileSync(path.join(OUT, "share-link.txt"), shareLink);
+    await qr.screenshot({ path: path.join(OUT, "share-qr.png") });
+    const wa = await page.locator("#share-whatsapp").getAttribute("href");
+    assert(wa.startsWith("https://wa.me/?text="), "whatsapp url: " + wa);
+    assert(decodeURIComponent(wa.slice("https://wa.me/?text=".length)).includes(shareLink), "the whatsapp text carries the link");
+    assert(!wa.includes(sharePin) && !decodeURIComponent(wa).includes(sharePin), "the PIN is not in the whatsapp message");
+    await page.getByText(/Send the PIN separately/).waitFor();
   });
 
   // ---------------------------------------------------------------- the doctor, in a clean browser (no Alice cookies)
@@ -1630,6 +1773,9 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const href = "/api/documents/" + cardioDocId;
     assert((await bctx.request.get(BASE + href)).status() === 404, "document hidden from bob");
     assert((await bctx.request.get(`${BASE}/api/patients/${pid}/report?scope=full`)).status() === 404, "report hidden from bob");
+    assert((await bctx.request.get(`${BASE}/api/patients/${pid}/export`)).status() === 403, "export refused to bob");
+    assert((await bob.goto(`${BASE}/patients/${pid}/search?q=metformin`)).status() === 404, "search page hidden from bob");
+    assert((await bob.goto(`${BASE}/patients/${pid}/symptoms`)).status() === 404, "symptoms page hidden from bob");
     const up = await bctx.request.post(`${BASE}/api/patients/${pid}/documents`, { multipart: { file: { name: "x.pdf", mimeType: "application/pdf", buffer: pdf() }, title: "intruder" }, maxRedirects: 0 });
     assert(up.status() === 403, "upload into alice file refused: " + up.status());
     const adm = await bob.goto(`${BASE}/admin/specialties`);

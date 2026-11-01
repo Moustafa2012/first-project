@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { forSex } from "@/lib/sex";
-import { FileText, Image as ImageIcon, Lock } from "lucide-react";
+import { Download, FileText, Image as ImageIcon, Lock } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getPatient, getSpecialties, specialtyName } from "@/lib/data";
@@ -86,7 +86,8 @@ export default async function DocumentsPage({ params, searchParams }: { params: 
 
   return (
     <>
-      <PageHead title={t("المستندات والتقارير الطبية", "Medical documents & reports")} sub={t("ملفات خاصة لا تُفتح إلا بصلاحية، ولا توجد روابط عامة دائمة لها.", "Private files, opened only with permission. There are no permanent public links.")} />
+      <PageHead title={t("المستندات والتقارير الطبية", "Medical documents & reports")} sub={t("ملفات خاصة لا تُفتح إلا بصلاحية، ولا توجد روابط عامة دائمة لها.", "Private files, opened only with permission. There are no permanent public links.")}
+        actions={access.canManage ? <a className="btn sm" id="export-zip" href={`/api/patients/${p.id}/export`} download><Download size={14} aria-hidden="true" />{t("تصدير الملف كاملاً (ZIP)", "Export the whole file (ZIP)")}</a> : undefined} />
       {searchParams.uploaded && <Banner tone="ok">{t("تم رفع المستند.", "Document uploaded.")}</Banner>}
       {err && <Banner tone={searchParams.error === "duplicate" ? "warn" : "bad"}>{t(...err)}{searchParams.error === "duplicate" && searchParams.dup && /^[0-9a-f-]{36}$/.test(searchParams.dup) ? <> <a href={`/api/documents/${searchParams.dup}`} target="_blank" rel="noopener noreferrer">{t("فتح النسخة الموجودة", "Open the existing copy")}</a></> : null}</Banner>}
       {access.canWrite && (

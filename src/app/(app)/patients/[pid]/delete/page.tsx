@@ -35,6 +35,7 @@ export default async function DeletePage({ params }: { params: { pid: string } }
             <hr />
             <p className="small muted">{t("قبل الحذف النهائي يمكنك تنزيل بياناتك:", "Before it is erased you can download your data:")}</p>
             <a className="btn sm" href={`/api/patients/${p.id}/report?scope=full&dl=1`}><Download size={14} aria-hidden="true" />{t("تنزيل التقرير الكامل (PDF)", "Download the complete report (PDF)")}</a>
+            <a className="btn sm" href={`/api/patients/${p.id}/export`} download style={{ marginInlineStart: ".4rem" }}><Download size={14} aria-hidden="true" />{t("تصدير كل البيانات (ZIP + JSON/FHIR)", "Export all data (ZIP + JSON/FHIR)")}</a>
           </Card>
           <Card title={t("حذف نهائي الآن", "Delete permanently now")}>
             <p className="muted">{t("لا تنتظر المدة المتبقية. لا يمكن التراجع بعد التنفيذ.", "Do not wait for the remaining period. This cannot be undone.")}</p>
@@ -64,6 +65,7 @@ export default async function DeletePage({ params }: { params: { pid: string } }
           </ol>
           <hr />
           <a className="btn sm" href={`/api/patients/${p.id}/report?scope=full&dl=1`}><Download size={14} aria-hidden="true" />{t("نزّل تقريرك الكامل أولاً (PDF)", "Download your complete report first (PDF)")}</a>
+          <a className="btn sm" href={`/api/patients/${p.id}/export`} download style={{ marginInlineStart: ".4rem" }}><Download size={14} aria-hidden="true" />{t("أو صدّر كل بياناتك (ZIP)", "Or export all your data (ZIP)")}</a>
         </Card>
         <Card title={t("تأكيد الحذف", "Confirm deletion")}>
           <ActionForm action={requestDeletion} className="stack" resetOnSuccess={false}>

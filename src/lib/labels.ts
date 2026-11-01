@@ -255,3 +255,21 @@ export const CLINICIAN_SPECIALTIES: [string, string][] = [
   ["النساء والولادة", "Obstetrics & gynaecology"], ["الأطفال", "Paediatrics"], ["العظام", "Orthopaedics"], ["الجلدية", "Dermatology"],
   ["العيون", "Ophthalmology"], ["الأنف والأذن والحنجرة", "ENT"], ["المسالك البولية", "Urology"], ["الأعصاب", "Neurology"], ["الطب النفسي", "Psychiatry"],
 ];
+
+// ---------------------------------------------------------------- general completion (0028): social history, symptoms
+export const DIET_PATTERN: Opt[] = [o("balanced", "متوازن", "Balanced"), o("vegetarian", "نباتي (بيض وألبان)", "Vegetarian"), o("vegan", "نباتي صرف", "Vegan"), o("low_carb", "قليل النشويات", "Low carbohydrate"),
+  o("diabetic", "حمية السكري", "Diabetic diet"), o("low_salt", "قليل الملح", "Low salt"), o("high_protein", "عالي البروتين", "High protein"), o("irregular", "غير منتظم", "Irregular"), o("other", "أخرى", "Other")];
+export const SLEEP_QUALITY: Opt[] = [o("good", "جيد", "Good"), o("fair", "متوسط", "Fair"), o("poor", "سيئ", "Poor")];
+export const SUBSTANCE_STATUS: Opt[] = [o("unknown", "غير محدد", "Not stated"), o("none", "لا يتعاطى", "None"), o("former", "سابقاً", "Former"), o("current", "حالياً", "Current")];
+export const SUBSTANCE_TYPE: Opt[] = [o("cannabis", "قنب (حشيش)", "Cannabis"), o("stimulants", "منشطات", "Stimulants"), o("opioids", "أفيونات", "Opioids"), o("sedatives", "مهدئات", "Sedatives"),
+  o("hallucinogens", "مهلوسات", "Hallucinogens"), o("inhalants", "مستنشقات", "Inhalants"), o("khat", "قات", "Khat"), o("other", "أخرى", "Other")];
+export const LIVING_SITUATION: Opt[] = [o("alone", "يعيش وحده", "Lives alone"), o("with_spouse", "مع الزوج / الزوجة", "With spouse"), o("with_family", "مع الأسرة", "With family"),
+  o("with_roommates", "مع آخرين (سكن مشترك)", "With others (shared housing)"), o("care_facility", "دار رعاية", "Care facility"), o("other", "أخرى", "Other")];
+export const EXPOSURE_KIND: Opt[] = [o("dust", "غبار", "Dust"), o("silica", "سيليكا", "Silica"), o("asbestos", "أسبستوس", "Asbestos"), o("chemicals", "مواد كيميائية", "Chemicals"),
+  o("solvents", "مذيبات", "Solvents"), o("pesticides", "مبيدات", "Pesticides"), o("fumes", "أبخرة ودخان", "Fumes / smoke"), o("radiation", "إشعاع", "Radiation"), o("noise", "ضوضاء", "Noise"),
+  o("heat", "حرارة شديدة", "Extreme heat"), o("vibration", "اهتزاز", "Vibration"), o("biological", "عوامل حيوية (عدوى، حيوانات)", "Biological (infection, animals)"),
+  o("secondhand_smoke", "تدخين سلبي", "Second-hand smoke"), o("other", "أخرى", "Other")];
+export const EXPOSURE_SETTING: Opt[] = [o("work", "العمل", "Work"), o("home", "المنزل", "Home"), o("environment", "البيئة المحيطة", "Environment"), o("other", "أخرى", "Other")];
+export const PROTECTIVE_EQUIPMENT: Opt[] = [o("unknown", "غير معروف", "Unknown"), o("none", "لا يستخدم", "None"), o("sometimes", "أحياناً", "Sometimes"), o("always", "دائماً", "Always")];
+export const SYMPTOM_PATTERN: Opt[] = [o("constant", "مستمر", "Constant"), o("intermittent", "متقطع", "Intermittent"), o("episodic", "نوبات", "Episodic"),
+  o("worsening", "يزداد سوءاً", "Worsening"), o("improving", "يتحسن", "Improving"), o("unknown", "غير معروف", "Unknown")];

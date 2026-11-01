@@ -1185,3 +1185,16 @@ fieldset.bone-levels legend { font-weight: 600; font-size: .9rem; padding-inline
 .perio-dx-view { display: grid; gap: .25rem; margin-block: .4rem; }
 .perio-dx-line { margin: 0; }
 .share-perio { margin-block-start: .75rem; }
+/* ---------------------------------------------------------------- general completion (symptoms, search, export, QR) */
+.shell-search { display: flex; align-items: center; gap: .35rem; padding-inline: .55rem; height: 30px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--sb-card); color: var(--muted); }
+.shell-search:focus-within { border-color: var(--sb-ring, var(--accent)); }
+.shell-search input { border: 0; background: transparent; height: 26px; min-height: 0; padding: 0; box-shadow: none; width: 11rem; font-size: .85rem; color: inherit; }
+.shell-search input:focus { outline: none; box-shadow: none; }
+@media (max-width: 760px) { .shell-search { display: none; } }
+.search-hits { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
+.search-hits mark { background: var(--warn-bg); color: inherit; border-radius: 2px; padding-inline: 1px; }
+.share-qr { display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap; }
+.share-qr .qr-box { background: #fff; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius); line-height: 0; }
+.share-qr .qr-box svg { width: 180px; height: 180px; display: block; }
+.share-qr .qr-side { flex: 1 1 240px; display: grid; gap: var(--space-2); }
+@media print { .shell-search { display: none; } }

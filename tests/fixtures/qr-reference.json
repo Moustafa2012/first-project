@@ -1,0 +1,114 @@
+[
+{
+"note": "version 1, mask 0 (v1)",
+"text": "Hello",
+"mask": 0,
+"version": 1,
+"size": 21,
+"hex": "fe1bfc14906e92bb7475dbaaaec12507faafe00700aa3096ac10c1a23fc14424b0a8004a9bf8dcf047b0baf71dd219aeaa2b04852feab180"
+},
+{
+"note": "version 1, mask 1 (v1)",
+"text": "Hello",
+"mask": 1,
+"version": 1,
+"size": 21,
+"hex": "fecbfc12106ea6bb74d5dba7aec14d07faafe00d00a3612c06ba54f76b6bee81e5fd006033fb89b04d1aba224dd0b32ebf7f042f8fefe480"
+},
+{
+"note": "version 1, mask 2 (v1)",
+"text": "Hello",
+"mask": 2,
+"version": 1,
+"size": 21,
+"hex": "fe7bfc10506eaabb7545dbacaec16907faafe01400be53e084f34f9adc4b7cc73e908044a3f952d0543eba9495d6fa2eb2c904bdcfec8900"
+},
+{
+"note": "version 1, mask 3 (v1)",
+"text": "Hello",
+"mask": 3,
+"version": 1,
+"size": 21,
+"hex": "fefbfc16906e90bb7545dba12ec11d07faafe01f00b73a5884f362ac07f9a7a73e90806917fae410543eba4ffdd597aeb2c9040b1fea5200"
+},
+{
+"note": "version 1, mask 4 (v1)",
+"text": "Hello",
+"mask": 4,
+"version": 1,
+"size": 21,
+"hex": "febbfc12506e84bb7535dba8aec14907faafe013008b97cb0acbac94e5530d0022e100672ffbb1504322bad38dd0c2ee9cf104cc0fe8f880"
+},
+{
+"note": "version 1, mask 5 (v1)",
+"text": "Hello",
+"mask": 5,
+"version": 1,
+"size": 21,
+"hex": "fe4bfc16506eaabb7585dba4aec10907faafe01c0082d67143ef0f9adc6bfec1e5fd006423f952d0484fba1495d0f22e9f7f043fcfec8900"
+},
+{
+"note": "version 1, mask 6 (v1)",
+"text": "Hello",
+"mask": 6,
+"version": 1,
+"size": 21,
+"hex": "fecbfc16506ea2bb7485dbadaec11107faafe00c009ff4b943ef06be4e739f41e5fd00672ffbc090584fba86ddd5742e9f7f0433ffeec000"
+},
+{
+"note": "version 1, mask 7 (v1)",
+"text": "Hello",
+"mask": 7,
+"version": 1,
+"size": 21,
+"hex": "fe1bfc11906e96bb7475dba0aec16d07faafe0030096a506ac10d3eb1b8860b4b0a80058d3f895d057b0ba538dd68bee8a2b04cc0feb9500"
+},
+{
+"note": "version 3 (alignment pattern absent below v2, present here) (v3)",
+"text": "https://shifa.example/s/Qk3vXz9",
+"mask": 3,
+"version": 3,
+"size": 29,
+"hex": "fea19bfc1798106e91cabb7561e5dba241aec1393d07faaaafe013cc00b746b25d244cfc6fa6d26cca8e7e1a718d46643e091dad8954fb1ea0c2073805d164614ba5d01a280303cb44abdefe004b847ffb92eb5050111aba5a8fadd6d9eeaeaaa54b047c5eafee5b9500"
+},
+{
+"note": "version 4 (v5)",
+"text": "https://shifa.example/s/aB3-_xY9Z0aB3-_xY9Z0aB3-_xY9Z0aB3-_xY9Z0",
+"mask": 5,
+"version": 5,
+"size": 37,
+"hex": "fe22df13fc17a14c506eb749c6bb755d83a5dba3ff54aec10d603507faaaaaafe012de650082d0957676270504e5a8c0ec06c6e3883169962af439a6a40797eca0cbf6a84778bfd1f6ed53043eaf29c08403b8a3ffacb7721117466517abce976a28c02dac5be87d30672b098c64389af84ebe1629e1756822ec7da66f4371215e58afdfeffe8053d7e44ff8e5e5aa3049b08713ba283e3fa5d0c27e326e8b82a80704af07159feaa508f280"
+},
+{
+"note": "version 6, four blocks (v6)",
+"text": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+"mask": 1,
+"version": 6,
+"size": 41,
+"hex": "fed4a2223fc1211555506eb6b5554bb745deeee5dba16a2222ec1401555507faaaaaaafe00c2555500a335088892c84c6eeedb68cf955542b083e5555babfe60888b44c496eeedb4bc9955542a880c5555baeb670888b4302faeeedb6df0d55542b28965555baabc70888b4301caeeedb61b0555542b491e5555b98bcf8888b578f82eeedb6884955542a82de5555ba2ac78888b43efd2eeedb7986d55542a12fc5555bae6c68888fc005baeee477fa0b5552ab042c55571aba15e889fc5d08aeeea76eb8355512b04e8d555e8fef7e888a480"
+},
+{
+"note": "version 7, version information present (v7)",
+"text": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+"mask": 3,
+"version": 7,
+"size": 45,
+"hex": "feca125e8bfc16c910f8906e84eba9e4bb75a0de4235dba09ffe87aec1053c794107faaaaaaaafe01aed194d00b733cffa0a5f0b34d2f4ee509f2887ce7fb3a34d4fb4b6e56ef21621beeabbf42353ce7be5ca3c8c33120f96fd3a2f8297b970cd35642f83eddd13ea78a4c385fb94d90ef9c5ffa0fa946c0c6f4c64aa58ea7cabf31b1514f91b3fd3afa16f98cb1a974249108e3d3ca408827abff965d82c9bd97b4e3a1ef4c2fffc6dcd08a7f65a87ce494d30835a26fa022beaabfaf49242ea2be7c9bef318524fbeb9aa39fa16f9804a04742c53fb82abca6a90517b1f971dba74cf97aff5d7a6f42f536ebb47ca7e8504d10f94fd1fea2417a1f200"
+},
+{
+"note": "version 10 (five blocks of two sizes) (v10)",
+"text": "https://shifa.example/s/xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyzAb1xyz",
+"mask": 6,
+"version": 10,
+"size": 57,
+"hex": "fee428abb7373fc159f1c2801a906eba59b85ccfcbb74f6be5ef7fa5dbabb23be0e212ec11d2ab1c96f107faaaaaaaaaaafe006585472841009fdf583e5e914bf47639c3171374b2f4513c0ce3d6e4875df9b22d7643668b684aaab295cd02e776db6d883e87760e3d56e18a7ecd6614d56ffeb19263e83fd6767e4a4538554303aa962d5c6446b030e51742d40fe2261272e38e309f6c4604dfffff4add99b4cbd5095e131b97a849d0663e63ff1bcade692aeb44e78756501bef87ffe1d43f9114e55c666431d7a962fab8e3da8546fd171b2dbc6ebf299cfc1477f22a0d84085f321d9779d2905ea4637214a19c71717d61ecd0409560f8d9331249f42b6d47654240eaaebc5e2b46e536db6e100b0a79bd086440c95d39d26162577674c12eea5d18364e094e5e33ddcbe6a3a3e4443bbbab9790823678fa6f5dac43ae2658ab754c4fff39ca9d2e6560f66bd7f3cf86df2280f60223827efcebff804e15d1eb3ac53fa4bb7ae2d72bd0568044666251cba894aff8e39fcdd45dcc2b6dbdb2e9d823b74642b704b0bd6c294467feffce1b5ce63c00"
+},
+{
+"note": "UTF-8 Arabic (v3)",
+"text": "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645 - \u0634\u0641\u0627\u0621",
+"mask": 2,
+"version": 3,
+"size": 29,
+"hex": "fe3523fc127cd06ea358bb759635dbab04aec1581d07faaaafe01d6b00be00a3e3097db07df7a5b7d22908ecb3b7bd9edc14929d60fa2fb764949268fe24efbfb7aef7a45753ba07cb62b7fd80589c53f822aa30596f16ba989fa5d63e11eebc0c050433cdefea3e8400"
+}
+]

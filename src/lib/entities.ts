@@ -9,7 +9,9 @@ export type FieldKind = "text" | "textarea" | "date" | "datetime" | "number" | "
   /** the bone level read per sextant on a dental image (stored as jsonb, see src/lib/dental-imaging.ts) */
   | "bonelevels"
   /** the open imaging request this study fulfils (offered from FormContext.orders) */
-  | "imaging_order";
+  | "imaging_order"
+  /** a record of the same file, e.g. the condition a symptom belongs to (offered from FormContext.choices) */
+  | "link";
 
 export interface FieldDef {
   name: string;
@@ -54,6 +56,8 @@ export interface FormContext {
   templates?: { id: string; title: string; body: string; mine?: boolean }[];
   /** open imaging requests a new study can fulfil */
   orders?: { id: string; label: string }[];
+  /** choices of "link" fields (a record of the same file, e.g. the condition a symptom belongs to) */
+  choices?: Record<string, Opt[]>;
 }
 const teethChip = (r: Row, lang: Lang): Chip[] =>
   Array.isArray(r.teeth) && r.teeth.length ? [{ tone: "info", text: `${lang === "ar" ? "الأسنان" : "Teeth"}: ${(r.teeth as number[]).join(", ")}` }] : [];
@@ -398,6 +402,50 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
     ],
   },
+  symptoms: {
+    slug: "symptoms", table: "symptom_entries", ar: "سجل الأعراض", en: "Symptom log", singular: { ar: "عرض", en: "symptom" },
+    order: ["onset_at", "desc"], hasSpecialty: true, bodyField: "notes", dateOf: (r) => (r.onset_at as string) ?? null, dateKind: "datetime",
+    titleOf: (r) => [s(r, "symptom"), s(r, "body_site")].filter(Boolean).join(" — "),
+    chipsOf: (r, lang) => [
+      ...(r.severity != null ? [{ tone: (Number(r.severity) >= 7 ? "bad" : Number(r.severity) >= 4 ? "warn" : "muted") as Chip["tone"], text: `${lang === "ar" ? "الشدة" : "Severity"} ${s(r, "severity")}/10` }] : []),
+      ...(r.pattern ? [{ tone: "muted" as const, text: L.lbl(L.SYMPTOM_PATTERN, s(r, "pattern"), lang) }] : []),
+      { tone: r.ended_at ? "ok" : "info", text: r.ended_at ? (lang === "ar" ? "انتهى" : "Ended") : (lang === "ar" ? "مستمر" : "Ongoing") },
+    ],
+    fields: [
+      f("symptom", "العرض", "Symptom", "text", { required: true, maxLength: 200, wide: true, hint: ["مثال: صداع، سعال، ألم في الصدر، دوخة.", "e.g. headache, cough, chest pain, dizziness."] }),
+      f("severity", "الشدة (0 لا شيء – 10 الأشد)", "Severity (0 none – 10 worst)", "number", { min: 0, max: 10, step: "1" }),
+      f("onset_at", "بدأ في", "Started", "datetime", { required: true }),
+      f("ended_at", "انتهى في", "Ended", "datetime", { blank: true, hint: ["اتركه فارغاً إن كان العرض مستمراً.", "Leave empty while it is still going on."] }),
+      f("body_site", "الموضع", "Body site", "text", { maxLength: 200 }),
+      f("pattern", "النمط", "Pattern", "select", { options: L.SYMPTOM_PATTERN }),
+      f("triggers", "ما يثيره", "Triggers", "text", { maxLength: 1000, wide: true }),
+      f("relieved_by", "ما يخففه", "Relieved by", "text", { maxLength: 1000, wide: true }),
+      f("condition_id", "مرتبط بمرض مسجل", "Linked condition", "link"),
+      spec,
+      f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
+    ],
+  },
+  exposures: {
+    slug: "exposures", table: "patient_exposures", ar: "التعرضات المهنية والبيئية", en: "Occupational & environmental exposures", singular: { ar: "تعرّض", en: "exposure" },
+    order: ["recorded_at", "desc"], hasSpecialty: false, bodyField: "notes", dateOf: (r) => (r.recorded_at as string) ?? null, dateKind: "datetime",
+    dupKey: (r) => `${s(r, "kind")}|${n(r, "agent")}|${s(r, "setting")}`,
+    titleOf: (r, lang) => [L.lbl(L.EXPOSURE_KIND, s(r, "kind"), lang), s(r, "agent")].filter(Boolean).join(" — "),
+    chipsOf: (r, lang) => [
+      { tone: "muted", text: L.lbl(L.EXPOSURE_SETTING, s(r, "setting"), lang) },
+      ...(r.years != null ? [{ tone: "muted" as const, text: lang === "ar" ? `${s(r, "years")} سنة` : `${s(r, "years")} y` }] : []),
+      { tone: r.ongoing ? "info" : "muted", text: r.ongoing ? (lang === "ar" ? "مستمر" : "Ongoing") : (lang === "ar" ? "انتهى" : "Past") },
+      { tone: (r.protective_equipment === "always" ? "ok" : r.protective_equipment === "none" ? "warn" : "muted") as Chip["tone"], text: `${lang === "ar" ? "الوقاية" : "Protection"}: ${L.lbl(L.PROTECTIVE_EQUIPMENT, s(r, "protective_equipment"), lang)}` },
+    ],
+    fields: [
+      f("kind", "نوع التعرض", "Kind", "select", { options: L.EXPOSURE_KIND, dflt: "other" }),
+      f("agent", "المادة أو المصدر", "Agent / source", "text", { maxLength: 200, wide: true, hint: ["مثال: غبار خشب، دهانات، أشعة سينية في المستشفى.", "e.g. wood dust, paints, X-rays at the hospital."] }),
+      f("setting", "أين", "Where", "select", { options: L.EXPOSURE_SETTING, dflt: "work" }),
+      f("years", "عدد السنوات", "Years exposed", "number", { min: 0, max: 80, step: "0.5" }),
+      f("ongoing", "ما زال مستمراً", "Still ongoing", "checkbox", { dflt: true }),
+      f("protective_equipment", "معدات الوقاية", "Protective equipment", "select", { options: L.PROTECTIVE_EQUIPMENT, dflt: "unknown" }),
+      f("notes", "ملاحظات", "Notes", "textarea", { wide: true }),
+    ],
+  },
   // invalidation only: the payload of these records is rendered/edited by the specialty page
   "specialty-records": {
     slug: "specialty-records", table: "specialty_records", ar: "سجلات التخصص", en: "Specialty records", singular: { ar: "سجل", en: "record" },
@@ -420,10 +468,11 @@ const NOT_NULL_SELECTS: Record<string, string[]> = {
   notes: ["kind"],
   "test-orders": ["kind", "priority", "status"],
   devices: ["kind", "status", "mri_safety"],
+  exposures: ["kind", "setting", "protective_equipment"],
 };
 for (const [slug, names] of Object.entries(NOT_NULL_SELECTS)) {
   for (const fld of ENTITIES[slug].fields) if (names.includes(fld.name)) fld.required = true;
 }
 
 /** Slugs served by the generic /patients/[pid]/[slug] page (visits has its own route for the detail view). */
-export const GENERIC_SLUGS = Object.keys(ENTITIES).filter((k) => k !== "visits" && k !== "specialty-records");
+export const GENERIC_SLUGS = Object.keys(ENTITIES).filter((k) => !["visits", "specialty-records", "symptoms", "exposures"].includes(k));

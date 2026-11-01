@@ -15,19 +15,24 @@ function Marker({ p, cls, title }: { p: ChartPoint; cls: string; title: string }
 }
 
 export function TrendChart({
-  series, prev = [], lang, tz, refLines, domain, name, tableLabel,
+  series, prev = [], lang, tz, refLines, domain, name, tableLabel, include, flagLegend = true, emptyLabel,
 }: {
   series: Series[]; prev?: Series[]; lang: Lang; tz: string; refLines?: { v: number; label: string }[];
   domain?: { from: number; to: number }; name: string; tableLabel: string;
+  /** values the y-axis must cover (e.g. [0, 10] for a severity scale) */
+  include?: number[];
+  /** the "flagged reading" legend entry; off for data that is never classified (symptom severity) */
+  flagLegend?: boolean;
+  emptyLabel?: [string, string];
 }) {
-  const chart = buildChart({ series: [...prev, ...series], width: W, height: H, domain, refLines });
-  if (chart.empty) return <div className="empty">{lang === "ar" ? "لا توجد قراءات في هذه الفترة." : "No readings in this period."}</div>;
+  const chart = buildChart({ series: [...prev, ...series], width: W, height: H, domain, refLines, include });
+  if (chart.empty) return <div className="empty">{emptyLabel ? emptyLabel[lang === "ar" ? 0 : 1] : lang === "ar" ? "لا توجد قراءات في هذه الفترة." : "No readings in this period."}</div>;
   const cls = (key: string) => { const i = series.findIndex((s) => s.key === key); return `s${Math.max(0, i) % 4}`; };
   const pk = new Set(prev.map((s) => s.key));
   const titleOf = (p: ChartPoint) => {
     const s = [...series, ...prev].find((x) => x.key === p.seriesKey)!;
     const src = s.pts.find((q) => q.id === p.id);
-    return `${lang === "ar" ? s.label.ar : s.label.en}: ${p.v} ${s.unit} · ${fmtDateTime(new Date(p.t), lang, tz)} · ${INTERPRETATION[p.interp]?.[lang] ?? ""}${src?.lab ? ` · ${src.lab}` : ""}`;
+    return `${lang === "ar" ? s.label.ar : s.label.en}: ${p.v} ${s.unit} · ${fmtDateTime(new Date(p.t), lang, tz)} ${flagLegend ? ` · ${INTERPRETATION[p.interp]?.[lang] ?? ""}` : ""}${src?.lab ? ` · ${src.lab}` : ""}`;
   };
   const rows = series.flatMap((s) => s.pts.map((p) => ({ s, p }))).sort((a, b) => a.p.t - b.p.t);
   return (
@@ -42,12 +47,12 @@ export function TrendChart({
       <div className="legend">
         {series.map((s, i) => <span key={s.key}><i style={{ background: `var(--c${(i % 4) + 1})` }} />{lang === "ar" ? s.label.ar : s.label.en} ({s.unit})</span>)}
         {prev.length > 0 && <span><i style={{ background: "var(--muted)", opacity: 0.6 }} />{lang === "ar" ? "الفترة السابقة (منقطة)" : "Previous period (dashed)"}</span>}
-        <span>◆ {lang === "ar" ? "قراءة مُعلَّمة تحتاج انتباهاً" : "flagged reading"}</span>
+        {flagLegend && <span>◆ {lang === "ar" ? "قراءة مُعلَّمة تحتاج انتباهاً" : "flagged reading"}</span>}
       </div>
       <details style={{ marginBlockStart: ".5rem" }}>
         <summary className="small">{tableLabel}</summary>
         <div className="table-wrap"><table className="t"><tbody>
-          {rows.map(({ s, p }) => (<tr key={`${s.key}-${p.id}`}><td>{fmtDateTime(new Date(p.t), lang, tz)}</td><td>{lang === "ar" ? s.label.ar : s.label.en}</td><td className="nowrap"><span className="ltr">{p.v} {s.unit}</span></td><td>{INTERPRETATION[p.interp]?.[lang]}</td></tr>))}
+          {rows.map(({ s, p }) => (<tr key={`${s.key}-${p.id}`}><td>{fmtDateTime(new Date(p.t), lang, tz)}</td><td>{lang === "ar" ? s.label.ar : s.label.en}</td><td className="nowrap"><span className="ltr">{p.v} {s.unit}</span></td><td>{flagLegend ? INTERPRETATION[p.interp]?.[lang] : ""}</td></tr>))}
         </tbody></table></div>
       </details>
     </div>

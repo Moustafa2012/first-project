@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { appliesToSex, forSex } from "@/lib/sex";
-import { CalendarClock, ClipboardList, Link2 } from "lucide-react";
+import { CalendarClock, ClipboardList, Link2, Thermometer } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { getAccess, getObsTypes, getPatient, getSpecialties } from "@/lib/data";
@@ -32,7 +32,7 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const active = { patient_id: p.id, record_status: "active" };
 
-  const [ctx, vit, flagged, appts, visits, orders, shares, notes, docsNoDate, suggested, ctrs] = await Promise.all([
+  const [ctx, vit, flagged, appts, visits, orders, shares, notes, docsNoDate, suggested, ctrs, symptoms] = await Promise.all([
     getClinicalContext(p.id),
     supabase.from("observations").select("*").eq("patient_id", p.id).in("status", ["final", "preliminary"]).in("type_id", types.filter((x) => HIGHLIGHT.includes(x.code)).map((x) => x.id)).order("effective_at", { ascending: false }).limit(300),
     supabase.from("observations").select("*").eq("patient_id", p.id).eq("status", "final").gte("effective_at", since).not("interpretation", "in", "(normal,not_assessed)").order("effective_at", { ascending: false }).limit(8),
@@ -44,6 +44,7 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
     supabase.from("medical_documents").select("id", { count: "exact", head: true }).match(active).is("document_date", null),
     supabase.from("test_orders").select("id", { count: "exact", head: true }).match(active).eq("status", "suggested"),
     supabase.from("share_contributors").select("id, share_id, full_name, contribution_count, last_contribution_at, reviewed_at").eq("patient_id", p.id).gt("contribution_count", 0),
+    supabase.from("symptom_entries").select("id, symptom, severity, onset_at").match(active).is("ended_at", null).order("onset_at", { ascending: false }).limit(5),
   ]);
   const unreviewed = ((ctrs.data ?? []) as { share_id: string; full_name: string; last_contribution_at: string | null; reviewed_at: string | null }[])
     .filter((c) => !c.reviewed_at || (c.last_contribution_at != null && c.last_contribution_at > c.reviewed_at));
@@ -114,6 +115,13 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
           })}</div>)}
         <p className="small muted" style={{ marginBlockStart: ".6rem" }}>{t("مؤشرات تستدعي تقييم مختص وليست تشخيصاً.", "Prompts for professional assessment, not a diagnosis.")}</p>
       </Card>
+
+      {(symptoms.data ?? []).length > 0 && (
+        <Card title={<><Thermometer size={18} aria-hidden="true" /> {t("أعراض مستمرة", "Ongoing symptoms")}</>} actions={<Link href={`${base}/symptoms`} className="small">{t("سجل الأعراض", "Symptom log")}</Link>}>
+          {(symptoms.data ?? []).map((y) => (
+            <div key={y.id} className="row between"><span>{y.symptom}{y.severity != null ? <span className="muted small"> · {t("الشدة", "severity")} <span className="ltr">{y.severity}/10</span></span> : null}</span><span className="muted small">{fmtDate(y.onset_at, lang, tz)}</span></div>))}
+        </Card>
+      )}
 
       <div className="grid cols-2">
         <Card title={<><CalendarClock size={18} aria-hidden="true" /> {t("المواعيد القادمة", "Upcoming appointments")}</>} actions={<Link href={`${base}/appointments`} className="small">{t("الكل", "All")}</Link>}>

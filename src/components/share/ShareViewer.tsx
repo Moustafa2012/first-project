@@ -23,13 +23,26 @@ import { TreatmentItemForm, TreatmentPlans } from "@/components/dental/Treatment
 import { OPEN_ITEM, OPEN_PLAN, type CatalogItem } from "@/lib/treatment";
 import type { ContribState } from "@/lib/share-contrib";
 import { canAdd, ContribAdd, ContribForm, ContributorCard, ContribSummary, contribLabel } from "@/components/share/Contribute";
+import { Prescriptions } from "@/components/rx/Prescriptions";
+import { RxForm } from "@/components/rx/RxForm";
+import { ConsentList } from "@/components/rx/Consents";
+import { ConsentForm, type ConsentTarget } from "@/components/rx/ConsentForm";
+import { SafetyAlerts } from "@/components/SafetyAlerts";
+import { alertsByItem, type SafetyAlert } from "@/lib/safety-rules";
+import type { Rx } from "@/lib/prescription";
+import { consentTemplate, type ConsentRow } from "@/lib/consent";
+import { contributePrescription, presentConsent, retractPrescription } from "@/app/actions/share-rx";
 
 type R = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [] }: {
+export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, uploadError, catalog = [], extras, myNotes = [], recalls = [], templates = [], rx, safety = [] }: {
   b: Bundle; token: string; contrib?: ContribState | null; dental?: ShareDental | null; perio?: SharePerio | null; ctx?: (ClinicalContextData & { specialties: string[] | null }) | null; uploaded?: boolean; uploadError?: string;
   catalog?: CatalogItem[]; extras?: ShareExtras | null; myNotes?: ShareMyNote[]; recalls?: ShareRecall[]; templates?: { id: string; title: string; body: string }[];
+  /** prescriptions and consents within the share's scope (public.share_rx_extras), when the patient allowed them */
+  rx?: { prescriptions: Rx[]; consents: ConsentRow[] } | null;
+  /** safety alerts the reviewable rules raise for this file and the plan shown here */
+  safety?: SafetyAlert[];
 }) {
   const { lang, t } = i18n();
   const tz = getTz();
@@ -68,6 +81,14 @@ export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, u
   const showDocs = place("medical_documents", inc.has("documents"));
   if (dental) { placed.add("dental_exams"); placed.add("treatment_plans"); }
   if (perio) placed.add("perio_exams");
+  placed.add("prescriptions"); placed.add("consents");          // their own cards below
+  const safetyByItem = alertsByItem(safety);
+  const consentTargets: ConsentTarget[] = dental ? (dental.plans ?? []).filter((pl) => OPEN_PLAN.has(pl.status)).flatMap((pl) => [
+    { id: `plan:${pl.id}`, kind: "plan" as const, label: pl.title, plan_id: pl.id },
+    ...pl.items.filter((i) => OPEN_ITEM.has(i.status)).map((i) => ({ id: `item:${i.id}`, kind: "item" as const, plan_id: pl.id, label: `${i.name}${i.teeth?.length ? ` (${i.teeth.join(", ")})` : ""}` })),
+  ]) : [];
+  const rxOn = Boolean(rx) && (contrib?.modules ?? []).includes("prescriptions");
+  const consentsOn = Boolean(rx) && (contrib?.modules ?? []).includes("consents");
   const others = (contrib?.modules ?? []).filter((m) => !placed.has(m) && canAdd(contrib, m));
   // treatment plans in the dental workspace: the dentist proposes, moves treatments along and notes their own cost
   const plans = dental?.plans ?? [];
@@ -139,6 +160,8 @@ export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, u
       </section>
       )}
 
+      <SafetyAlerts alerts={safety} lang={lang} />
+
       {inc.has("contact") && (b.emergency_contacts ?? []).length > 0 && (
         <Card title={t("جهات الطوارئ", "Emergency contacts")}>{(b.emergency_contacts ?? []).map((c, i) => <div key={i}>{s(c.full_name)} {c.relation ? `(${s(c.relation)})` : ""} <span className="ltr">{s(c.phone)}</span></div>)}</Card>
       )}
@@ -177,7 +200,7 @@ export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, u
               ? t("اقترح العلاج من لوحة السن أو من النموذج أدناه؛ يعتمده المريض، ثم تسجّل أنت إنجازه فيُضاف الإجراء ويُحدَّث المخطط. تكاليف المريض لا تظهر لك.",
                   "Propose treatment from a tooth's panel or the form below; the patient accepts it, then you record it done and the procedure and chart are updated. The patient's costs are not shown to you.")
               : t("خطط العلاج الحالية (بلا تكاليف).", "Current treatment plans (without costs).")}</p>
-            <TreatmentPlans plans={plans} costs={dental.my_costs ?? []} catalog={catalog} problems={openProblems} lang={lang} today={localDate(new Date(), tz)}
+            <TreatmentPlans plans={plans} costs={dental.my_costs ?? []} catalog={catalog} problems={openProblems} lang={lang} today={localDate(new Date(), tz)} safety={safetyByItem}
               actions={txWrite ? { hidden: { _t: token }, status: shareTreatmentStatus, clinician: true, addCost: shareSetCost, addItem: contributeTreatment,
                 canAddTo: (p) => myProposals.some((m) => m.id === p.id) } : { hidden: {} }} />
             {txWrite && (
@@ -218,6 +241,48 @@ export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, u
 
 
       {perio && <SharePerioCard token={token} perio={perio} contrib={contrib ?? null} />}
+      {rxOn && rx && (
+        <Card title={t("الوصفات الطبية", "Prescriptions")} id="sec-prescriptions">
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("الوصفات ضمن نطاق المشاركة. وصفتك تُحفظ باسمك كما حدّده المريض في الرابط، وتُضاف أدويتها إلى ملفه.",
+            "Prescriptions within the share's scope. Yours is saved under your name as the patient gave it on the link, and its medicines are added to their file.")}</p>
+          <Prescriptions rxs={rx.prescriptions} lang={lang} tz={tz} idPrefix="srx"
+            actions={{ hidden: { _t: token }, retract: retractPrescription, pdfHref: b.meta.allow_print ? (r) => `/s/${token}/rx/${r.id}/pdf` : undefined }}
+            alerts={safety} empty={t("لا وصفات ضمن النطاق بعد.", "No prescriptions in scope yet.")} />
+          {canAdd(contrib, "prescriptions") && contrib?.contributor && (
+            <details className="fold" id="contrib-prescription">
+              <summary>{t("إضافة: وصفة طبية مفصلة", "Add: a detailed prescription")}</summary>
+              <div className="fold-body">
+                <RxForm action={contributePrescription} hidden={{ _t: token }} lang={lang} today={localDate(new Date(), tz)} idPrefix="cx-rx"
+                  prescriber={contrib.contributor.full_name} submitLabel={t("حفظ الوصفة", "Save the prescription")} />
+              </div>
+            </details>
+          )}
+        </Card>
+      )}
+
+      {consentsOn && rx && (
+        <Card title={t("الموافقات الموقّعة", "Signed consents")} id="sec-consents">
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("قدّم الموافقة للمريض ليقرأها ويوقّع بنفسه على شاشتك؛ يُحفظ التوقيع في ملفه. لا يمكنك تعديل موافقة موقّعة، والمريض هو من يسحبها.",
+            "Present the consent to the patient to read and sign on your screen; the signature is stored in their file. You cannot edit a signed consent; the patient is the one who withdraws it.")}</p>
+          <ConsentList consents={rx.consents} lang={lang} tz={tz} idPrefix="scn" actions={{
+            hidden: { _t: token },
+            newVersion: (c) => canAdd(contrib, "consents") && c.mine && contrib?.contributor ? (
+              <ConsentForm action={presentConsent} hidden={{ _t: token }} lang={lang} idPrefix={`scv-${c.id.slice(0, 8)}`} targets={consentTargets} presenter={contrib.contributor.full_name}
+                signerName={c.signer_name} submitLabel={t("توقيع النسخة الجديدة", "Sign the new version")}
+                supersede={{ id: c.id, kind: c.kind, title: `${c.title} (v${c.version + 1})`, body: consentTemplate(c.kind, lang).body, target: c.treatment_item_id ? `item:${c.treatment_item_id}` : c.treatment_plan_id ? `plan:${c.treatment_plan_id}` : null }} />
+            ) : null,
+          }} empty={t("لا موافقات ضمن النطاق بعد.", "No consents in scope yet.")} />
+          {canAdd(contrib, "consents") && contrib?.contributor && (
+            <details className="fold" id="contrib-consent">
+              <summary>{t("إضافة: موافقة يوقّعها المريض على شاشتك", "Add: a consent the patient signs on your screen")}</summary>
+              <div className="fold-body">
+                <ConsentForm action={presentConsent} hidden={{ _t: token }} lang={lang} idPrefix="cx-cn" targets={consentTargets} presenter={contrib.contributor.full_name}
+                  signerName={p.full_name} submitLabel={t("توقيع وحفظ الموافقة", "Sign and save the consent")} />
+              </div>
+            </details>
+          )}
+        </Card>
+      )}
 
       {inc.has("observations") && (
         <Card title={t("القياسات والتحاليل عبر الزمن", "Measurements & lab results over time")}>

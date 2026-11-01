@@ -6,6 +6,10 @@ import { i18n } from "@/lib/i18n";
 import { buildTreatmentPlanReport } from "@/lib/pdf/reports";
 import { getClinicalContext } from "@/lib/clinical-context-server";
 import { pdfResponse } from "@/lib/pdf/respond";
+import { getProcedureCatalog } from "@/lib/data";
+import { getSafetyFacts, getSafetyRules } from "@/lib/safety-server";
+import { evaluateSafety } from "@/lib/safety-rules";
+import { OPEN_ITEM } from "@/lib/treatment";
 import type { PatientRow } from "@/lib/types";
 import type { TreatmentCost, TreatmentItem, TreatmentPlan } from "@/lib/treatment";
 
@@ -31,8 +35,16 @@ export async function GET(request: NextRequest, { params }: { params: { pid: str
     : { data: null };
   const { lang } = i18n();
   try {
+    const ctx = await getClinicalContext(params.pid);
+    // safety alerts: the reviewable rules against the file and this plan's treatments that are still to happen
+    const [rules, facts, catalog] = await Promise.all([getSafetyRules(), getSafetyFacts(params.pid), getProcedureCatalog()]);
+    const alerts = evaluateSafety(rules, {
+      context: ctx, labs: facts.labs, history: facts.history,
+      items: ((items ?? []) as TreatmentItem[]).filter((i) => OPEN_ITEM.has(i.status))
+        .map((i) => ({ id: i.id, name: i.name, catalog_code: i.catalog_code, category: catalog.find((c) => c.code === i.catalog_code)?.category ?? null, teeth: i.teeth })),
+    });
     const { meta, blocks, filename } = buildTreatmentPlanReport(p as PatientRow, { ...(plan as TreatmentPlan), items: (items ?? []) as TreatmentItem[] }, {
-      lang, tz: getTz(), ctx: await getClinicalContext(params.pid), problems: (conds ?? []) as { id: string; name: string }[],
+      lang, tz: getTz(), ctx, alerts, problems: (conds ?? []) as { id: string; name: string }[],
       costs: withCosts ? ((costs ?? []) as TreatmentCost[]) : null,
     });
     return await pdfResponse(meta, blocks, filename, {}, q.get("dl") === "1");

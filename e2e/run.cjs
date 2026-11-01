@@ -1763,6 +1763,276 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.getByText("PER-777").first().waitFor();
   });
 
+  // ---------------------------------------------------------------- prescriptions, consents with a drawn signature, safety alerts (0027)
+  const drawSignature = async (pg, scope) => {
+    const canvas = scope.locator("canvas.sig-pad");
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    await pg.mouse.move(box.x + 20, box.y + 40);
+    await pg.mouse.down();
+    for (let i = 1; i <= 12; i++) await pg.mouse.move(box.x + 20 + i * 12, box.y + 40 + (i % 2 ? 25 : -20), { steps: 3 });
+    await pg.mouse.up();
+    await scope.locator("input.sig-value").evaluate((el) => { if (!el.value.startsWith("data:image/png")) throw new Error("nothing was drawn"); });
+  };
+  const pdfOk = async (req, url, label) => {
+    const r = await req.get(url);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]), `${label} pdf ${r.status()}`);
+    const body = await r.body();
+    assert(body.subarray(0, 5).toString() === "%PDF-", `${label} is a pdf`);
+    return body;
+  };
+
+  await step("prescriptions: the patient writes a detailed prescription on the dental visits tab, its medicines join the file, it prints, completing it ends them", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=care`);
+    await page.locator("#prescriptions summary", { hasText: "A new prescription" }).click();
+    await page.fill("#nrx_by", "Dr Reem Saleh");
+    await page.fill("#nrx_lic", "DEN-9");
+    await page.fill("#nrx_l0_g", "Amoxicillin");
+    await page.fill("#nrx_l0_s", "500 mg");
+    await page.selectOption("#nrx_l0_f", "capsule");
+    await page.fill("#nrx_l0_d", "1 capsule");
+    await page.selectOption("#nrx_l0_r", "oral");
+    await page.fill("#nrx_l0_q", "three times a day");
+    await page.fill("#nrx_l0_n", "7");
+    await page.fill("#nrx_l0_c", "21 capsules");
+    await page.fill("#nrx_l0_x", "0");
+    await page.getByRole("button", { name: "Another medicine on the prescription" }).click();
+    await page.fill("#nrx_l1_g", "Ibuprofen");
+    await page.fill("#nrx_l1_b", "Brufen");
+    await page.fill("#nrx_l1_q", "twice a day");
+    await page.fill("#nrx_l1_n", "3");
+    await page.fill("#nrx_l1_c", "10 tablets");
+    await page.check('input[name="l1_as_needed"]');
+    await page.locator("#nrx_form").getByRole("button", { name: "Save the prescription" }).click();
+    await page.getByText("The prescription was saved with 2 medicine(s)").waitFor();
+    const card = page.locator("article.rx-card", { hasText: "Dr Reem Saleh" });
+    await card.waitFor();
+    await card.getByText(/Amoxicillin/).first().waitFor();
+    await card.getByText(/quantity: 21 capsules/).waitFor();
+    await card.getByText(/refills: 0/).waitFor();
+    await card.getByText(/Brufen/).waitFor();
+    await card.getByText(/as needed/).waitFor();
+    // the file records a penicillin allergy: the reviewable rule flags the penicillin-family drug on the prescription itself
+    await card.locator('[data-alert="penicillin_allergy_prescribed"]').waitFor();
+    await card.getByText(/Because of: Penicillin/).waitFor();
+    assert((await card.locator('[data-alert]').count()) === 1, "only the penicillin rule concerns this prescription");
+    const rxId = await card.getAttribute("data-rx");
+    fs.writeFileSync(path.join(OUT, "prescription.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/prescriptions/${rxId}/pdf`, "prescription"));
+    assert((await card.getByRole("link", { name: "Print prescription" }).count()) === 1, "a print link");
+
+    // the medicines are in the file, with their details
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    const med = page.locator("article.rec:not(.rx-card)", { hasText: "Amoxicillin" }).first();
+    await med.getByText("21 capsules", { exact: true }).waitFor();
+    await med.getByText("Currently taking").first().waitFor();
+    assert((await page.locator("#prescriptions article.rx-card", { hasText: "Dr Reem Saleh" }).count()) === 1, "the prescription is also listed on the medications page");
+
+    // completing the course ends the medicines
+    await page.locator("#prescriptions article.rx-card", { hasText: "Dr Reem Saleh" }).getByRole("button", { name: "Course completed" }).click();
+    await page.locator("#prescriptions article.rx-card", { hasText: "Dr Reem Saleh" }).locator(".chip", { hasText: "Completed" }).waitFor();
+    await page.locator("article.rec:not(.rx-card)", { hasText: "Amoxicillin" }).first().locator(".chip", { hasText: "Course completed" }).first().waitFor();
+    await page.screenshot({ path: path.join(OUT, "prescriptions.png"), fullPage: true });
+  });
+
+  await step("safety alerts: an anticoagulant in the file raises the extraction alert on the plan and next to the treatment; an unrelated drug raises none", async () => {
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    assert((await page.locator('[data-alert]').count()) === 0, "no safety alert on the medications page");
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    // the file has a mechanical valve, a congenital aortic narrowing and a penicillin allergy: those rules apply, the anticoagulant one does not yet
+    await page.locator('#safety [data-alert="endocarditis_prophylaxis_review"]').getByText(/Because of: .*Mechanical aortic valve/).waitFor();
+    await page.locator('#safety [data-alert="penicillin_allergy"]').waitFor();
+    assert((await page.locator('#safety [data-alert="anticoagulant_before_surgery"]').count()) === 0, "without an anticoagulant, that rule is silent");
+    assert((await page.locator('#safety [data-alert="penicillin_allergy_prescribed"]').count()) === 0, "and the penicillin drug rule is silent once that prescription is completed");
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    await page.locator("#prescriptions summary", { hasText: "A new prescription" }).click();
+    await page.fill("#mrx_by", "Dr Cardio Lee");
+    await page.fill("#mrx_l0_g", "Warfarin");
+    await page.fill("#mrx_l0_s", "5 mg");
+    await page.fill("#mrx_l0_q", "once daily");
+    await page.fill("#mrx_l0_n", "30");
+    await page.locator("#mrx_form").getByRole("button", { name: "Save the prescription" }).click();
+    await page.getByText("The prescription was saved with 1 medicine(s)").waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/dental`);
+    const top = page.locator('#safety [data-alert="anticoagulant_before_surgery"]');
+    await top.waitFor();
+    await top.getByText(/Because of: Warfarin/).waitFor();
+    await top.getByText(/Concerns: Simple extraction/).waitFor();
+    await top.getByText(/not yet clinically reviewed/).waitFor();
+    assert((await page.locator('#safety [data-alert="local_anesthetic_allergy"], #safety [data-alert="latex_allergy"], #safety [data-alert="pregnancy_imaging_drugs"]').count()) === 0, "no alert for what is not in the file");
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    const ext = page.locator("li.treat-item", { hasText: "Simple extraction" }).first();
+    await ext.locator('[data-alert="anticoagulant_before_surgery"]').waitFor();
+    assert((await page.locator("li.treat-item:not(:has-text('Simple extraction')) [data-alert]").count()) === 0, "only the extraction carries the alert");
+    const planId = (await page.locator("article.plan-card").first().getAttribute("id")).replace("plan-", "");
+    fs.writeFileSync(path.join(OUT, "treatment-plan-safety.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/treatment-plans/${planId}/pdf`, "plan"));
+    await page.screenshot({ path: path.join(OUT, "safety-alerts.png"), fullPage: true });
+  });
+
+  await step("consents: the patient signs on the screen (an undrawn signature is refused), versions supersede, withdrawing keeps it, the PDF carries the signature", async () => {
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    await page.locator("#new-consent summary").click();
+    const f = page.locator("form#nc_form");
+    const target = await f.locator("#nc_target option", { hasText: "Simple extraction" }).first().getAttribute("value");
+    await f.locator("#nc_target").selectOption(target);
+    await f.locator("#nc_kind").selectOption("surgery");
+    assert(/Simple extraction/.test(await f.locator("#nc_title").inputValue()), "the title names the treatment");
+    assert(/surgical procedure/.test(await f.locator("#nc_body").inputValue()), "the text comes from the template");
+    await f.locator("#nc_witness").fill("Nurse Huda");
+    await f.locator('input[name="agree"]').check();
+    await f.getByRole("button", { name: "Sign and save the consent" }).click();           // nothing drawn: the form does not submit
+    await page.waitForTimeout(400);
+    assert((await page.locator("#consents article.consent-card").count()) === 0, "an undrawn signature is refused");
+    await drawSignature(page, f);
+    await f.getByRole("button", { name: "Sign and save the consent" }).click();
+    const c1 = page.locator("#consents article.consent-card", { hasText: "Simple extraction" });
+    await c1.waitFor();
+    await c1.getByText("Version 1").waitFor();
+    await c1.locator(".chip", { hasText: "Signed" }).waitFor();
+    await c1.getByText(/Nurse Huda/).waitFor();
+    await page.waitForFunction(() => { const i = document.querySelector("#consents img.sig-img"); return i && i.complete && i.naturalWidth > 0; });
+    const consentId = await c1.getAttribute("data-consent");
+    fs.writeFileSync(path.join(OUT, "consent.pdf"), await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${consentId}/pdf`, "consent"));
+    const sig = await page.request.get(`${BASE}/api/patients/${pid}/consents/${consentId}/signature`);
+    assert(sig.status() === 200 && /image\/png/.test(sig.headers()["content-type"]), "the signature is served to the file's members");
+    await page.locator("[data-plan-consents]").first().getByText(/Simple extraction/).waitFor();     // next to the plan it covers
+
+    // a new version supersedes the old one
+    await c1.locator("summary", { hasText: "New version" }).click();
+    const nv = page.locator('form[id^="cv-"]');
+    await nv.locator('textarea[name="body"]').fill("Updated explanation: the extraction of tooth 38 and the alternatives were explained again.");
+    await nv.locator('input[name="agree"]').check();
+    await drawSignature(page, nv);
+    await nv.getByRole("button", { name: "Sign the new version" }).click();
+    await page.locator('#consents article.consent-card[data-status="superseded"]').waitFor();
+    const c2 = page.locator('#consents article.consent-card[data-status="signed"]', { hasText: "Simple extraction" });
+    await c2.getByText("Version 2").waitFor();
+    assert((await page.locator("#consents article.consent-card").count()) === 2, "the old version is kept");
+
+    // withdrawing keeps it, with the reason; it cannot be signed again
+    await c2.locator("summary", { hasText: /^Withdraw$/ }).click();
+    await c2.locator('input[name="reason"]').fill("I want a second opinion first");
+    page.once("dialog", (dl) => dl.accept());
+    await c2.getByRole("button", { name: "Withdraw", exact: true }).click();
+    const w = page.locator('#consents article.consent-card[data-status="withdrawn"]');
+    await w.waitFor();
+    await w.getByText(/I want a second opinion first/).waitFor();
+    assert((await w.locator("summary").count()) === 0, "a withdrawn consent offers no further action");
+    assert((await page.locator("#consents article.consent-card").count()) === 2, "still two: nothing was deleted");
+  });
+
+  await step("doctor through a link: writes a prescription as the doctor named, presents a consent the patient signs on the doctor's screen, sees the alert on the plan", async () => {
+    await page.goto(`${BASE}/patients/${pid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_contribute"]');
+    await page.check('input[name="allow_print"]');
+    await fillClinician(page, "Dr Rana Writer", { facility: "Rx Clinic", city: "Jeddah", license: "RX-1" });
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin = await page.locator('input[aria-label="PIN"]').inputValue();
+    const token = link.split("/s/")[1];
+
+    const cx = await newContext(browser); const d = await cx.newPage(); watch(d, "rx-doctor");
+    await d.goto(link); await d.fill("#pin", pin); await d.getByRole("button", { name: "Open file" }).click(); await d.waitForURL(/\/view$/);
+    await d.getByRole("button", { name: "I am Dr Rana Writer — start" }).click();
+    await d.getByText("Adding as").waitFor();
+    // the alert is in the doctor's view too: on the planned extraction
+    await d.locator('[data-alert="anticoagulant_before_surgery"]').first().waitFor();
+
+    // a prescription: the doctor does not type their name
+    await d.locator("#contrib-prescription summary").click();
+    assert((await d.locator("#cx-rx_by").count()) === 0, "the prescriber is not asked");
+    await d.locator("#contrib-prescription .rx-fixed").getByText("Dr Rana Writer").waitFor();
+    await d.fill("#cx-rx_l0_g", "Metronidazole");
+    await d.fill("#cx-rx_l0_s", "400 mg");
+    await d.fill("#cx-rx_l0_q", "three times a day");
+    await d.fill("#cx-rx_l0_n", "5");
+    await d.fill("#cx-rx_l0_c", "15 tablets");
+    await d.getByRole("button", { name: "Another medicine on the prescription" }).click();
+    await d.fill("#cx-rx_l1_g", "Chlorhexidine");
+    await d.fill("#cx-rx_l1_q", "twice a day");
+    await d.fill("#cx-rx_l1_n", "7");
+    await d.locator("#cx-rx_form").getByRole("button", { name: "Save the prescription" }).click();
+    await d.getByText("The prescription with 2 medicine(s) was saved under your name").waitFor();
+    const drx = d.locator("#sec-prescriptions article.rx-card", { hasText: "Dr Rana Writer" });
+    await drx.waitFor();
+    await drx.locator(".chip", { hasText: "Yours" }).waitFor();
+    const rid = await drx.getAttribute("data-rx");
+    await pdfOk(d.request, `${BASE}/s/${token}/rx/${rid}/pdf`, "shared prescription");
+
+    // a consent: the patient signs on the doctor's screen
+    await d.locator("#contrib-consent summary").click();
+    const cf = d.locator("form#cx-cn_form");
+    const tgt = await cf.locator("#cx-cn_target option", { hasText: "Simple extraction" }).first().getAttribute("value");
+    await cf.locator("#cx-cn_target").selectOption(tgt);
+    await cf.locator("#cx-cn_kind").selectOption("surgery");
+    await cf.getByText(/Presented by Dr Rana Writer/).waitFor();
+    await cf.locator('input[name="agree"]').check();
+    await drawSignature(d, cf);
+    await cf.getByRole("button", { name: "Sign and save the consent" }).click();
+    await d.getByText("The consent was saved with the patient's signature").waitFor();
+    const dc = d.locator('#sec-consents article.consent-card[data-status="signed"]', { hasText: "Simple extraction" });
+    await dc.waitFor();
+    await dc.locator(".chip", { hasText: "Yours" }).waitFor();
+    assert((await d.locator("#sec-consents img.sig-img").count()) === 0, "the doctor does not get the signature image");
+    await d.locator("#sec-consents article.consent-card[data-status='withdrawn']").first().waitFor();     // the patient's earlier, withdrawn consent is visible as withdrawn
+    await d.screenshot({ path: path.join(OUT, "doctor-rx-consent.png"), fullPage: true });
+    await cx.close();
+
+    // the patient's side: the prescription and the consent carry the doctor's name; the signature is the patient's, in their file
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    const prx = page.locator("#prescriptions article.rx-card", { hasText: "Dr Rana Writer" });
+    await prx.getByText(/Written by Dr Rana Writer via a link/).waitFor();
+    await prx.getByText(/licence RX-1/).waitFor();
+    assert((await prx.locator("summary", { hasText: "Entered in error" }).count()) === 0, "a doctor's prescription is not marked 'entered in error' by the patient");
+    await prx.locator("summary", { hasText: "Cancel the prescription" }).click();
+    await prx.locator('input[name="reason"]').fill("the course was changed");
+    page.once("dialog", (dl) => dl.accept());
+    await prx.getByRole("button", { name: "Cancel it" }).click();
+    await page.locator("#prescriptions article.rx-card", { hasText: "Dr Rana Writer" }).locator(".chip", { hasText: "Cancelled" }).waitFor();
+    await page.goto(`${BASE}/patients/${pid}/dental?tab=treatment`);
+    const pc = page.locator('#consents article.consent-card[data-status="signed"]', { hasText: "Presented by Dr Rana Writer via a link" });
+    await pc.waitFor();
+    await page.waitForFunction(() => [...document.querySelectorAll("#consents img.sig-img")].every((i) => i.complete && i.naturalWidth > 0));
+    await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${await pc.getAttribute("data-consent")}/pdf`, "presented consent");
+  });
+
+  await step("safety rules: an administrator reviews, edits and deactivates a rule; the review is recorded and cleared by an edit; others cannot open the page", async () => {
+    const actx = await newContext(browser); const adm = await actx.newPage(); watch(adm, "rules-admin");
+    const who = `Rules Admin ${stamp}`;
+    await signup(adm, `rules-admin-${stamp}@example.test`, who);
+    const denied = await adm.goto(`${BASE}/admin/safety-rules`);
+    assert(denied.status() === 404, "not an administrator yet: " + denied.status());
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const up = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?full_name=eq.${encodeURIComponent(who)}`, {
+      method: "PATCH", headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ role: "admin" }),
+    });
+    assert(up.ok, "promoting the test account: " + up.status);
+    await adm.goto(`${BASE}/admin/safety-rules`);
+    await adm.getByRole("heading", { name: "Safety alert rules" }).waitFor();
+    assert((await adm.locator("details.fold[id^='r-']").count()) >= 12, "the seeded rules are listed");
+    assert((await adm.getByText("Not reviewed").count()) >= 12, "none is reviewed yet");
+    const rule = adm.locator("details#r-latex_allergy");
+    await rule.locator("summary").click();
+    await rule.getByRole("button", { name: "Record that I reviewed it" }).click();
+    await adm.locator("details#r-latex_allergy summary .chip", { hasText: "Reviewed" }).waitFor();
+    await adm.locator("details#r-latex_allergy").getByText(new RegExp(`Reviewed by ${who}`)).waitFor();
+    // editing what it says clears the review and raises the version
+    const r2 = adm.locator("details#r-latex_allergy");
+    const v0 = Number(/ v(\d+)/.exec(await adm.locator("details#r-latex_allergy summary").innerText())?.[1] ?? "1");
+    await r2.locator('textarea[name="message_en"]').fill(`A latex allergy is recorded: use latex-free gloves, rubber dams and materials (${stamp}).`);
+    await r2.getByRole("button", { name: "Save the rule" }).click();
+    await adm.locator("details#r-latex_allergy summary .chip", { hasText: "Not reviewed" }).waitFor();
+    await adm.locator("details#r-latex_allergy summary").getByText(`v${v0 + 1}`, { exact: false }).waitFor();
+    // a rule needs something in the file to match
+    await r2.locator('textarea[name="allergies"]').fill("");
+    await r2.getByRole("button", { name: "Save the rule" }).click();
+    await adm.getByText(/Choose what in the file raises the rule/).waitFor();
+    await actx.close();
+  });
+
   await step("another user cannot see or reach Alice's file, documents or exports", async () => {
     await signup(bob, `bob-${stamp}@example.test`, "Bob Beta");
     await bob.getByText("No files yet").waitFor();
@@ -1908,12 +2178,14 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
     await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
     const mp = await m.newPage(); watch(mp, "mobile");
-    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/sharing/new", "/documents", "/timeline"]) {
+    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/dental?tab=treatment", "/dental?tab=care", "/medications", "/sharing/new", "/documents", "/timeline"]) {
       const r = await mp.goto(`${BASE}/patients/${pid}${p}`);
       assert(r.status() === 200, `${p} => ${r.status()}`);
       assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
       const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      assert(over <= 1, `horizontal overflow of ${over}px on ${p || "/"}`);
+      const culprits = over > 1 ? await mp.evaluate(() => [...document.querySelectorAll("body *")].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > document.documentElement.clientWidth + 1 || r.left < -1); })
+        .slice(0, 4).map((el) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className).split(" ")[0]}`)) : [];
+      assert(over <= 1, `horizontal overflow of ${over}px on ${p || "/"} (${culprits.join(", ")})`);
       if (p === "") await mp.screenshot({ path: path.join(OUT, "mobile-dashboard-ar.png"), fullPage: true });
       if (p === "/vitals") await mp.screenshot({ path: path.join(OUT, "mobile-vitals-ar.png"), fullPage: true });
       if (p === "/dental") await mp.screenshot({ path: path.join(OUT, "mobile-dental-ar.png"), fullPage: true });

@@ -30,6 +30,8 @@ const UPLOAD_ERR: Record<string, [string, string]> = {
 
 // filled in from the clinician's identity, not asked again
 const AUTO_NAMES = ["practitioner_name", "author_name", "ordered_by", "prescriber_name", "operator_name"];
+// prescription details are written with the prescription form, not with the single-medicine form
+const RX_ONLY = ["quantity", "duration_days", "refills"];
 const DEFAULTS: Record<string, Record<string, string>> = { medications: { origin: "prescribed" }, test_orders: { status: "requested" }, encounters: { kind: "clinic" } };
 
 /** May this clinician add to `table` now (identified, and the patient allowed that kind of record)? */
@@ -107,7 +109,7 @@ export function ContribForm({ token, st, table, formId, fixed = {}, external = [
   const tz = getTz();
   const def = ENTITIES[CONTRIB_ENTITY[table]];
   if (!def || !st.contributor) return null;
-  const fields = def.fields.filter((f) => f.kind !== "specialty" && f.kind !== "imaging_order" && !(f.only === "dental" && !st.covers_dentistry) && !AUTO_NAMES.includes(f.name)
+  const fields = def.fields.filter((f) => f.kind !== "specialty" && f.kind !== "imaging_order" && !(f.only === "dental" && !st.covers_dentistry) && !AUTO_NAMES.includes(f.name) && !RX_ONLY.includes(f.name)
     && !(f.name in fixed) && !external.includes(f.name) && (!pick || pick.includes(f.name)));
   const encounters = st.encounters ?? [];
   const linkable = table !== "encounters" && encounters.length > 0;

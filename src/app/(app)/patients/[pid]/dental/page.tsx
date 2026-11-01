@@ -33,6 +33,17 @@ import { OPEN_ITEM, OPEN_PLAN, type TreatmentCost, type TreatmentItem, type Trea
 import { pendingFollowUps, type Recall } from "@/lib/followups";
 import { PendingList, RecallList } from "@/components/dental/FollowUps";
 import { RECALL_KIND } from "@/lib/labels";
+import { Prescriptions } from "@/components/rx/Prescriptions";
+import { RxForm } from "@/components/rx/RxForm";
+import { ConsentList } from "@/components/rx/Consents";
+import { ConsentForm, type ConsentTarget } from "@/components/rx/ConsentForm";
+import { SafetyAlerts, SafetyList } from "@/components/SafetyAlerts";
+import { activeDrugNames, groupPrescriptions } from "@/lib/prescription";
+import { consentsForPlan, type ConsentRow } from "@/lib/consent";
+import { alertsByItem, evaluateSafety } from "@/lib/safety-rules";
+import { getSafetyFacts, getSafetyRules } from "@/lib/safety-server";
+import { createPrescription, invalidatePrescription, setPrescriptionStatus } from "@/app/actions/prescriptions";
+import { signConsent, withdrawConsent } from "@/app/actions/consents";
 
 type Profile = Record<string, string | boolean | null>;
 
@@ -64,6 +75,29 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   ]);
   const plans: TreatmentPlan[] = ((planRows ?? []) as TreatmentPlan[]).map((pl) => ({ ...pl, items: ((itemRows ?? []) as (TreatmentItem & { plan_id: string })[]).filter((i) => i.plan_id === pl.id) }));
   const costs = (costRows ?? []) as TreatmentCost[];
+  // prescriptions (with their medicines) and consents of the dental file, and the safety alerts the reviewable rules raise
+  const [{ data: rxRows }, { data: consentRows }, safetyRules, safetyFacts] = await Promise.all([
+    supabase.from("prescriptions").select("*").eq("patient_id", p.id).eq("record_status", "active").eq("specialty_id", dent?.id ?? "").order("issued_on", { ascending: false }).order("recorded_at", { ascending: false }),
+    supabase.from("consents").select("*").eq("patient_id", p.id).eq("record_status", "active").order("signed_at", { ascending: false }),
+    getSafetyRules(), getSafetyFacts(p.id),
+  ]);
+  const { data: rxMedRows } = (rxRows ?? []).length
+    ? await supabase.from("medications").select("*").eq("patient_id", p.id).eq("record_status", "active").in("prescription_id", (rxRows ?? []).map((r) => r.id as string))
+    : { data: [] as Record<string, unknown>[] };
+  const prescriptions = groupPrescriptions((rxRows ?? []) as Record<string, unknown>[], (rxMedRows ?? []) as Record<string, unknown>[]);
+  const consents = ((consentRows ?? []) as (ConsentRow & { specialty_id: string | null })[]).filter((c) => c.treatment_plan_id || c.treatment_item_id || c.specialty_id === dent?.id);
+  const catalogCategory = new Map(catalog.map((c) => [c.code, c.category]));
+  const safety = evaluateSafety(safetyRules, {
+    context: ctx, labs: safetyFacts.labs, history: safetyFacts.history, drugs: activeDrugNames(prescriptions),
+    items: plans.filter((pl) => OPEN_PLAN.has(pl.status)).flatMap((pl) => pl.items.filter((i) => OPEN_ITEM.has(i.status))
+      .map((i) => ({ id: i.id, name: i.name, catalog_code: i.catalog_code, category: catalogCategory.get(i.catalog_code ?? "") ?? null, teeth: i.teeth, plan: pl.title }))),
+  });
+  const safetyByItem = alertsByItem(safety);
+  const consentTargets: ConsentTarget[] = plans.filter((pl) => OPEN_PLAN.has(pl.status)).flatMap((pl) => [
+    { id: `plan:${pl.id}`, kind: "plan" as const, label: pl.title, plan_id: pl.id },
+    ...pl.items.filter((i) => OPEN_ITEM.has(i.status)).map((i) => ({ id: `item:${i.id}`, kind: "item" as const, plan_id: pl.id,
+      label: `${i.name}${i.teeth?.length ? ` (${i.teeth.join(", ")})` : ""}` })),
+  ]);
   const openPlans = plans.filter((pl) => OPEN_PLAN.has(pl.status));
   const planned = openPlans.flatMap((pl) => pl.items.filter((i) => OPEN_ITEM.has(i.status) && i.teeth?.length)
     .map((i) => ({ id: i.id, name: i.name, status: i.status, plan: pl.title, plan_id: pl.id, teeth: i.teeth })));
@@ -137,6 +171,7 @@ export default async function DentalPage({ params, searchParams }: { params: { p
       />
 
       <ClinicalContext ctx={ctx} lang={lang} tz={tz} codes={["dentistry"]} coreHref={`/patients/${p.id}/profile`} />
+      <SafetyAlerts alerts={safety} lang={lang} />
 
 
       {tab === "chart" && (<>
@@ -295,7 +330,43 @@ export default async function DentalPage({ params, searchParams }: { params: { p
         <Card id="treatment" title={t("العلاج وخطط العلاج", "Treatment & treatment plans")}>
           <p className="small muted" style={{ marginBlockStart: 0 }}>{t("لكل علاج دورة: مقترح ← موافَق عليه ← مجدول ← منجز. لا يُسجَّل علاج منجزاً قبل الموافقة عليه، والجراحي يحتاج تأكيداً صريحاً. عند الإنجاز يُضاف الإجراء إلى الملف ويُحدَّث المخطط وتُغلق المشكلة التي عالجها.",
             "Each treatment moves: proposed → accepted → scheduled → completed. Nothing is completed before it was accepted, and a surgical one needs an explicit confirmation. Completing it adds the procedure, updates the chart and closes the problem it treated.")}</p>
-          <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors} />
+          <TreatmentPlans plans={plans} costs={costs} catalog={catalog} problems={openProblems} actions={txActions} lang={lang} today={today} contributors={contributors}
+            safety={safetyByItem} extras={(pl) => {
+              const own = consentsForPlan(consents, pl.id);
+              return (
+                <p className="small plan-consents" data-plan-consents={pl.id}>
+                  <strong>{t("الموافقات", "Consents")}:</strong>{" "}
+                  {own.length === 0 ? <span className="muted">{t("لا موافقة موقّعة لهذه الخطة بعد.", "No signed consent for this plan yet.")}</span>
+                    : own.map((c) => <a key={c.id} href="#consents" className={`chip ${c.status === "signed" ? "ok" : c.status === "withdrawn" ? "bad" : "muted"}`}>{c.title} · {t(`النسخة ${c.version}`, `v${c.version}`)} · {c.status === "signed" ? t("موقّعة", "signed") : c.status === "withdrawn" ? t("مسحوبة", "withdrawn") : t("مستبدلة", "superseded")}</a>)}
+                </p>
+              );
+            }} />
+        </Card>
+      )}
+
+      {tab === "treatment" && (
+        <Card id="consents" title={t("الموافقات الموقّعة", "Signed consents")}>
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("يوقّع المريض أو وليّه بإصبعه أو بالفأرة، ويُحفظ نص الموافقة كما وُقّع. لا تُعدَّل ولا تُحذف: تُسحب بسبب، أو تُستبدل بنسخة جديدة.",
+            "The patient or guardian signs with a finger or mouse, and the text is kept as signed. A consent is never edited or deleted: it is withdrawn with a reason, or replaced by a new version.")}</p>
+          <ConsentList consents={consents as ConsentRow[]} lang={lang} tz={tz} contributors={contributors}
+            actions={{
+              hidden: { _pid: p.id }, withdraw: access.canWrite ? withdrawConsent : undefined,
+              signatureHref: (c) => `/api/patients/${p.id}/consents/${c.id}/signature`, pdfHref: (c) => `/api/patients/${p.id}/consents/${c.id}/pdf`,
+              newVersion: access.canWrite ? (c) => (
+                <ConsentForm action={signConsent} hidden={{ _pid: p.id, ...(dent ? { specialty_id: dent.id } : {}) }} lang={lang} idPrefix={`cv-${c.id.slice(0, 8)}`} targets={consentTargets}
+                  signerName={c.signer_name} submitLabel={t("توقيع النسخة الجديدة", "Sign the new version")}
+                  supersede={{ id: c.id, kind: c.kind, title: c.title, body: (c as ConsentRow & { body: string }).body, target: c.treatment_item_id ? `item:${c.treatment_item_id}` : c.treatment_plan_id ? `plan:${c.treatment_plan_id}` : null }} />
+              ) : undefined,
+            }} />
+          {access.canWrite && (
+            <details className="fold" id="new-consent">
+              <summary>{t("موافقة جديدة بالتوقيع", "A new consent to sign")}</summary>
+              <div className="fold-body">
+                <ConsentForm action={signConsent} hidden={{ _pid: p.id, ...(dent ? { specialty_id: dent.id } : {}) }} lang={lang} idPrefix="nc" targets={consentTargets}
+                  signerName={p.full_name} submitLabel={t("توقيع وحفظ الموافقة", "Sign and save the consent")} />
+              </div>
+            </details>
+          )}
         </Card>
       )}
 
@@ -334,6 +405,21 @@ export default async function DentalPage({ params, searchParams }: { params: { p
       })())}
 
       {tab === "care" && (<>
+        <Card id="prescriptions" title={t("الوصفات الطبية", "Prescriptions")}>
+          <p className="small muted" style={{ marginBlockStart: 0 }}>{t("الوصفة تجمع عدة أدوية بجرعتها ومدتها وكميتها؛ تُضاف الأدوية إلى الملف دفعة واحدة وتنتهي بنهاية مدتها، ويمكن طباعة الوصفة.",
+            "A prescription groups several medicines with their dose, duration and quantity; the medicines are added to the file in one step and end when their duration does, and the prescription can be printed.")}</p>
+          <Prescriptions rxs={prescriptions} lang={lang} tz={tz} alerts={safety}
+            contributors={contributors} actions={{ hidden: { _pid: p.id }, ...(access.canWrite ? { status: setPrescriptionStatus, invalidate: invalidatePrescription } : {}),
+              pdfHref: (rx) => `/api/patients/${p.id}/prescriptions/${rx.id}/pdf` }} />
+          {access.canWrite && (
+            <details className="fold" id="new-rx">
+              <summary>{t("وصفة جديدة", "A new prescription")}</summary>
+              <div className="fold-body">
+                <RxForm action={createPrescription} hidden={{ _pid: p.id, ...(dent ? { specialty_id: dent.id } : {}) }} lang={lang} today={today} idPrefix="nrx" submitLabel={t("حفظ الوصفة", "Save the prescription")} />
+              </div>
+            </details>
+          )}
+        </Card>
         <EntitySection entity={ENTITIES.visits} pid={p.id} returnPath={base} title={t("زيارات الأسنان", "Dental visits")} compact
           filter={dent ? { specialty_id: dent.id } : {}} defaults={{ kind: "dental" }} context={{ fixed: dent ? { specialty_id: dent.id } : {}, dental: true }} addLabel={t("إضافة زيارة أسنان", "Add a dental visit")} />
         <EntitySection entity={ENTITIES.procedures} pid={p.id} returnPath={base} title={t("إجراءات الأسنان", "Dental procedures")} compact

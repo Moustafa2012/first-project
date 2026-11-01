@@ -15,6 +15,8 @@ import { bodyMetrics, contextPackYears, matchHighlights, type ClinicalContextDat
 import { ALCOHOL_STATUS, DEVICE_KIND, PREGNANCY_STATUS, TOBACCO_STATUS, TOBACCO_TYPE } from "@/lib/labels";
 import { calOf, comparePerio, siteName, summarize, toothHasData, type PerioExam, type PerioTooth } from "@/lib/perio";
 import { DX_EXTENTS, DX_KINDS, dxIsSet, dxLine } from "@/lib/perio-staging";
+import { safetyBlocks } from "@/lib/pdf/rx-reports";
+import type { SafetyAlert } from "@/lib/safety-rules";
 import { ITEM_STATUS, PLAN_STATUS, byPhase, costTotals, fmtMoney, planProgress, type TreatmentCost, type TreatmentPlan } from "@/lib/treatment";
 
 type Lang = "ar" | "en";
@@ -340,6 +342,8 @@ export function buildShareReport(b: Bundle, o: { lang: Lang; tz: string; ctx?: (
 // ------------------------------------------------------------------------------------------------ a treatment plan, with consent
 export function buildTreatmentPlanReport(p: PatientRow, plan: TreatmentPlan, o: {
   lang: Lang; tz: string; ctx?: ClinicalContextData; problems: { id: string; name: string }[]; costs?: TreatmentCost[] | null;
+  /** safety alerts for this plan (reviewable rules matched against the file and the plan's treatments) */
+  alerts?: SafetyAlert[];
 }): { meta: ReportMeta; blocks: Block[]; filename: string } {
   const { lang, tz } = o;
   const t = tx(lang);
@@ -349,6 +353,7 @@ export function buildTreatmentPlanReport(p: PatientRow, plan: TreatmentPlan, o: 
     blocks.push({ t: "h", text: t("معلومات السلامة قبل العلاج", "Safety information before treatment") });
     blocks.push(...contextBlocks(o.ctx, lang, ["dentistry"]));
   }
+  if (o.alerts?.length) blocks.push(...safetyBlocks(o.alerts, lang));
   blocks.push({ t: "h", text: t("الخطة", "The plan") });
   blocks.push({ t: "kv", rows: ([
     [t("العنوان", "Title"), plan.title],

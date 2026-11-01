@@ -123,6 +123,8 @@ export const CONTRIB_MODULES: Opt[] = [
   o("medical_documents", "رفع مستند أو صورة", "Upload a document or image"),
   o("dental_exams", "فحص أسنان على المخطط (طب الأسنان فقط)", "Dental exam on the chart (dentistry only)"),
   o("treatment_plans", "خطة علاج أسنان: اقتراح العلاج وتسجيل إنجازه (طب الأسنان فقط)", "Dental treatment plan: propose treatment and record it done (dentistry only)"),
+  o("prescriptions", "وصفة طبية مفصلة (عدة أدوية بالجرعة والمدة والكمية)", "Detailed prescription (several medicines with dose, duration and quantity)"),
+  o("consents", "تقديم موافقة يوقّعها المريض على شاشتك (علاج، جراحة، تخدير، أشعة…)", "Present a consent that the patient signs on your screen (treatment, surgery, anaesthesia, imaging…)"),
 ];
 /** the entity definition (src/lib/entities.ts) that describes each contributable table's fields */
 export const CONTRIB_ENTITY: Record<string, string> = {

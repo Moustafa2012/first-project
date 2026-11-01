@@ -76,7 +76,8 @@ export function globalNav(admin: boolean, t: (a: string, e: string) => string): 
     ],
     footer: [
       ...(admin ? [{ key: "admin", label: t("الإدارة", "Admin"), icon: "admin", href: "/admin/specialties", match: ["/admin"],
-        menu: { title: t("الإدارة", "Admin"), groups: [{ items: [{ href: "/admin/specialties", label: t("الأقسام الطبية", "Specialties"), icon: "specialties" }] }] } }] : []),
+        menu: { title: t("الإدارة", "Admin"), groups: [{ items: [{ href: "/admin/specialties", label: t("الأقسام الطبية", "Specialties"), icon: "specialties" },
+          { href: "/admin/safety-rules", label: t("قواعد تنبيهات السلامة", "Safety alert rules"), icon: "audit" }] }] } }] : []),
       { key: "account", label: t("حسابي", "My account"), icon: "account", href: "/account", match: ["/account"] },
     ],
   };

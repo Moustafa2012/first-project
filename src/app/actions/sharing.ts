@@ -92,8 +92,13 @@ export async function invalidateContributions(_: FormState, fd: FormData): Promi
   const pid = String(fd.get("_pid") ?? ""), id = String(fd.get("_id") ?? ""), reason = String(fd.get("reason") ?? "").trim();
   if (!UUID_RE.test(pid) || !UUID_RE.test(id)) return { error: t("طلب غير صالح.", "Invalid request.") };
   if (reason.length < 3) return { error: t("اكتب السبب.", "Enter a reason.") };
-  const { data, error } = await createClient().rpc("share_invalidate_contributions", { p_contributor: id, p_reason: reason.slice(0, 500) });
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("share_invalidate_contributions", { p_contributor: id, p_reason: reason.slice(0, 500) });
   if (error) return { error: explainError(error, t) };
+  // the prescriptions this doctor wrote (their medicines were covered above)
+  const rx = await supabase.rpc("share_invalidate_prescriptions", { p_contributor: id, p_reason: reason.slice(0, 500) });
+  if (rx.error) return { error: explainError(rx.error, t) };
+  const total = Number(data ?? 0) + Number(rx.data ?? 0);
   revalidatePath(`/patients/${pid}`, "layout");
-  return { ok: true, message: t(`أُبطل ${data} سجلاً وبقيت في التاريخ.`, `${data} record(s) invalidated and kept in the history.`) };
+  return { ok: true, message: t(`أُبطل ${total} سجلاً وبقيت في التاريخ.`, `${total} record(s) invalidated and kept in the history.`) };
 }

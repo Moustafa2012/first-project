@@ -7,6 +7,9 @@ import { i18n } from "@/lib/i18n";
 import { siteUrl } from "@/lib/env";
 import type { FormState } from "@/components/ui/client";
 import { isLocalPath } from "@/lib/safe-path";
+import { authErrorMessage } from "@/lib/auth-errors";
+import { passwordProblem } from "@/lib/password-rules";
+import { afterSignIn } from "@/lib/after-sign-in";
 
 function safeNext(v: FormDataEntryValue | null): string {
   const s = typeof v === "string" ? v : "";
@@ -18,8 +21,12 @@ export async function login(_: FormState, fd: FormData): Promise<FormState> {
   const email = String(fd.get("email") ?? "").trim();
   const password = String(fd.get("password") ?? "");
   if (!email || !password) return { error: t("أدخل البريد وكلمة المرور.", "Enter your email and password.") };
-  const { error } = await createClient().auth.signInWithPassword({ email, password });
-  if (error) return { error: t("البريد أو كلمة المرور غير صحيحة.", "Incorrect email or password.") };
+  const supabase = createClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return { error: authErrorMessage(error, t, "login") };
+  const after = await afterSignIn(supabase);
+  if (after === "purged") return { error: t("حُذف هذا الحساب نهائياً ولا يمكن استعادته.", "This account was permanently deleted and cannot be restored.") };
+  if (after === "restored") return { ok: true, redirectTo: "/account?restored=1" };
   return { ok: true, redirectTo: safeNext(fd.get("next")) };
 }
 
@@ -30,7 +37,8 @@ export async function signup(_: FormState, fd: FormData): Promise<FormState> {
   const name = String(fd.get("full_name") ?? "").trim();
   if (name.length < 2) return { error: t("أدخل اسمك.", "Enter your name.") };
   if (!/^\S+@\S+\.\S+$/.test(email)) return { error: t("بريد إلكتروني غير صالح.", "Invalid email address.") };
-  if (password.length < 10) return { error: t("كلمة المرور يجب ألا تقل عن 10 أحرف.", "Password must be at least 10 characters.") };
+  const weak = passwordProblem(password, t);
+  if (weak) return { error: weak };
   const supabase = createClient();
   const { data, error } = await supabase.auth.signUp({
     email, password,
@@ -38,18 +46,15 @@ export async function signup(_: FormState, fd: FormData): Promise<FormState> {
   });
   if (error) {
     const code = (error as { code?: string }).code;
-    if (error.status === 429 || code === "over_email_send_rate_limit") {
-      return { error: t("تجاوز الخادم حد رسائل التأكيد المسموح بها. حاول بعد ساعة، أو اطلب من المسؤول ضبط خدمة بريد (SMTP) للمشروع.", "The confirmation-email limit was reached. Try again in an hour, or ask the administrator to configure SMTP for the project.") };
+    if (!code || !["over_request_rate_limit", "over_email_send_rate_limit", "user_already_exists", "email_exists", "weak_password", "email_address_invalid", "validation_failed", "signup_disabled"].includes(code)) {
+      console.error("[signup-error]", code ?? "-", error.status ?? "-", error.message.slice(0, 200));
     }
-    if (code === "user_already_exists") return { error: t("هذا البريد مسجل مسبقاً. سجّل الدخول.", "This email is already registered. Sign in instead.") };
-    if (code === "weak_password") return { error: t("كلمة المرور ضعيفة. اختر كلمة أطول وأقوى.", "The password is too weak. Choose a longer, stronger one.") };
-    if (code === "email_address_invalid" || code === "validation_failed") return { error: t("عنوان البريد غير مقبول.", "The email address was not accepted.") };
-    console.error("[signup-error]", code ?? "-", error.status ?? "-", error.message.slice(0, 200));
-    return { error: t("تعذر إنشاء الحساب. حاول لاحقاً.", "Could not create the account. Please try again later.") };
+    return { error: authErrorMessage(error, t, "signup") };
   }
   if (!data.session) {
     return { ok: true, message: t("أرسلنا رسالة تأكيد إلى بريدك. افتحها ثم سجّل الدخول.", "We sent a confirmation email. Open it, then sign in.") };
   }
+  await supabase.rpc("account_record_event", { p_kind: "sign_in", p_user_agent: (headers().get("user-agent") ?? "").slice(0, 300) });
   return { ok: true, redirectTo: "/patients" };
 }
 
@@ -66,10 +71,15 @@ export async function requestReset(_: FormState, fd: FormData): Promise<FormStat
 export async function updatePassword(_: FormState, fd: FormData): Promise<FormState> {
   const { t } = i18n();
   const password = String(fd.get("password") ?? "");
-  if (password.length < 10) return { error: t("كلمة المرور يجب ألا تقل عن 10 أحرف.", "Password must be at least 10 characters.") };
-  const { error } = await createClient().auth.updateUser({ password });
-  if (error) return { error: t("تعذر تحديث كلمة المرور.", "Could not update the password.") };
-  return { ok: true, message: t("تم تحديث كلمة المرور.", "Password updated.") };
+  const weak = passwordProblem(password, t);
+  if (weak) return { error: weak };
+  const supabase = createClient();
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: authErrorMessage(error, t, "password") };
+  // a changed password ends every other sign-in: whoever had the old one is out
+  await supabase.auth.signOut({ scope: "others" });
+  await supabase.rpc("account_record_event", { p_kind: "password_changed", p_user_agent: (headers().get("user-agent") ?? "").slice(0, 300) });
+  return { ok: true, message: t("تم تحديث كلمة المرور وأُنهيت الجلسات الأخرى.", "Password updated. Your other sessions were signed out.") };
 }
 
 export async function logout() {

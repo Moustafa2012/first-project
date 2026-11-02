@@ -12,7 +12,9 @@ export async function updateSession(request: NextRequest) {
   if (!isConfigured()) return response;
 
   const { url, key } = publicEnv();
+  const ua = request.headers.get("user-agent");
   const supabase = createServerClient(url, key, {
+    global: ua ? { headers: { "User-Agent": ua.slice(0, 400) } } : undefined,
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (list) => {

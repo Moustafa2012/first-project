@@ -2435,6 +2435,242 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("header.patient-head, header.card").first().waitFor();
   });
 
+  // ---------------------------------------------------------------- account: sessions, activity, deletion (migration 0032)
+  // Every scenario creates its own throw-away accounts; nothing of the accounts above is touched.
+  const PW = "correct-horse-battery";
+  const pgq = async (text, params = []) => {
+    const { Client } = require("pg");
+    const c = new Client({ host: process.env.SHIM_PGHOST, port: Number(process.env.SHIM_PGPORT), user: "postgres", database: "app" });
+    await c.connect();
+    try { return await c.query(text, params); } finally { await c.end(); }
+  };
+  const uidOf = async (email) => (await pgq("select id from auth.users where email = $1", [email])).rows[0]?.id;
+  const throwaway = async (tag, name, extra = {}) => {
+    const email = `${tag}-${stamp}@example.test`;
+    const tctx = await newContext(browser, extra); const tpage = await tctx.newPage(); watch(tpage, tag);
+    await signup(tpage, email, name);
+    return { email, ctx: tctx, page: tpage };
+  };
+  const signIn = async (p, email, pw = PW) => {
+    await p.goto(`${BASE}/login`); await p.fill("#email", email); await p.fill("#password", pw);
+    await p.getByRole("button", { name: "Sign in", exact: true }).click();
+  };
+  const cron = (secret) => fetch(`${BASE}/api/cron/purge`, secret === undefined ? {} : { headers: { authorization: `Bearer ${secret}` } });
+  const fileFor = async (p, name) => {
+    await p.goto(`${BASE}/patients/new`);
+    await p.fill("#full_name", name); await p.fill("#date_of_birth", "1985-05-05"); await p.selectOption("#sex", "male");
+    await submit(p, "Create file");
+    await p.waitForURL(/\/patients\/[0-9a-f-]{36}\/profile\?new=1$/);
+    return p.url().split("/")[4];
+  };
+  let sess = null;
+
+  await step("sessions: a second browser signs in, both are listed with this one marked, ending the other signs it out; sign out all others; a new password signs the others out", async () => {
+    sess = await throwaway("sess", "Session Tester");
+    const phoneUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1";
+    const ctx2 = await newContext(browser, { userAgent: phoneUA }); const p2 = await ctx2.newPage(); watch(p2, "sess2");
+    await signIn(p2, sess.email); await p2.waitForURL(/\/patients$/);
+    const me = sess.page;
+    await me.goto(`${BASE}/account#sessions`);
+    const items = me.locator(".session-item");
+    await items.nth(1).waitFor();
+    assert((await items.count()) === 2, "two sessions are listed");
+    const mine = me.locator(".session-item[data-current='true']");
+    assert((await mine.count()) === 1 && /this device/i.test(await mine.innerText()) && /Chrome/.test(await mine.innerText()), "this device is marked and named");
+    const other = items.filter({ hasText: "Safari on iOS" });
+    assert((await other.count()) === 1 && (await other.getByRole("button").count()) === 1, "the phone is listed with its approximate device and a sign-out button");
+    assert((await mine.getByRole("button").count()) === 0, "the current session has no sign-out button");
+    await p2.goto(`${BASE}/account`); await p2.getByRole("heading", { name: "My account" }).waitFor();
+    await other.getByRole("button", { name: "Sign out the session on Safari on iOS" }).click();
+    await me.waitForFunction(() => document.querySelectorAll(".session-item").length === 1);
+    await p2.goto(`${BASE}/patients`); await p2.waitForURL(/\/login/);
+    // the activity log names the sign-ins and the change
+    await me.reload();
+    const act = me.locator(".activity-list");
+    assert((await act.getByText("Signed in", { exact: true }).count()) >= 2, "both sign-ins are in the activity");
+    assert((await act.getByText("A session was signed out").count()) === 1, "ending a session is in the activity");
+    assert((await act.getByText("Safari on iOS").count()) >= 1, "with the approximate device");
+    // two more devices, then "sign out all other sessions"
+    const ctx3 = await newContext(browser); const p3 = await ctx3.newPage(); watch(p3, "sess3");
+    await signIn(p2, sess.email); await p2.waitForURL(/\/patients$/);
+    await signIn(p3, sess.email); await p3.waitForURL(/\/patients$/);
+    await me.reload();
+    await me.waitForFunction(() => document.querySelectorAll(".session-item").length === 3);
+    me.once("dialog", (d) => d.accept());
+    await me.getByRole("button", { name: "Sign out all other sessions" }).click();
+    await me.waitForFunction(() => document.querySelectorAll(".session-item").length === 1);
+    await me.getByText("There are no other sessions.").waitFor();
+    for (const q of [p2, p3]) { await q.goto(`${BASE}/patients`); await q.waitForURL(/\/login/); }
+    // a new password ends the other sign-ins too
+    await signIn(p2, sess.email); await p2.waitForURL(/\/patients$/);
+    await me.goto(`${BASE}/account#password-card`);
+    await me.fill("#password", "another-long-passphrase");
+    await me.getByRole("button", { name: "Update", exact: true }).click();
+    await me.getByText("Password updated. Your other sessions were signed out.").waitFor();
+    await p2.goto(`${BASE}/patients`); await p2.waitForURL(/\/login/);
+    await me.goto(`${BASE}/account`); await me.getByRole("heading", { name: "My account" }).waitFor();
+    await signIn(p2, sess.email, PW); await p2.getByRole("alert").waitFor();
+    await signIn(p2, sess.email, "another-long-passphrase"); await p2.waitForURL(/\/patients$/);
+    await ctx2.close(); await ctx3.close();
+  });
+
+  await step("account page: Arabic RTL on a phone without horizontal scroll; every control has a name; each card is labelled by its heading", async () => {
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
+    await m.addCookies([...(await sess.ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); watch(mp, "mobile-account");
+    const r = await mp.goto(`${BASE}/account`);
+    assert(r.status() === 200 && (await mp.locator("html").getAttribute("dir")) === "rtl", "rtl account page");
+    await mp.getByRole("heading", { name: "الجلسات النشطة" }).waitFor();
+    await mp.getByRole("heading", { name: "حذف الحساب" }).waitFor();
+    await mp.getByText("هذا الجهاز").waitFor();
+    const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(over <= 1, `horizontal overflow of ${over}px on the account page`);
+    const bad = await mp.evaluate(() => {
+      const named = (el) => (el.labels && el.labels.length) || el.getAttribute("aria-label") || el.getAttribute("aria-labelledby") || (el.tagName === "BUTTON" && el.textContent.trim());
+      const controls = [...document.querySelectorAll("#main input:not([type=hidden]):not([aria-hidden=true]), #main select, #main textarea, #main button")].filter((el) => el.offsetParent !== null || el.type === "file");
+      const unnamed = controls.filter((el) => !named(el)).map((el) => `${el.tagName.toLowerCase()}#${el.id || el.name}`);
+      const cards = [...document.querySelectorAll("#main section.card[id]")].filter((s) => { const ref = s.getAttribute("aria-labelledby"); const h = ref && document.getElementById(ref); return !h || !h.textContent.trim(); }).map((s) => s.id);
+      return { unnamed, cards };
+    });
+    assert(bad.unnamed.length === 0, `controls without an accessible name: ${bad.unnamed.join(", ")}`);
+    assert(bad.cards.length === 0, `cards not labelled by their heading: ${bad.cards.join(", ")}`);
+    await mp.screenshot({ path: path.join(OUT, "mobile-account-ar.png"), fullPage: true });
+    await m.close();
+    await sess.ctx.close();
+  });
+
+  await step("sign-in: a wrong password gets one generic message; repeated attempts get a clear rate-limit message", async () => {
+    const rctx = await newContext(browser); const rp = await rctx.newPage(); watch(rp, "rate");
+    await rp.goto(`${BASE}/login`);
+    await rp.fill("#email", `ratelimit-${stamp}@example.test`);
+    for (let i = 0; i < 11; i++) {
+      await rp.fill("#password", `wrong-password-${i}`);
+      await Promise.all([
+        rp.waitForResponse((r) => r.request().method() === "POST" && r.url().startsWith(`${BASE}/login`)),
+        rp.getByRole("button", { name: "Sign in", exact: true }).click(),
+      ]);
+      if (i === 0) await rp.getByRole("alert").getByText("Incorrect email or password.").waitFor();
+    }
+    await rp.getByRole("alert").getByText(/Too many attempts/).waitFor();
+    await rctx.close();
+  });
+
+  await step("account deletion: typed e-mail + password, 30-day grace, cancel by signing in, delete again, purge through the cron route; another account is untouched", async () => {
+    const u = await throwaway("del", "Doomed User");
+    const p = u.page;
+    const fid = await fileFor(p, "Doomed File");
+    const uid = await uidOf(u.email);
+    await p.goto(`${BASE}/account#delete-account`);
+    await p.getByRole("list", { name: "Files that go with the account" }).getByText("Doomed File").waitFor();
+    await p.fill("#del-confirm", "someone-else@example.test"); await p.fill("#del-password", PW); await p.check('input[name="ack"]');
+    await submit(p, "Delete my account");
+    await p.getByText("does not match your account's email").waitFor();
+    await p.fill("#del-confirm", u.email); await p.fill("#del-password", "not-my-password");
+    await submit(p, "Delete my account");
+    await p.getByText("Incorrect password.").waitFor();
+    await p.fill("#del-confirm", u.email.toUpperCase()); await p.fill("#del-password", PW);
+    await submit(p, "Delete my account");
+    await p.waitForURL(/\/login\?deleted=1&on=\d{4}-\d{2}-\d{2}/);
+    await p.getByText("Your account is scheduled for deletion").waitFor();
+    const row = (await pgq("select scheduled_for > now() + interval '29 days' as ok, files from account_deletions where user_id = $1 and completed_at is null", [uid])).rows[0];
+    assert(row && row.ok && row.files.includes(fid), "scheduled 30 days ahead, with the file");
+    assert((await pgq("select deletion_requested_at is not null as d from patients where id = $1", [fid])).rows[0].d, "the file entered the file deletion");
+    await p.goto(`${BASE}/patients`); await p.waitForURL(/\/login/);
+    // the retention job refuses a missing or wrong secret and purges nothing inside the grace period
+    assert((await cron()).status === 401 && (await cron("wrong-secret-wrong-secret-0000")).status === 401, "the cron route refuses a missing or wrong secret");
+    let j = await (await cron(process.env.CRON_SECRET)).json();
+    assert(j.accounts && j.accounts.purged === 0 && j.accounts.failed === 0, "nothing purged inside the grace period: " + JSON.stringify(j));
+    assert((await pgq("select count(*)::int n from patients where id = $1", [fid])).rows[0].n === 1, "the file is still there");
+    // signing in again cancels
+    await signIn(p, u.email);
+    await p.waitForURL(/\/account\?restored=1/);
+    await p.getByText("Your account deletion was cancelled").waitFor();
+    assert((await pgq("select count(*)::int n from account_deletions where user_id = $1", [uid])).rows[0].n === 0, "the request is gone");
+    assert((await pgq("select deletion_requested_at is null as ok from patients where id = $1", [fid])).rows[0].ok, "the file is restored");
+    await p.goto(`${BASE}/account#activity`);
+    await p.locator(".activity-list").getByText("Account deletion requested").waitFor();
+    await p.locator(".activity-list").getByText("Account deletion cancelled (by signing in)").waitFor();
+    // delete again, let the grace period pass, purge
+    await p.goto(`${BASE}/account#delete-account`);
+    await p.fill("#del-confirm", u.email); await p.fill("#del-password", PW); await p.check('input[name="ack"]');
+    await submit(p, "Delete my account");
+    await p.waitForURL(/\/login\?deleted=1/);
+    await pgq("update account_deletions set requested_at = now() - interval '31 days', scheduled_for = now() - interval '1 day' where user_id = $1", [uid]);
+    await pgq("update patients set deletion_scheduled_for = now() - interval '1 day' where deletion_requested_by = $1", [uid]);
+    j = await (await cron(process.env.CRON_SECRET)).json();
+    assert(j.failed === 0 && j.purged >= 1 && j.accounts.failed === 0 && j.accounts.purged === 1, "the job purged the file and the account: " + JSON.stringify(j));
+    assert((await pgq("select count(*)::int n from patients where id = $1", [fid])).rows[0].n === 0, "the file is erased");
+    assert((await pgq("select count(*)::int n from auth.users where id = $1", [uid])).rows[0].n === 0 && (await pgq("select count(*)::int n from profiles where id = $1", [uid])).rows[0].n === 0, "the identity and profile are erased");
+    const tomb = (await pgq("select method, completed_at is not null as done from account_deletions where user_id = $1", [uid])).rows[0];
+    assert(tomb && tomb.method === "deleted" && tomb.done, "the tombstone records a complete deletion");
+    assert((await pgq("select count(*)::int n from patients where id = $1", [pid])).rows[0].n === 1, "another account's file is untouched");
+    await signIn(p, u.email); await p.getByRole("alert").getByText("Incorrect email or password.").waitFor();
+    await u.ctx.close();
+  });
+
+  await step("account deletion with shared files: the other members are listed (remove / transfer work); a caregiver's account is anonymised and the owner's file stays intact", async () => {
+    const owner = await throwaway("own", "Owner Two");
+    const x = await throwaway("cgx", "Caregiver Ex"), z = await throwaway("cgz", "Caregiver Zed"), v = await throwaway("cgv", "Caregiver Vee");
+    const f1 = await fileFor(owner.page, "Owner File One"), f2 = await fileFor(owner.page, "Owner File Two"), f3 = await fileFor(owner.page, "Owner File Three");
+    const ids = { x: await uidOf(x.email), z: await uidOf(z.email), v: await uidOf(v.email), o: await uidOf(owner.email) };
+    for (const [f, who] of [[f1, "x"], [f2, "z"], [f3, "v"]]) await pgq("insert into patient_members (patient_id, user_id, role, can_write, can_share) values ($1, $2, 'caregiver', true, false)", [f, ids[who]]);
+    // the caregiver records an allergy in the owner's file
+    await x.page.goto(`${BASE}/patients/${f1}/allergies`);
+    await openSummary(x.page, "Add allergy");
+    await x.page.fill("#allergies_new_substance", "Latex (by the caregiver)");
+    await x.page.selectOption("#allergies_new_severity", "mild"); await x.page.selectOption("#allergies_new_certainty", "confirmed");
+    await submit(x.page, "Save");
+    await x.page.getByText("Saved.").first().waitFor();
+    // the owner cannot delete: the shared files are listed with their members
+    const op = owner.page;
+    await op.goto(`${BASE}/account#delete-account`);
+    await op.getByText("Files shared with other people block the deletion").waitFor();
+    assert((await op.locator("#del-confirm").count()) === 0, "no deletion form while files are shared");
+    for (const [name, member] of [["Owner File One", "Caregiver Ex"], ["Owner File Two", "Caregiver Zed"], ["Owner File Three", "Caregiver Vee"]]) {
+      const sec = op.locator("section.member-file", { hasText: name });
+      await sec.getByText(member, { exact: true }).waitFor();
+      assert(/Caregiver/.test(await sec.innerText()), "the member's role is shown");
+    }
+    // remove one member, transfer another file
+    op.once("dialog", (d) => d.accept());
+    await op.locator("section.member-file", { hasText: "Owner File Three" }).getByRole("button", { name: "Remove Caregiver Vee from Owner File Three" }).click();
+    await op.locator("section.member-file", { hasText: "Owner File Three" }).waitFor({ state: "detached" });
+    assert((await pgq("select revoked_at is not null as r from patient_members where patient_id = $1 and user_id = $2", [f3, ids.v])).rows[0].r, "the removed member is revoked");
+    const gone = await v.page.goto(`${BASE}/patients/${f3}`);
+    assert(gone.status() === 404, "the removed member can no longer open the file");
+    op.once("dialog", (d) => d.accept());
+    await op.locator("section.member-file", { hasText: "Owner File Two" }).getByRole("button", { name: "Make Caregiver Zed the owner of Owner File Two" }).click();
+    await op.locator("section.member-file", { hasText: "Owner File Two" }).waitFor({ state: "detached" });
+    const roles = (await pgq("select user_id, role from patient_members where patient_id = $1", [f2])).rows;
+    assert(roles.find((r) => r.user_id === ids.z)?.role === "owner" && roles.find((r) => r.user_id === ids.o)?.role === "guardian", "ownership moved to the member");
+    await op.locator("section.member-file", { hasText: "Owner File One" }).getByText("Caregiver Ex", { exact: true }).waitFor();
+
+    // the caregiver deletes his account (he owns no file); the grace period passes
+    const xp = x.page;
+    await xp.goto(`${BASE}/account#delete-account`);
+    await xp.fill("#del-confirm", x.email); await xp.fill("#del-password", PW); await xp.check('input[name="ack"]');
+    await submit(xp, "Delete my account");
+    await xp.waitForURL(/\/login\?deleted=1/);
+    await pgq("update account_deletions set requested_at = now() - interval '31 days', scheduled_for = now() - interval '1 day' where user_id = $1", [ids.x]);
+    const j = await (await cron(process.env.CRON_SECRET)).json();
+    assert(j.failed === 0 && j.accounts.failed === 0 && j.accounts.purged === 1, "the job purged the account: " + JSON.stringify(j));
+    const tomb = (await pgq("select method from account_deletions where user_id = $1", [ids.x])).rows[0];
+    assert(tomb && tomb.method === "anonymised", "records of another account name him, so the identity is anonymised, not erased: " + JSON.stringify(tomb));
+    const au = (await pgq("select email, deleted_at is not null as d from auth.users where id = $1", [ids.x])).rows[0];
+    assert(au && au.d && /^deleted\+/.test(au.email), "the identity no longer carries his e-mail");
+    assert((await pgq("select count(*)::int n from patient_members where user_id = $1", [ids.x])).rows[0].n === 0, "his access is gone");
+    assert((await pgq("select count(*)::int n from allergies where patient_id = $1 and recorded_by = $2", [f1, ids.x])).rows[0].n === 1, "his record in the owner's file is untouched");
+    assert((await pgq("select full_name from profiles where id = $1", [ids.x])).rows[0].full_name === "", "his profile is blanked");
+    assert((await pgq("select full_name from profiles where id = $1", [ids.o])).rows[0].full_name === "Owner Two", "the owner's profile is untouched");
+    await signIn(xp, x.email); await xp.getByRole("alert").getByText("Incorrect email or password.").waitFor();
+    await op.goto(`${BASE}/patients/${f1}/allergies`);
+    await op.getByText("Latex (by the caregiver)", { exact: true }).waitFor();
+    // with the caregiver gone the owner has nothing left that blocks
+    await op.goto(`${BASE}/account#delete-account`);
+    await op.locator("#del-confirm").waitFor();
+    for (const c of [owner, x, z, v]) await c.ctx.close();
+  });
+
   // ---------------------------------------------------------------- responsive + RTL
   await step("mobile viewport (Arabic, RTL): no horizontal scroll on key pages", async () => {
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });

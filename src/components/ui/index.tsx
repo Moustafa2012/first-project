@@ -68,10 +68,10 @@ export function Empty({ children, title, icon, actions }: { children?: React.Rea
 /** Card (supabase ui): rounded-lg, bordered header strip (title, description, actions), content, optional footer. */
 export function Card({ title, actions, children, id, description, footer }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; id?: string; description?: React.ReactNode; footer?: React.ReactNode }) {
   return (
-    <section className="card" id={id}>
+    <section className="card" id={id} aria-labelledby={id && title ? `${id}-title` : undefined}>
       {(title || actions) && (
         <div className="card-head">
-          <div>{title && <h2>{title}</h2>}{description && <p className="card-desc">{description}</p>}</div>
+          <div>{title && <h2 id={id ? `${id}-title` : undefined}>{title}</h2>}{description && <p className="card-desc">{description}</p>}</div>
           {actions && <div className="row">{actions}</div>}
         </div>
       )}

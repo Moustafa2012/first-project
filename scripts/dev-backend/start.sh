@@ -31,6 +31,9 @@ SUPABASE_SERVICE_ROLE_KEY=$(mint service_role)
 NEXT_PUBLIC_SITE_URL=http://127.0.0.1:$APP_PORT
 SHARE_HASH_SALT=local-test-salt
 JWT_SECRET=$SECRET
+SHIM_PGHOST=$WORK
+SHIM_PGPORT=$PORT
+CRON_SECRET=$(node -e 'process.stdout.write(require("crypto").randomBytes(24).toString("hex"))')
 ENV
 JWT_SECRET="$SECRET" PGHOST_DIR="$WORK" PGPORT_TEST="$PORT" BACKEND_PORT="$API_PORT" STORAGE_DIR="$WORK/storage" \
   nohup node "$ROOT/scripts/dev-backend/server.mjs" > "$WORK/backend.log" 2>&1 &

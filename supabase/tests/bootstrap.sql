@@ -14,7 +14,17 @@ create table auth.users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
   raw_user_meta_data jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  deleted_at timestamptz                -- GoTrue's soft delete
+);
+-- Sign-in sessions as GoTrue keeps them (the columns the app reads; the real table has a few more).
+create table auth.sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  user_agent text,
+  ip inet
 );
 -- Same contract as Supabase: reads the JWT claims set per request.
 create or replace function auth.uid() returns uuid language sql stable as $$

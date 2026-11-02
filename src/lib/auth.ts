@@ -9,14 +9,21 @@ export interface SessionUser { id: string; email: string | null }
 
 /**
  * The signed-in user, read from the verified access token (signature checked locally against the project's public
- * signing keys; no network round trip). Row Level Security still re-checks the same token inside the database.
- * A revoked session therefore stays valid until its token expires (1 hour at most); sensitive actions (file deletion)
- * ask for the password again.
+ * signing keys). Row Level Security still re-checks the same token inside the database.
+ * A token stays cryptographically valid for up to an hour after its session was ended (signed out elsewhere, "sign out
+ * other devices", account deletion), so one cheap call asks the database whether the session behind the token still
+ * exists (public.account_session_alive, migration 0032) and treats an ended session as signed out. If that call cannot be
+ * answered (an older database, a network error) the token is trusted as before; sensitive actions ask for the password again.
  */
 export const currentUser = cache(async (): Promise<SessionUser | null> => {
-  const { data } = await createClient().auth.getClaims();
+  const supabase = createClient();
+  const { data } = await supabase.auth.getClaims();
   const c = data?.claims;
   if (!c?.sub) return null;
+  if (typeof c.session_id === "string") {
+    const { data: alive } = await supabase.rpc("account_session_alive");
+    if (alive === false) return null;
+  }
   return { id: c.sub, email: typeof c.email === "string" ? c.email : null };
 });
 

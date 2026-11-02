@@ -11,6 +11,8 @@ export function createAdminClient() {
   if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
   return createSupabaseClient(publicEnv().url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    // Next's fetch cache would otherwise serve a repeated POST (e.g. the retention job's "what is due" lookup) from an earlier answer
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }) },
   });
 }
 

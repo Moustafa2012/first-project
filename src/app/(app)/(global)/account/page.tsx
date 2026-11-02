@@ -9,6 +9,10 @@ import { Banner, Card, Chip, PageHead } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { PhotoForm } from "@/components/PhotoForm";
 import { updatePassword } from "@/app/actions/auth";
+import { passwordHint, PASSWORD_MAX, PASSWORD_MIN } from "@/lib/password-rules";
+import { SessionsCard } from "@/components/account/SessionsCard";
+import { ActivityCard } from "@/components/account/ActivityCard";
+import { DeleteAccountCard } from "@/components/account/DeleteAccountCard";
 import { updateProfile } from "@/app/actions/account";
 import { deleteTemplate, saveTemplate } from "@/app/actions/notes";
 import { ConfirmButton } from "@/components/ui/client";
@@ -16,7 +20,7 @@ import { NOTE_KIND } from "@/lib/labels";
 
 export const metadata = { title: "حسابي" };
 
-export default async function AccountPage({ searchParams }: { searchParams: { photo?: string; error?: string } }) {
+export default async function AccountPage({ searchParams }: { searchParams: { photo?: string; error?: string; restored?: string } }) {
   const { lang, t } = i18n();
   const [user, profile] = await Promise.all([currentUser(), currentProfile()]);
   const { count: ownFiles } = await createClient().from("patient_members").select("patient_id", { count: "exact", head: true }).eq("role", "owner").is("revoked_at", null);
@@ -27,11 +31,17 @@ export default async function AccountPage({ searchParams }: { searchParams: { ph
     <>
       <PageHead title={t("حسابي", "My account")} sub={<span className="row"><span className="ltr">{user?.email}</span>{profile?.role === "admin" && <Chip tone="info">{t("مدير", "Admin")}</Chip>}{profile?.date_of_birth && <Chip>{ageLabel(profile.date_of_birth, lang)}</Chip>}</span>} />
 
-      <Card title={t("الصورة الشخصية", "Profile picture")}>
+      {searchParams.restored === "1" && (
+        <Banner tone="ok" title={t("أُلغي حذف حسابك", "Your account deletion was cancelled")}>
+          {t("سجّلت الدخول خلال مهلة الـ30 يوماً، فعادت ملفاتك كما كانت. روابط المشاركة التي أُوقفت عند الطلب تبقى موقوفة؛ أنشئ غيرها إن احتجت.", "You signed in within the 30 days, so your files are back as they were. Share links that were stopped when you asked stay stopped; create new ones if you need them.")}
+        </Banner>
+      )}
+
+      <Card id="photo" title={t("الصورة الشخصية", "Profile picture")}>
         <PhotoForm target="user" name={name || user?.email || ""} src={src} returnTo="/account" status={searchParams} />
       </Card>
 
-      <Card title={t("البيانات الأساسية", "Basic details")}>
+      <Card id="details" title={t("البيانات الأساسية", "Basic details")}>
         <p className="muted small">{t("هذه بيانات حسابك أنت. ملفاتك الطبية منفصلة، ويمكنك إنشاء ملفك الصحي منها بنقرة واحدة.", "These are your own account details. Health files are separate, and you can create your own file from them in one click.")}</p>
         <ActionForm action={updateProfile} className="stack" resetOnSuccess={false}>
           <div className="form-grid">
@@ -57,12 +67,21 @@ export default async function AccountPage({ searchParams }: { searchParams: { ph
         </Banner>
       )}
 
-      <Card title={t("تغيير كلمة المرور", "Change password")}>
+      <Card id="password-card" title={t("تغيير كلمة المرور", "Change password")}
+        description={t("عند تغييرها تُنهى جلسات الأجهزة الأخرى.", "Changing it signs out your other devices.")}>
         <ActionForm action={updatePassword} className="stack">
-          <div className="field"><label htmlFor="password">{t("كلمة المرور الجديدة", "New password")}</label><input id="password" name="password" type="password" autoComplete="new-password" minLength={10} required dir="ltr" /></div>
-          <div><SubmitButton>{t("تحديث", "Update")}</SubmitButton></div>
+          <input type="email" name="username" value={user?.email ?? ""} readOnly tabIndex={-1} autoComplete="username" aria-hidden="true" className="sr-only" />
+          <div className="field">
+            <label htmlFor="password">{t("كلمة المرور الجديدة", "New password")}</label>
+            <input id="password" name="password" type="password" autoComplete="new-password" minLength={PASSWORD_MIN} maxLength={PASSWORD_MAX} required dir="ltr" aria-describedby="password-hint" />
+            <span id="password-hint" className="hint">{passwordHint(t)}</span>
+          </div>
+          <div><SubmitButton pending={t("جارٍ التحديث…", "Updating…")}>{t("تحديث", "Update")}</SubmitButton></div>
         </ActionForm>
       </Card>
+
+      <SessionsCard />
+      <ActivityCard />
 
       <Card title={t("قوالب ملاحظاتي", "My note templates")} id="templates">
         <p className="small muted">{t("تظهر قوالبك مع القوالب الجاهزة عند كتابة ملاحظة، في كل ملفاتك. هي خاصة بك ولا يراها غيرك.", "Your templates appear with the ready-made ones when you write a note, in all your files. They are private to you.")}</p>
@@ -94,6 +113,8 @@ export default async function AccountPage({ searchParams }: { searchParams: { ph
           </div>
         </details>
       </Card>
+
+      <DeleteAccountCard email={user?.email ?? ""} />
     </>
   );
 }

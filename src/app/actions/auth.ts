@@ -55,7 +55,7 @@ export async function signup(_: FormState, fd: FormData): Promise<FormState> {
     return { ok: true, message: t("أرسلنا رسالة تأكيد إلى بريدك. افتحها ثم سجّل الدخول.", "We sent a confirmation email. Open it, then sign in.") };
   }
   await supabase.rpc("account_record_event", { p_kind: "sign_in", p_user_agent: (headers().get("user-agent") ?? "").slice(0, 300) });
-  return { ok: true, redirectTo: "/patients" };
+  return { ok: true, redirectTo: safeNext(fd.get("next")) };
 }
 
 export async function requestReset(_: FormState, fd: FormData): Promise<FormState> {

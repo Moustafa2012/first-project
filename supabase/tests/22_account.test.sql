@@ -1,7 +1,7 @@
 \pset tuples_only on
 -- Accounts of this file only (the shared fixtures of the other test files own many files with other members).
-\set ana 'e5555555-5555-5555-5555-555555555555'
-\set ben 'f6666666-6666-6666-6666-666666666666'
+\set ana 'ac000000-0000-0000-0000-0000000000a1'
+\set ben 'ac000000-0000-0000-0000-0000000000b2'
 \set cyd 'a7777777-7777-7777-7777-777777777777'
 \set dee 'b8888888-8888-8888-8888-888888888888'
 \set carol 'c3333333-3333-3333-3333-333333333333'
@@ -215,10 +215,10 @@ select test.throws($$select public.account_cancel_deletion()$$, 'purge_started',
 
 -- a hard delete of an account with nothing left that names it
 select test.as_super();
-insert into auth.users (id, email) values ('0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a', 'gone@example.test');
+insert into auth.users (id, email) values ('0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a', 'gone-account@example.test');
 select test.as_user('0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a'::uuid);
 select public.create_patient('Gone Alone', date '1985-05-05', 'male', null, null, null, null, null, null, 'self', true) as f_gone \gset
-select public.account_request_deletion('gone@example.test');
+select public.account_request_deletion('gone-account@example.test');
 select test.as_super();
 update public.account_deletions set requested_at = now() - interval '31 days', scheduled_for = now() - interval '1 day' where user_id = '0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a';
 update public.patients set deletion_scheduled_for = now() - interval '1 day' where id = :'f_gone';

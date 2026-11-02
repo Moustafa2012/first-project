@@ -377,6 +377,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       f("status", "الحالة", "Status", "select", { options: L.ORDER_STATUS, dflt: "requested", hint: ["«مقترح» إن اقترحه تقرير أو المريض ولم يطلبه طبيب بعد.", "“Suggested” when a report or the patient proposed it and no clinician has ordered it yet."] }),
       f("ordered_by", "الطبيب الطالب", "Ordered by", "text", { maxLength: 200 }),
       f("requested_on", "تاريخ الطلب / الاقتراح", "Requested / suggested on", "date", { required: true, dflt: "today" }),
+      f("target_on", "الموعد المستهدف", "Target date", "date", { hint: ["يظهر في التذكيرات إن مضى دون إنجاز. بدونه: 3 أيام للعاجل و14 للقريب و30 للروتيني.", "Shown in the reminders once it has passed undone. Without it: 3 days for urgent, 14 for soon, 30 for routine."] }),
       f("done_on", "تاريخ الإنجاز", "Done on", "date"),
       spec,
       f("reason", "سبب الطلب", "Reason", "textarea", { wide: true }),

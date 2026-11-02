@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ChevronsUpDown, Plus, Search } from "lucide-react";
+import { Bell, ChevronsUpDown, Plus, Search } from "lucide-react";
 import { i18n } from "@/lib/i18n";
 import { getTheme } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
@@ -19,7 +19,8 @@ export interface Switcher { current: string; items: { href: string; label: strin
 /** `search`: a box in the top bar that opens a search page (GET ?q=) */
 export interface ShellSearch { action: string; label: string; placeholder: string }
 
-export function AppShell({ nav, crumbs, switcher, user, search, children }: { nav: ShellNav; crumbs: Crumb[]; switcher?: Switcher; user: ShellUser; search?: ShellSearch; children: React.ReactNode }) {
+/** `reminders`: the number on the bell (overdue and soon-due reminders across the account's files); the bell links to the reminders centre */
+export function AppShell({ nav, crumbs, switcher, user, search, reminders, children }: { nav: ShellNav; crumbs: Crumb[]; switcher?: Switcher; user: ShellUser; search?: ShellSearch; reminders?: number; children: React.ReactNode }) {
   const { lang, t } = i18n();
   const dark = getTheme() === "dark";
   return (
@@ -56,6 +57,10 @@ export function AppShell({ nav, crumbs, switcher, user, search, children }: { na
               <input type="search" name="q" minLength={2} maxLength={100} placeholder={search.placeholder} aria-label={search.label} autoComplete="off" />
             </form>
           )}
+          <Link href="/reminders" className="shell-bell" data-testid="reminder-bell"
+            aria-label={reminders ? t(`التذكيرات: ${reminders} تحتاج انتباهاً`, `Reminders: ${reminders} need attention`) : t("التذكيرات", "Reminders")}>
+            <Bell size={18} aria-hidden="true" />{reminders ? <span className="bell-badge" data-testid="reminder-count">{reminders > 99 ? "99+" : reminders}</span> : null}
+          </Link>
           <NavUser name={user.name} email={user.email} avatar={user.avatar} admin={user.admin} text={{
             patients: t("المرضى", "Patients"), shares: t("سجل المشاركات", "Share register"), account: t("حسابي", "My account"), admin: t("الإدارة", "Admin"), signOut: t("تسجيل الخروج", "Sign out"), menu: t("قائمة الحساب", "Account menu"), sectionAccount: t("الحساب", "Account"), sectionPrefs: t("التفضيلات", "Preferences"), roleLabel: user.admin ? t("مدير النظام", "Administrator") : t("مستخدم", "Member"), langCode: lang === "ar" ? "AR" : "EN",
             langLabel: lang === "ar" ? "English" : "العربية", nextLang: lang === "ar" ? "en" : "ar",
@@ -81,6 +86,7 @@ export function globalNav(admin: boolean, t: (a: string, e: string) => string): 
   return {
     products: [
       { key: "patients", label: t("المرضى", "Patients"), icon: "patients", href: "/patients", match: ["/patients"] },
+      { key: "reminders", label: t("التذكيرات", "Reminders"), icon: "reminders", href: "/reminders", match: ["/reminders"] },
       { key: "shares", label: t("سجل المشاركات", "Share register"), icon: "shares", href: "/shares", match: ["/shares"] },
     ],
     footer: [

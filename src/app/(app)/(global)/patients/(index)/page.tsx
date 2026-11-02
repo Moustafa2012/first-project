@@ -7,17 +7,21 @@ import { lbl, SEX } from "@/lib/labels";
 import { Banner, Chip, Empty, PageHead } from "@/components/ui";
 import { Avatar } from "@/components/Avatar";
 import type { PatientRow } from "@/lib/types";
+import { getAttention } from "@/lib/care/server";
+import { attentionBadges, countsByPatient } from "@/lib/care/attention";
 
 export const metadata = { title: "المرضى" };
 
 export default async function PatientsPage({ searchParams }: { searchParams: { deleted?: string } }) {
   const { lang, t } = i18n();
   const supabase = createClient();
-  const [{ data: patients }, { data: members }, { data: allergies }] = await Promise.all([
+  const [{ data: patients }, { data: members }, { data: allergies }, attention] = await Promise.all([
     supabase.from("patients").select("*").order("created_at"),
     supabase.from("patient_members").select("patient_id, role").is("revoked_at", null),
     supabase.from("allergies").select("patient_id").eq("status", "active").eq("record_status", "active"),
+    getAttention(),
   ]);
+  const attn = countsByPatient(attention);
   const roleOf = new Map((members ?? []).map((m) => [m.patient_id as string, m.role as string]));
   const allergic = new Set((allergies ?? []).map((a) => a.patient_id as string));
   const list = (patients ?? []) as PatientRow[];
@@ -48,6 +52,7 @@ export default async function PatientsPage({ searchParams }: { searchParams: { d
               <div className="row">
                 <Chip tone="info">{roleOf.get(p.id) === "guardian" ? t("ولي أمر", "Guardian") : roleOf.get(p.id) === "owner" ? t("ملفك", "Your file") : t("رعاية", "Care")}</Chip>
                 {p.deletion_requested_at && <Chip tone="warn">{t("مجدول للحذف", "Scheduled for deletion")}</Chip>}
+                {attentionBadges(attn.get(p.id), t).map((b) => <Chip key={b.code} tone={b.tone === "bad" ? "bad" : b.tone === "warn" ? "warn" : b.tone === "info" ? "info" : "muted"}>{b.text}</Chip>)}
                 {allergic.has(p.id) && <Chip tone="bad"><TriangleAlert size={13} aria-hidden="true" />{t("حساسية موثقة", "Allergies on file")}</Chip>}
               </div>
             </Link>

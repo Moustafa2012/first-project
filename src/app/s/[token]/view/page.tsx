@@ -1,8 +1,7 @@
 import { notFound, redirect } from "next/navigation";
-import type { PulpTest, Sections } from "@/lib/dental-exam";
-import type { AnnotationRow, BoneLevels } from "@/lib/dental-imaging";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { clientMeta, getShareSession, validToken } from "@/lib/share";
+import { mergeShareDental, type ShareExamExtras, type ShareImagingExtras } from "@/lib/share-dental";
 import { ShareViewer } from "@/components/share/ShareViewer";
 import type { Bundle } from "@/lib/share-types";
 import { contribState } from "@/lib/share-contrib";
@@ -45,20 +44,9 @@ export default async function ShareView({ params, searchParams }: { params: { to
   ]);
   const ex = extras as (ShareExtras & { status: string }) | null;
   const dent = dental as ShareDental | null;
-  // the sections, baseline flag and pulp tests of each exam in scope
-  const xx = examExtras as { status: string; exams?: Record<string, { sections: Sections | null; is_baseline: boolean; pulp_tests: PulpTest[] }> } | null;
-  if (dent?.status === "ok" && xx?.status === "ok" && xx.exams) {
-    dent.exams = dent.exams.map((e) => ({ ...e, sections: xx.exams![e.id]?.sections ?? null, is_baseline: xx.exams![e.id]?.is_baseline ?? false }));
-    dent.pulp = Object.fromEntries(Object.entries(xx.exams).map(([k, v]) => [k, v.pulp_tests ?? []]));
-  }
-  // the images in more detail (the reading, the files the link can open, the annotations) and the image each finding was read on
-  const ix = imgExtras as { status: string; images?: Record<string, { findings: string | null; bone_levels: BoneLevels | null; documents: { id: string; title: string; mime_type: string }[] }>;
-    annotations?: AnnotationRow[]; finding_images?: Record<string, string> } | null;
-  if (dent?.status === "ok" && ix?.status === "ok") {
-    dent.imaging = (dent.imaging ?? []).map((i) => ({ ...i, findings: ix.images?.[i.id]?.findings ?? null, bone_levels: ix.images?.[i.id]?.bone_levels ?? null, documents: ix.images?.[i.id]?.documents ?? [] }));
-    dent.findings = dent.findings.map((f) => ({ ...f, imaging_id: ix.finding_images?.[f.id] ?? null }));
-    dent.annotations = ix.annotations ?? [];
-  }
+  // the sections, baseline flag and pulp tests of each exam in scope, the images in more detail (the reading, the files the link
+  // can open, the annotations) and the image each finding was read on
+  mergeShareDental(dent, examExtras as ShareExamExtras, imgExtras as ShareImagingExtras);
   const perio = perioData as SharePerio | null;
   const ctx = context as (ClinicalContextData & { status: string; specialties: string[] | null }) | null;
   const rxx = rxData as { status: string; prescriptions?: Rx[]; consents?: ConsentRow[] } | null;

@@ -22,6 +22,9 @@ import { DENTAL_DIAGNOSES, OPEN_PROBLEM, type ToothImage, type ToothProcedure } 
 import { setConditionTeeth } from "@/app/actions/dental";
 import { ExamEditor } from "@/components/dental/ExamEditor";
 import { PerioSection } from "@/components/dental/PerioSection";
+import { DentalSummary } from "@/components/dental/DentalSummary";
+import { buildDentalSummary } from "@/lib/dental-summary";
+import type { PerioExam, PerioTooth } from "@/lib/perio";
 import { ExamExtras } from "@/components/dental/ExamExtras";
 import { baselineExam, openSoftTissueAlert, type PulpTest, type Sections } from "@/lib/dental-exam";
 import { ClinicalContext } from "@/components/ClinicalContext";
@@ -159,6 +162,22 @@ export default async function DentalPage({ params, searchParams }: { params: { p
   const examLabel = (e: ExamRow) => `${fmtPartialDate(e.exam_date, "day", lang)} — ${lbl(EXAM_KIND, e.kind, lang)}${e.examiner_name ? ` — ${e.examiner_name}` : ""}`;
   const day = (v: string) => fmtPartialDate(v, "day", lang);
   const yn = (v: unknown) => (v === true ? "yes" : v === false ? "no" : "");
+  // the dental summary (top of the chart tab): the latest two final periodontal charts and the recalls are read only for it
+  const summary = await (async () => {
+    if (tab !== "chart") return null;
+    const [{ data: pe }, { data: rc }] = await Promise.all([
+      supabase.from("perio_exams").select("*").eq("patient_id", p.id).eq("record_status", "active").eq("status", "final")
+        .order("exam_date", { ascending: false }).order("recorded_at", { ascending: false }).limit(2),
+      supabase.from("recalls").select("kind, label, interval_months, due_on, status").eq("patient_id", p.id).eq("record_status", "active")
+        .in("kind", ["dental_checkup", "dental_cleaning", "dental_xray", "perio_maintenance", "ortho_review"]).order("due_on"),
+    ]);
+    const peIds = (pe ?? []).map((e) => e.id as string);
+    const { data: pt } = peIds.length ? await supabase.from("perio_teeth").select("*").eq("patient_id", p.id).in("exam_id", peIds) : { data: [] as (PerioTooth & { exam_id: string })[] };
+    const perio = (pe ?? []).map((e) => ({ ...e, teeth: ((pt ?? []) as (PerioTooth & { exam_id: string })[]).filter((x) => x.exam_id === e.id) })) as unknown as PerioExam[];
+    const pulp: Record<string, PulpTest[]> = {};
+    for (const x of (pulpRows ?? []) as (PulpTest & { exam_id: string })[]) (pulp[x.exam_id] ??= []).push(x);
+    return buildDentalSummary({ today, exams, findings, pulp, images, perio, plans, recalls: (rc ?? []) as { kind: string; label: string | null; interval_months: number; due_on: string; status: string }[], safety });
+  })();
 
   return (
     <>
@@ -175,6 +194,11 @@ export default async function DentalPage({ params, searchParams }: { params: { p
 
 
       {tab === "chart" && (<>
+      {summary && (
+        <DentalSummary s={summary} lang={lang} tz={tz}
+          links={{ exam: (id) => `#exam-${id}`, chart: "#chart", perio: `${base}?tab=perio`, imaging: `${base}?tab=imaging`, treatment: `${base}?tab=treatment`, recalls: `${base}?tab=followup`,
+            pdf: `/api/patients/${p.id}/dental/summary/pdf` }} />
+      )}
       {(() => {
         const baseline = baselineExam(exams);
         const latestSoft = openSoftTissueAlert(exams);

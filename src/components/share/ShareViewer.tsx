@@ -9,6 +9,8 @@ import { buildSeries, stats } from "@/lib/clinical/series";
 import { REF_LINES } from "@/lib/clinical/refs";
 import type { Bundle, ShareDental, ShareExtras, ShareMyNote, ShareRecall, SharePerio } from "@/lib/share-types";
 import { SharePerioCard } from "@/components/share/SharePerio";
+import { DentalSummary } from "@/components/dental/DentalSummary";
+import { buildDentalSummary } from "@/lib/dental-summary";
 import { DentalChart, type ToothAddForm } from "@/components/dental/DentalChart";
 import { ClinicalContext } from "@/components/ClinicalContext";
 import type { ClinicalContextData } from "@/lib/clinical-context";
@@ -167,6 +169,14 @@ export function ShareViewer({ b, token, contrib, dental, perio, ctx, uploaded, u
       )}
 
       {contrib && <ContributorCard token={token} st={contrib} uploaded={uploaded} uploadError={uploadError} />}
+
+      {dental && (
+        <DentalSummary lang={lang} tz={tz} idPrefix="ssum" s={buildDentalSummary({
+          today: localDate(new Date(), tz), exams: dental.exams, findings: dental.findings, pulp: dental.pulp, images: dental.imaging, perio: perio?.exams ?? [],
+          plans: dental.plans, recalls, safety })}
+          links={{ chart: "#dental", perio: perio ? "#perio" : undefined, treatment: plans.length > 0 ? "#treatment" : undefined, imaging: "#dental",
+            pdf: b.meta.allow_print ? `/s/${token}/dental/pdf` : undefined }} />
+      )}
 
       {dental && (
         <Card title={t("مخطط الأسنان", "Tooth chart")} id="dental">

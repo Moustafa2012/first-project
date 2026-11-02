@@ -10,13 +10,14 @@ import { ageLabel } from "@/lib/format";
 import { ALLERGY_SEVERITY, lbl, SEX } from "@/lib/labels";
 import { Chip } from "@/components/ui";
 import { Avatar } from "@/components/Avatar";
+import { getReminderCount } from "@/lib/care/server";
 
 export default async function PatientLayout({ children, params }: { children: React.ReactNode; params: { pid: string } }) {
   const { lang, t } = i18n();
   // one wave of round trips instead of three in a row
   const dentId = (await getSpecialties()).find((x) => x.code === "dentistry")?.id ?? "00000000-0000-0000-0000-000000000000";
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }, { count: overdue }, { count: perioDraft }] = await Promise.all([
+  const [p, access, used, { data: allergies }, authed, profile, { data: mine }, { count: unassigned }, { count: openPlans }, { count: overdue }, { count: perioDraft }, reminderCount] = await Promise.all([
     getPatient(params.pid),
     getAccess(params.pid),
     getSpecialtyUsage(params.pid),
@@ -32,6 +33,7 @@ export default async function PatientLayout({ children, params }: { children: Re
     createClient().from("recalls").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active")
       .eq("status", "active").lt("due_on", todayIso),
     createClient().from("perio_exams").select("id", { count: "exact", head: true }).eq("patient_id", params.pid).eq("record_status", "active").eq("status", "draft"),
+    getReminderCount(),
   ]);
   const admin = profile?.role === "admin";
   const base = `/patients/${p.id}`;
@@ -44,13 +46,15 @@ export default async function PatientLayout({ children, params }: { children: Re
   }));
   const follow = [item("vitals", t("القياسات (ضغط، سكر…)", "Vitals (BP, glucose…)")), item("labs", t("التحاليل المخبرية", "Lab results")),
     item("test-orders", t("الفحوصات المطلوبة", "Requested tests")), item("care-plans", t("خطط المتابعة", "Care plans")),
-    item("symptoms", t("سجل الأعراض", "Symptom log"))];
+    item("symptoms", t("سجل الأعراض", "Symptom log")), item("reminders", t("التذكيرات", "Reminders"))];
   const records = [item("search", t("بحث داخل الملف", "Search this file")), item("conditions", t("الأمراض والتشخيصات", "Conditions")), item("allergies", t("الحساسية", "Allergies")), item("medications", t("الأدوية", "Medications")),
     item("visits", t("الزيارات", "Visits")), item("procedures", t("العمليات والإجراءات", "Procedures")), item("imaging", t("الأشعة والتصوير", "Imaging")),
     item("appointments", t("المواعيد", "Appointments")), item("notes", t("الملاحظات", "Notes")), item("immunizations", t("التطعيمات", "Immunizations")),
     item("family-history", t("التاريخ العائلي", "Family history"))];
   const docs = [item("documents", t("المستندات والتقارير", "Documents")),
     ...(access.canShare ? [item("sharing", t("المشاركة مع طبيب", "Share with a doctor"))] : []),
+    item("emergency", t("بطاقة الطوارئ", "Emergency card")),
+    ...(access.canManage ? [item("members", t("الأعضاء والدعوات", "Members & invitations"))] : []),
     ...(access.canManage ? [item("audit", t("سجل التغييرات", "Change history"))] : [])];
   const nav: ShellNav = {
     home: { href: "/patients", label: t("كل المرضى", "All patients") },
@@ -92,6 +96,7 @@ export default async function PatientLayout({ children, params }: { children: Re
     <AppShell nav={nav} crumbs={[{ href: "/patients", label: t("المرضى", "Patients") }]}
       search={{ action: `${base}/search`, label: t("بحث داخل هذا الملف", "Search inside this file"), placeholder: t("بحث في الملف…", "Search this file…") }}
       switcher={{ current: name, addHref: "/patients/new", items: (mine ?? []).map((x) => ({ href: `/patients/${x.id}`, label: lang === "en" && x.full_name_en ? x.full_name_en : x.full_name, sub: x.mrn })) }}
+      reminders={reminderCount}
       user={{ name: profile?.full_name ?? "", email: authed.email ?? "", admin, avatar: profile?.avatar_path ? `/api/avatar?v=${encodeURIComponent(profile.updated_at)}` : null }}>
       <header className="card patient-head" style={{ marginBlockEnd: "1.25rem" }}>
         <div className="row between">

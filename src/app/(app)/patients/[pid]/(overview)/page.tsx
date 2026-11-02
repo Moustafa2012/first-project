@@ -17,7 +17,13 @@ import { getClinicalContext } from "@/lib/clinical-context-server";
 import { pendingFollowUps, type Recall } from "@/lib/followups";
 import { PendingList } from "@/components/dental/FollowUps";
 import { RECALL_KIND } from "@/lib/labels";
+import { describeReminder } from "@/lib/care/reminders";
 import { localDate } from "@/lib/format";
+import { getAbnormalLabs, getAttention, getReminders } from "@/lib/care/server";
+import { buildAttention, labTrend } from "@/lib/care/attention";
+import { ArrowDown, ArrowUp, Minus, TriangleAlert } from "lucide-react";
+import { leaveFile } from "@/app/actions/care";
+import { ActionForm, ConfirmButton } from "@/components/ui/client";
 
 const HIGHLIGHT = ["blood_pressure", "blood_glucose", "heart_rate", "weight", "spo2", "body_temperature"];
 
@@ -52,21 +58,20 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
   const byType = new Map<string, ObservationRow>();
   for (const o of (vit.data ?? []) as ObservationRow[]) if (!byType.has(o.type_id)) byType.set(o.type_id, o);
   const tOf = new Map(types.map((x) => [x.id, x]));
-  const alerts: string[] = [];
-  if ((notes as { count: number | null }).count) alerts.push(t(`${(notes as { count: number }).count} ملاحظة من طبيب بانتظار مراجعتك.`, `${(notes as { count: number }).count} doctor note(s) waiting for your review.`));
-  if (docsNoDate.count) alerts.push(t(`${docsNoDate.count} مستند بلا تاريخ.`, `${docsNoDate.count} document(s) without a date.`));
-  if (orders.count) alerts.push(t(`${orders.count} فحص طلبه طبيب ولم يُنجز.`, `${orders.count} test(s) ordered by a clinician not done yet.`));
-  for (const c of unreviewed.slice(0, 3)) alerts.push(t(`أضاف ${c.full_name} بيانات إلى ملفك عبر رابط مشاركة — راجعها من صفحة المشاركة.`, `${c.full_name} added to your file through a share link — review it on the share page.`));
-  if (suggested.count) alerts.push(t(`${suggested.count} فحص مقترح بانتظار قرار الطبيب.`, `${suggested.count} suggested test(s) awaiting a clinician’s decision.`));
   const activeShares = (shares.data ?? []) as { id: string; title: string; expires_at: string }[];
 
   // what is waiting, across the file: due recalls, open treatments, follow-ups asked at a visit
   const today = localDate(new Date(), tz);
-  const [{ data: rc }, { data: fv }, { data: ti }] = await Promise.all([
+  const [{ data: rc }, { data: fv }, { data: ti }, abnormal, attRows, reminders, perioDrafts, noteDrafts] = await Promise.all([
     supabase.from("recalls").select("id, kind, label, interval_months, due_on, last_done_on, status").match(active).eq("status", "active").order("due_on"),
     supabase.from("encounters").select("id, started_at, follow_up_date, reason, specialty_id").match(active).order("started_at", { ascending: false }).limit(100),
     supabase.from("treatment_items").select("id, name, status, scheduled_for, teeth").match(active).in("status", ["accepted", "scheduled", "in_progress"]).limit(50),
+    getAbnormalLabs(p.id), getAttention(), getReminders(p.id),
+    supabase.from("perio_exams").select("id", { count: "exact", head: true }).match(active).eq("status", "draft"),
+    supabase.from("clinical_notes").select("id", { count: "exact", head: true }).match(active).eq("status", "draft"),
   ]);
+  const mine = attRows.filter((r) => r.patient_id === p.id);
+  const hoursLeft = (iso: string) => (Date.parse(iso) - Date.now()) / 3_600_000;
   const pending = pendingFollowUps({
     today, base, recalls: (rc ?? []) as Recall[],
     items: (ti ?? []) as { id: string; name: string; status: string; scheduled_for: string | null; teeth: number[] | null }[],
@@ -76,9 +81,54 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
       appointmentPast: t("موعد مضى", "Past appointment") },
   }).filter((f) => f.state !== "upcoming");
 
+  const attention = buildAttention({
+    base, overdue: reminders.filter((r) => r.state === "overdue").map((r) => ({ label: describeReminder(r, t, (code, label) => (code === "other" && label ? label : lbl(RECALL_KIND, code, lang) || label)), days: -r.days, href: r.href })),
+    unreviewed: { notes: (notes as { count: number | null }).count ?? 0, clinicians: unreviewed.map((c) => c.full_name) },
+    softTissue: mine.some((r) => r.code === "soft_tissue"),
+    shares: activeShares.filter((s) => hoursLeft(s.expires_at) <= 72).map((s) => ({ id: s.id, title: s.title, hoursLeft: hoursLeft(s.expires_at) })),
+    drafts: { perio: perioDrafts.count ?? 0, notes: noteDrafts.count ?? 0 },
+    documentsNoDate: docsNoDate.count ?? 0, ordersOpen: orders.count ?? 0, suggested: suggested.count ?? 0,
+  }, t);
+
   return (
     <>
-      {alerts.length > 0 && <Banner tone="info" title={t("للانتباه", "Needs attention")}><ul style={{ margin: 0, paddingInlineStart: "1.1rem" }}>{alerts.map((a) => <li key={a}>{a}</li>)}</ul></Banner>}
+      {(attention.length > 0 || abnormal.length > 0) && (
+        <Card id="attention" title={<><TriangleAlert size={18} aria-hidden="true" /> {t("يحتاج انتباهك", "Needs your attention")}</>}
+          description={t("مؤشرات تستدعي المراجعة وليست تشخيصاً.", "Prompts for a review, not a diagnosis.")}>
+          {abnormal.length > 0 && (
+            <div className="attention-labs" data-testid="attention-labs">
+              <p className="small muted" style={{ margin: 0 }}>{t("آخر قيمة لكل تحليل خارج المجال المرجعي، مع المقارنة بالقيمة السابقة", "Latest value of each test outside its reference, compared with the value before")}</p>
+              {abnormal.map((l) => {
+                const ty = tOf.get(l.type_id);
+                const tr = labTrend(l);
+                const name = l.custom_name || (ty ? (lang === "ar" ? ty.name_ar : ty.name_en) : "");
+                const Arrow = tr.dir === "up" ? ArrowUp : tr.dir === "down" ? ArrowDown : Minus;
+                const val = l.value_num != null ? String(l.value_num) : l.value_text ?? "";
+                return (
+                  <div key={l.observation_id} className="row between attention-lab" data-testid="attention-lab">
+                    <span><Link href={`${base}/labs?view=trends&type=${ty?.code ?? ""}`}>{name}</Link>: <strong className="ltr">{val} {l.unit ?? ""}</strong></span>
+                    <span className="row">
+                      <InterpChip value={l.interpretation} lang={lang} />
+                      {tr.dir !== "none" ? (
+                        <Chip tone={tr.verdict === "worsening" ? "bad" : tr.verdict === "improving" ? "ok" : "muted"} title={t("مقارنة بالقيمة السابقة", "Against the previous value")}>
+                          <Arrow size={13} aria-hidden="true" />{tr.dir === "flat" ? t("ثابت", "steady") : <span className="ltr">{tr.delta != null && tr.delta > 0 ? "+" : ""}{tr.delta}</span>}
+                          {tr.verdict === "worsening" ? ` · ${t("يبتعد عن المجال", "further out")}` : tr.verdict === "improving" ? ` · ${t("يقترب من المجال", "closer to range")}` : ""}
+                        </Chip>
+                      ) : <span className="muted small">{l.prev_value != null ? t("وحدة مختلفة عن السابقة", "unit differs from the previous") : t("أول قيمة", "first value")}</span>}
+                      <span className="muted small">{fmtDate(l.effective_at, lang, tz)}</span>
+                    </span>
+                  </div>
+                );
+              })}
+              <Link href={`${base}/labs?view=compare`} className="small">{t("قارن بين تقريرين", "Compare two reports")}</Link>
+            </div>
+          )}
+          {attention.length > 0 && (
+            <ul className="attention-list" data-testid="attention-list">{attention.map((a) => (
+              <li key={a.key} className={`attention-${a.tone}`}><Link href={a.href}>{a.text}</Link></li>))}</ul>
+          )}
+        </Card>
+      )}
 
       {pending.length > 0 && (
         <Card title={<><CalendarClock size={18} aria-hidden="true" /> {t("المتابعات المعلّقة", "Pending follow-ups")}</>} id="pending">
@@ -138,6 +188,14 @@ export default async function PatientDashboard({ params }: { params: { pid: stri
         <Card title={<><Link2 size={18} aria-hidden="true" /> {t("المشاركات النشطة", "Active shares")}</>} actions={<Link href={`${base}/sharing/new`} className="btn sm primary">{t("مشاركة جديدة", "New share")}</Link>}>
           {activeShares.length === 0 ? <Empty>{t("لا توجد مشاركات نشطة. أنشئ مشاركة قبل زيارة طبيب جديد.", "No active shares. Create one before seeing a new doctor.")}</Empty> : activeShares.map((s) => (
             <div key={s.id} className="row between"><Link href={`${base}/sharing/${s.id}`}>{s.title}</Link><span className="muted small">{t("تنتهي", "expires")} {fmtDateTime(s.expires_at, lang, tz)}</span></div>))}
+        </Card>
+      )}
+
+      {access.role === "caregiver" && (
+        <Card title={t("عضويتك في هذا الملف", "Your membership of this file")}>
+          <p className="small">{access.canWrite ? t("أنت محرّر: تقرأ وتُدخل سجلات.", "You are an editor: you read and add records.") : t("أنت مشاهد: تقرأ فقط.", "You are a viewer: you read only.")}</p>
+          <ActionForm action={leaveFile} resetOnSuccess={false}><input type="hidden" name="_pid" value={p.id} />
+            <ConfirmButton message={t("مغادرة هذا الملف؟ لن تستطيع فتحه إلا بدعوة جديدة.", "Leave this file? You will need a new invitation to open it again.")}>{t("مغادرة الملف", "Leave this file")}</ConfirmButton></ActionForm>
         </Card>
       )}
 

@@ -4,13 +4,14 @@ import { AuthShell } from "@/components/AuthShell";
 import { ActionForm, SubmitButton } from "@/components/ui/client";
 import { signup } from "@/app/actions/auth";
 
-export default function SignupPage() {
+export default function SignupPage({ searchParams }: { searchParams: { next?: string } }) {
   const { t } = i18n();
   return (
     <AuthShell>
         <div className="card auth-card">
           <h1>{t("إنشاء حساب", "Create your account")}</h1>
           <ActionForm action={signup} className="stack" resetOnSuccess={false}>
+            <input type="hidden" name="next" value={searchParams.next ?? ""} />
             <div className="field"><label htmlFor="full_name">{t("الاسم", "Name")}</label><input id="full_name" name="full_name" type="text" autoComplete="name" required /></div>
             <div className="field"><label htmlFor="email">{t("البريد الإلكتروني", "Email")}</label><input id="email" name="email" type="email" autoComplete="email" required dir="ltr" /></div>
             <div className="field">

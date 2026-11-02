@@ -21,7 +21,7 @@ export default function LoginPage({ searchParams }: { searchParams: { next?: str
             <SubmitButton pending={t("جارٍ الدخول…", "Signing in…")}>{t("دخول", "Sign in")}</SubmitButton>
           </ActionForm>
           <p className="small" style={{ marginBlockStart: "1rem" }}>
-            <Link href="/forgot">{t("نسيت كلمة المرور؟", "Forgot your password?")}</Link> · <Link href="/signup">{t("إنشاء حساب جديد", "Create an account")}</Link>
+            <Link href="/forgot">{t("نسيت كلمة المرور؟", "Forgot your password?")}</Link> · <Link href={searchParams.next ? `/signup?next=${encodeURIComponent(searchParams.next)}` : "/signup"}>{t("إنشاء حساب جديد", "Create an account")}</Link>
           </p>
         </div>
     </AuthShell>

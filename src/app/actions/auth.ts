@@ -50,7 +50,7 @@ export async function signup(_: FormState, fd: FormData): Promise<FormState> {
   if (!data.session) {
     return { ok: true, message: t("أرسلنا رسالة تأكيد إلى بريدك. افتحها ثم سجّل الدخول.", "We sent a confirmation email. Open it, then sign in.") };
   }
-  return { ok: true, redirectTo: "/patients" };
+  return { ok: true, redirectTo: safeNext(fd.get("next")) };
 }
 
 export async function requestReset(_: FormState, fd: FormData): Promise<FormState> {

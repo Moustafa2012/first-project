@@ -204,8 +204,9 @@ async function handleRest(req, res, url, claims) {
       }
       // a set-returning function answers with its rows, as PostgREST does
       if (meta[0].set) {
-        const { rows } = await c.query(`select * from public.${q(fn)}(${named.join(", ")})`, params);
-        return { status: 200, rows: [rows], scalar: true };
+        // as JSON, like PostgREST: dates stay "YYYY-MM-DD" and numbers stay numbers
+        const { rows } = await c.query(`select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) as j from public.${q(fn)}(${named.join(", ")}) s`, params);
+        return { status: 200, rows: [rows[0].j], scalar: true };
       }
       const { rows } = await c.query(`select public.${q(fn)}(${named.join(", ")}) as result`, params);
       return { status: meta[0].ret === "void" ? 204 : 200, rows: meta[0].ret === "void" ? [] : [rows[0].result], scalar: true };

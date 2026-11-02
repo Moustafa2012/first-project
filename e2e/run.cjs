@@ -2191,12 +2191,322 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("header.patient-head, header.card").first().waitFor();
   });
 
+  // ---------------------------------------------------------------- care: reminders, needs attention, emergency card, members (migration 0031)
+  const ymd = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  const remTitle = `Renew passport ${stamp}`, repTitle = `Weigh-in ${stamp}`;
+
+  await step("reminders: write one, see it on the file, the centre and the bell; done closes it", async () => {
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    await page.getByText(/no sending service is connected/).first().waitFor();
+    await page.fill("#rem_title", remTitle); await page.fill("#rem_due", ymd(1));
+    await submit(page, "Add reminder");
+    await page.getByText("The reminder was added.").waitFor();
+    await page.reload();
+    const item = page.locator("li.reminder", { hasText: remTitle });
+    await item.waitFor();
+    assert((await item.getAttribute("data-state")) === "soon" && (await item.getAttribute("data-kind")) === "custom", "a written reminder inside its lead time is soon");
+    await page.goto(`${BASE}/patients`);
+    const n = Number(await page.getByTestId("reminder-count").first().innerText());
+    assert(n >= 1, "the bell counts it: " + n);
+    await page.goto(`${BASE}/reminders`);
+    await page.locator("li.reminder", { hasText: remTitle }).waitFor();
+    await page.locator("section.card", { hasText: "Alice Alpha" }).first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    await page.locator("li.reminder", { hasText: remTitle }).getByRole("button", { name: "Done" }).click();
+    await page.locator("li.reminder", { hasText: remTitle }).waitFor({ state: "detached" });
+    await page.locator("article.rec", { hasText: remTitle }).getByText("Done", { exact: true }).waitFor();
+  });
+
+  await step("reminders: a repeating one moves on when done; one written by mistake is invalidated with a reason", async () => {
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    await page.fill("#rem_title", repTitle); await page.fill("#rem_due", ymd(0)); await page.fill("#rem_rep", "1");
+    await submit(page, "Add reminder");
+    await page.getByText("The reminder was added.").waitFor();
+    await page.reload();
+    await page.locator("li.reminder", { hasText: repTitle }).getByRole("button", { name: "Done" }).click();
+    await page.locator("li.reminder", { hasText: repTitle }).waitFor({ state: "detached" });
+    const art = page.locator("article.rec", { hasText: repTitle });
+    await art.getByText("Open", { exact: true }).waitFor();
+    await art.getByText("every 1 mo").waitFor();
+    await art.locator("summary", { hasText: "Entered in error" }).click();
+    await art.locator('input[name="reason"]').fill("added twice");
+    page.once("dialog", (d) => d.accept());
+    await art.getByRole("button", { name: "Invalidate" }).click();
+    await art.waitFor({ state: "detached" });
+    await page.reload();
+    assert((await page.locator("article.rec", { hasText: repTitle }).count()) === 0, "an invalidated reminder leaves the active list");
+  });
+
+  await step("reminders: an open test request past its target date is gathered with its record", async () => {
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await openSummary(page, "Add test request");
+    await page.fill("#test-orders_new_name", "Overdue E2E test");
+    await page.fill("#test-orders_new_requested_on", ymd(-10)); await page.fill("#test-orders_new_target_on", ymd(-5));
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    const item = page.locator("li.reminder", { hasText: "Overdue E2E test" });
+    await item.waitFor();
+    assert((await item.getAttribute("data-state")) === "overdue" && (await item.getAttribute("data-kind")) === "test_order", "overdue test request: " + (await item.getAttribute("data-state")) + " " + (await item.getAttribute("data-kind")) + " " + (await item.innerText()).replace(/\s+/g, " "));
+    await item.getByText("5 days overdue").waitFor();
+    await item.getByRole("link", { name: /Requested test not done/ }).click();
+    await page.waitForURL(/\/test-orders$/);
+  });
+
+  await step("needs attention: the latest abnormal lab against its reference, with the trend; a lab comparison of two reports", async () => {
+    await page.goto(`${BASE}/patients/${pid}/labs/new`);
+    await page.fill("#title", "CBC follow-up E2E");
+    await page.selectOption("#r0_type", { label: "Hemoglobin (Hb) (g/dL)" });
+    await page.fill("#r0_value", "11.8"); await page.fill("#r0_ref_low", "12"); await page.fill("#r0_ref_high", "16");
+    await submit(page, "Save report");
+    await page.getByText("Report and results saved.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.getByRole("heading", { name: "Needs your attention" }).waitFor();
+    const lab = page.getByTestId("attention-lab").filter({ hasText: "Hemoglobin" });
+    await lab.waitFor();
+    assert((await lab.innerText()).includes("11.8"), "the latest value is shown: " + (await lab.innerText()));
+    await lab.getByText(/closer to range|further out|steady/).waitFor();
+    await page.goto(`${BASE}/patients`);
+    await page.locator("a.card", { hasText: "Alice Alpha" }).first().getByText(/\d+ lab out of range/).waitFor();
+    // compare two reports by date
+    await page.goto(`${BASE}/patients/${pid}/labs?view=compare`);
+    const val = async (sel, text) => page.locator(`${sel} option`, { hasText: text }).first().getAttribute("value");
+    await page.selectOption("#cmp_a", await val("#cmp_a", "CBC panel"));
+    await page.selectOption("#cmp_b", await val("#cmp_b", "CBC follow-up E2E"));
+    await submit(page, "Compare");
+    const row = page.getByTestId("compare-table").locator("tr", { hasText: "Hemoglobin" });
+    await row.waitFor();
+    const txt = await row.innerText();
+    assert(txt.includes("10.2") && txt.includes("11.8") && txt.includes("+1.6"), "values side by side with the change: " + txt);
+  });
+
+  const careAr = async (url) => {   // a page opened on a phone in Arabic must not scroll sideways
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
+    await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); watch(mp, "care-mobile");
+    const r = await mp.goto(url);
+    assert(r.status() === 200, `${url} => ${r.status()}`);
+    assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
+    const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    await m.close();
+    return over;
+  };
+
+  let emLink = "", emLink2 = "";
+  await step("emergency card: a card with the core fields; the public link is off by default", async () => {
+    // records that must (and must not) reach the card
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    for (const [name, sensitive] of [["LongTerm E2E med", false], ["Secret E2E med", true]]) {
+      await openSummary(page, "Add medication");
+      await page.fill("#medications_new_name_generic", name);
+      const form = page.locator("form:has(#medications_new_name_generic)");
+      await form.getByLabel("Long-term (taken continuously)").check();
+      if (sensitive) await form.getByLabel("Sensitive (shared only when explicitly allowed)").check();
+      await submit(page, "Save");
+      await page.getByText("Saved.").first().waitFor();
+      await page.reload();
+    }
+    await page.goto(`${BASE}/patients/${pid}/conditions`);
+    await openSummary(page, "Add condition");
+    await page.fill("#conditions_new_name", "Secret E2E dx");
+    await page.selectOption("#conditions_new_category", "chronic");
+    await page.locator("form:has(#conditions_new_name)").getByLabel("Sensitive (shared only when explicitly allowed)").check();
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/emergency`);
+    const card = page.getByTestId("emergency-card");
+    await card.waitFor();
+    const txt = await card.innerText();
+    for (const w of ["Alice Alpha", "A+", "Penicillin", "Hypertension", "LongTerm E2E med", "Omar Alpha", "+966511111111"]) assert(txt.includes(w), `the card shows ${w}`);
+    for (const w of ["Secret E2E", "1098765432", "+966500000001", "Entered by mistake"]) assert(!txt.includes(w), `the card must not show ${w}`);
+    await page.getByTestId("emergency-status").getByText("Link is off").waitFor();
+    assert(!(await page.getByLabel(/Also show items I marked sensitive/).isChecked()), "the sensitive opt-in starts off");
+    // the PDF card (no QR: no token is kept)
+    const res = await page.request.get(`${BASE}/api/patients/${pid}/emergency/pdf`);
+    assert(res.status() === 200 && /pdf/.test(res.headers()["content-type"]) && (await res.body()).subarray(0, 4).toString() === "%PDF", "the card PDF");
+  });
+
+  await step("emergency card: switch the link on; it shows the card only, with no sign-in, and a QR", async () => {
+    await page.goto(`${BASE}/patients/${pid}/emergency`);
+    await page.getByRole("button", { name: "Switch the link on" }).click();
+    await page.getByTestId("emergency-link-box").waitFor();
+    emLink = (await page.getByTestId("emergency-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    assert(/\/e\/[A-Za-z0-9_-]{32}$/.test(emLink), "link: " + emLink);
+    await page.locator(".emergency-qr svg").waitFor();
+    await page.getByTestId("emergency-status").getByText("Link is on").waitFor();
+    // a stranger without an account opens it
+    const anon = await newContext(browser); const ap = await anon.newPage(); watch(ap, "anon");
+    const r = await ap.goto(emLink);
+    assert(r.status() === 200, "public card opens: " + r.status());
+    assert(/noindex/.test(r.headers()["x-robots-tag"] ?? "") && /no-store/.test(r.headers()["cache-control"] ?? ""), "never indexed or cached");
+    const t = await ap.getByTestId("emergency-card").innerText();
+    for (const w of ["Alice Alpha", "A+", "Penicillin", "Hypertension", "LongTerm E2E med", "Omar Alpha"]) assert(t.includes(w), `public card shows ${w}`);
+    for (const w of ["Secret E2E", "1098765432", "+966500000001", "Entered by mistake", "Metformin"]) assert(!t.includes(w), `public card must not show ${w}`);
+    assert((await ap.locator("nav, .rail, a[href='/patients']").count()) === 0, "no navigation into the app");
+    const html = await ap.content();
+    assert(!/SH-\d{8}/.test(html), "no file number");
+    // phone, Arabic
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA" });
+    await m.addCookies([{ name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); await mp.goto(emLink);
+    await mp.getByText("بطاقة الطوارئ الطبية").first().waitFor();
+    assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
+    const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(over <= 1, "public card overflows by " + over);
+    await mp.screenshot({ path: path.join(OUT, "mobile-emergency-public-ar.png"), fullPage: true });
+    await m.close(); await anon.close();
+    for (const u of [`${BASE}/patients/${pid}/emergency`, `${BASE}/patients/${pid}/reminders`, `${BASE}/patients/${pid}/members`, `${BASE}/patients/${pid}/labs?view=compare`, `${BASE}/reminders`, `${BASE}/patients/${pid}`]) {
+      const o = await careAr(u); assert(o <= 1, `${u} overflows by ${o}px`);
+    }
+  });
+
+  await step("emergency card: the sensitive opt-in, the QR on the PDF, regenerating and switching off", async () => {
+    const anon = await newContext(browser); const ap = await anon.newPage(); watch(ap, "anon2");
+    await page.goto(`${BASE}/patients/${pid}/emergency`);
+    await page.getByLabel(/Also show items I marked sensitive/).check();
+    await page.locator("form:has(input[name=include_sensitive])").getByRole("button", { name: "Save" }).click();
+    await page.getByText("What the card shows was saved.").waitFor();
+    await ap.goto(emLink);
+    const t = await ap.getByTestId("emergency-card").innerText();
+    assert(t.includes("Secret E2E dx") && t.includes("Secret E2E med"), "with the opt-in the sensitive items appear");
+    await page.reload();
+    await page.getByLabel(/Also show items I marked sensitive/).uncheck();
+    await page.locator("form:has(input[name=include_sensitive])").getByRole("button", { name: "Save" }).click();
+    await page.getByText("What the card shows was saved.").waitFor();
+    await ap.goto(emLink);
+    assert(!(await ap.getByTestId("emergency-card").innerText()).includes("Secret E2E"), "opting out hides them at once");
+    // regenerate: the old link dies, the new one works, the PDF carries a QR only for the current token
+    await page.reload();
+    page.once("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Regenerate the link" }).click();
+    await page.getByTestId("emergency-link-box").waitFor();
+    emLink2 = (await page.getByTestId("emergency-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    assert(emLink2 !== emLink && /\/e\/[A-Za-z0-9_-]{32}$/.test(emLink2), "a new link");
+    await ap.goto(emLink);
+    await ap.getByText("This link is not available").waitFor();
+    await ap.goto(emLink2);
+    await ap.getByTestId("emergency-card").waitFor();
+    const token = emLink2.split("/e/")[1];
+    const withQr = await page.request.post(`${BASE}/api/patients/${pid}/emergency/pdf`, { form: { token } });
+    const bogus = await page.request.post(`${BASE}/api/patients/${pid}/emergency/pdf`, { form: { token: "x".repeat(32) } });
+    assert(withQr.status() === 200 && bogus.status() === 200, "both PDFs render");
+    assert((await withQr.body()).length > (await bogus.body()).length + 500, "the current token adds a QR; a wrong one adds nothing");
+    // a wrong link: tries are rate limited per address
+    const wrong = (n) => `${BASE}/e/${String(n).padStart(2, "0")}${"w".repeat(30)}`;
+    for (let i = 0; i < 9; i++) { await ap.goto(wrong(i)); await ap.getByText("This link is not available").waitFor(); }
+    await ap.goto(wrong(9));
+    await ap.getByText("Too many requests").waitFor();
+    await ap.goto(emLink2);
+    await ap.getByText("Too many requests").waitFor();
+    // switch it off
+    await page.reload();
+    page.once("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Switch the link off" }).click();
+    await page.getByTestId("emergency-status").getByText("Link is off").waitFor();
+    const anon2 = await newContext(browser); const bp = await anon2.newPage();
+    await bp.goto(emLink2);
+    await bp.getByText("This link is not available").waitFor();
+    await page.reload();
+    await page.getByTestId("emergency-status").getByText("Link is off").waitFor();
+    await page.getByText("Attempt on a switched-off link").first().waitFor();
+    await page.getByText("Card opened").first().waitFor();
+    await anon.close(); await anon2.close();
+  });
+
+  const cBobEmail = `carebob-${stamp}@example.test`, eveEmail = `eve-${stamp}@example.test`;
+  let inviteLinkText = "";
+  await step("members: invite by e-mail as editor; the link is shown once and only its hash is kept", async () => {
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    await page.fill("#inv_email", cBobEmail); await page.selectOption("#inv_access", "editor");
+    await submit(page, "Create the invitation link");
+    await page.getByTestId("invite-link-box").waitFor();
+    inviteLinkText = (await page.getByTestId("invite-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    assert(/\/invite\/[A-Za-z0-9_-]{32}$/.test(inviteLinkText), "invite link: " + inviteLinkText);
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const row = page.locator('[data-testid="invite-row"]', { hasText: cBobEmail });
+    await row.getByText("Waiting").waitFor();
+    await row.getByText("Editor").waitFor();
+    assert(!(await page.content()).includes(inviteLinkText.split("/invite/")[1]), "the token is not in the page after it was shown");
+    await page.fill("#inv_email", "not-an-address"); await page.evaluate(() => document.querySelector("form:has(#inv_email)").noValidate = true);
+    await submit(page, "Create the invitation link");
+    await page.getByText("Enter a valid e-mail address.").waitFor();
+  });
+
+  const cBobCtx = await newContext(browser); const cBob = await cBobCtx.newPage(); watch(cBob, "cBob");
+  await step("members: only the invited account can use the link; the editor joins and can write but not manage", async () => {
+    const eveCtx = await newContext(browser); const eve = await eveCtx.newPage(); watch(eve, "eve");
+    await signup(eve, eveEmail, "Eve Gamma");
+    await eve.goto(inviteLinkText);
+    await eve.getByText("This invitation is for another account").waitFor();
+    assert((await eve.getByRole("button", { name: "Accept the invitation" }).count()) === 0, "no accept button for a stranger");
+    assert((await eve.goto(`${BASE}/patients/${pid}`)).status() === 404, "and no access");
+    await eveCtx.close();
+
+    await signup(cBob, cBobEmail, "Bob Beta");
+    assert((await cBob.goto(`${BASE}/patients/${pid}`)).status() === 404, "before accepting there is no access");
+    await cBob.goto(inviteLinkText);
+    await cBob.getByText(/You were invited to the file/).waitFor();
+    await cBob.getByText(/an editor/).waitFor();
+    await cBob.getByRole("button", { name: "Accept the invitation" }).click();
+    await cBob.waitForURL(new RegExp(`/patients/${pid}$`));
+    await cBob.getByRole("heading", { name: "Alice Alpha" }).waitFor();
+    await cBob.getByText("You are an editor").waitFor();
+    // an editor writes
+    await cBob.goto(`${BASE}/patients/${pid}/reminders`);
+    await cBob.fill("#rem_title", `Bob reminder ${stamp}`); await cBob.fill("#rem_due", ymd(2));
+    await submit(cBob, "Add reminder");
+    await cBob.getByText("The reminder was added.").waitFor();
+    // but cannot manage: no members page, no sharing, no way to switch the emergency link on
+    assert((await cBob.goto(`${BASE}/patients/${pid}/members`)).status() === 404, "no members page");
+    await cBob.goto(`${BASE}/patients/${pid}/sharing`);
+    await cBob.getByText("Page not found").waitFor();
+    assert((await cBob.getByRole("link", { name: "New share" }).count()) === 0, "no way to create a share");
+    await cBob.goto(`${BASE}/patients/${pid}/emergency`);
+    await cBob.getByTestId("emergency-card").waitFor();
+    assert((await cBob.getByRole("button", { name: "Switch the link on" }).count()) === 0, "no emergency link controls for an editor");
+    // a used link cannot be used again
+    await cBob.goto(inviteLinkText);
+    await cBob.getByText("This invitation is not available").waitFor();
+    // the owner sees the new member
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const row = page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" });
+    await row.getByText("Editor").waitFor();
+    await page.locator('[data-testid="invite-row"]', { hasText: cBobEmail }).getByText("Accepted").waitFor();
+  });
+
+  await step("members: removing a member ends their access at once", async () => {
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const row = page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" });
+    page.once("dialog", (d) => d.accept());
+    await row.getByRole("button", { name: "Remove" }).click();
+    await page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" }).getByText("Removed").waitFor();
+    assert((await cBob.goto(`${BASE}/patients/${pid}`)).status() === 404, "the removed member loses the file");
+    assert((await cBob.goto(`${BASE}/patients/${pid}/reminders`)).status() === 404, "and its pages");
+    await page.reload();
+    await page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" }).getByText("Removed").waitFor();
+    // the owner cannot be removed
+    assert((await page.locator('[data-testid="member-row"]', { hasText: "Alice Alpha" }).getByRole("button", { name: "Remove" }).count()) === 0, "no remove button for the owner");
+    // a second invitation to the same address replaces the waiting one, and a cancelled one stops working
+    await page.fill("#inv_email", cBobEmail); await page.selectOption("#inv_access", "viewer");
+    await submit(page, "Create the invitation link");
+    const link2 = (await page.getByTestId("invite-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const inv = page.locator('[data-testid="invite-row"]', { hasText: cBobEmail }).filter({ hasText: "Waiting" });
+    page.once("dialog", (d) => d.accept());
+    await inv.getByRole("button", { name: "Cancel invitation" }).click();
+    await page.locator('[data-testid="invite-row"]', { hasText: cBobEmail }).getByText("Cancelled").first().waitFor();
+    await cBob.goto(link2);
+    await cBob.getByText("This invitation is not available").waitFor();
+    await cBobCtx.close();
+  });
+
   // ---------------------------------------------------------------- responsive + RTL
   await step("mobile viewport (Arabic, RTL): no horizontal scroll on key pages", async () => {
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
     await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
     const mp = await m.newPage(); watch(mp, "mobile");
-    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/dental?tab=treatment", "/dental?tab=care", "/medications", "/sharing/new", "/documents", "/timeline"]) {
+    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/dental?tab=treatment", "/dental?tab=care", "/medications", "/sharing/new", "/documents", "/timeline", "/reminders", "/emergency", "/members", "/labs?view=compare"]) {
       const r = await mp.goto(`${BASE}/patients/${pid}${p}`);
       assert(r.status() === 200, `${p} => ${r.status()}`);
       assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");

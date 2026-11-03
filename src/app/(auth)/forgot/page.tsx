@@ -11,7 +11,7 @@ export default function ForgotPage() {
         <div className="card auth-card">
           <h1>{t("استعادة كلمة المرور", "Reset password")}</h1>
           <ActionForm action={requestReset} className="stack">
-            <div className="field"><label htmlFor="email">{t("البريد الإلكتروني", "Email")}</label><input id="email" name="email" type="email" required dir="ltr" /></div>
+            <div className="field"><label htmlFor="email">{t("البريد الإلكتروني", "Email")}</label><input id="email" name="email" type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required dir="ltr" /></div>
             <SubmitButton>{t("أرسل رابط الاستعادة", "Send reset link")}</SubmitButton>
           </ActionForm>
           <p className="small" style={{ marginBlockStart: "1rem" }}><Link href="/login">{t("العودة لتسجيل الدخول", "Back to sign in")}</Link></p>

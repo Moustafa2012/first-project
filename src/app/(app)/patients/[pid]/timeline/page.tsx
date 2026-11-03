@@ -5,6 +5,9 @@ import { getPatient, getSpecialties, specialtyName } from "@/lib/data";
 import { getTz } from "@/lib/auth";
 import { fmtDate, fmtPartialDate } from "@/lib/format";
 import { ENCOUNTER_KIND, lbl, PROCEDURE_KIND, IMAGING_MODALITY, DOC_TYPE } from "@/lib/labels";
+import { EXAM_KIND } from "@/lib/dental";
+import { dxLine } from "@/lib/perio-staging";
+import { CONSENT_KIND } from "@/lib/consent";
 import { qs } from "@/lib/qs";
 import { Chip, Empty, InterpChip, PageHead } from "@/components/ui";
 
@@ -15,6 +18,8 @@ const KINDS: [string, string, string][] = [
   ["visit", "الزيارات", "Visits"], ["lab", "التحاليل", "Lab reports"], ["vital", "القياسات", "Measurements"], ["procedure", "العمليات", "Procedures"],
   ["imaging", "الأشعة", "Imaging"], ["condition", "التشخيصات", "Conditions"], ["medication", "الأدوية", "Medications"], ["immunization", "التطعيمات", "Immunizations"],
   ["document", "المستندات", "Documents"], ["appointment", "المواعيد", "Appointments"], ["note", "الملاحظات", "Notes"], ["symptom", "الأعراض", "Symptoms"],
+  ["dental_exam", "فحوص الأسنان", "Dental exams"], ["perio", "مخططات اللثة", "Periodontal charts"], ["treatment", "علاجات منجزة", "Treatments done"],
+  ["prescription", "الوصفات", "Prescriptions"], ["consent", "الموافقات", "Consents"],
 ];
 
 export default async function TimelinePage({ params, searchParams }: { params: { pid: string }; searchParams: SP }) {
@@ -30,8 +35,12 @@ export default async function TimelinePage({ params, searchParams }: { params: {
   const act: Record<string, string> = spec ? { patient_id: p.id, record_status: "active", specialty_id: spec } : { patient_id: p.id, record_status: "active" };
   const actObs: Record<string, string> = spec ? { patient_id: p.id, specialty_id: spec } : { patient_id: p.id };
   const L = 150;
+  // dental exams, final periodontal charts and completed treatments are dental by nature; a specialty filter other than dentistry hides them
+  const dentId = specs.find((x) => x.code === "dentistry")?.id;
+  const dentOk = !spec || spec === dentId;
+  const base_ = { patient_id: p.id, record_status: "active" };
 
-  const [enc, labs, vit, proc, img, cond, med, imm, doc, apt, note, sym] = await Promise.all([
+  const [enc, labs, vit, proc, img, cond, med, imm, doc, apt, note, sym, dex, pex, tix, rxs, cns] = await Promise.all([
     want("visit") ? supabase.from("encounters").select("id, kind, reason, started_at, specialty_id").match(act).order("started_at", { ascending: false }).limit(L) : null,
     want("lab") ? supabase.from("lab_reports").select("id, title, lab_name, collected_at, specialty_id").match(act).order("collected_at", { ascending: false, nullsFirst: false }).limit(L) : null,
     want("vital") ? supabase.from("observations").select("id, effective_at, value_num, value_num2, unit, interpretation, specialty_id, observation_types!inner(name_ar, name_en, category)").match(actObs).in("status", ["final", "preliminary"]).eq("observation_types.category", "vital").not("interpretation", "in", searchParams.vitals === "all" ? "(none)" : "(normal,not_assessed)").order("effective_at", { ascending: false }).limit(L) : null,
@@ -44,6 +53,11 @@ export default async function TimelinePage({ params, searchParams }: { params: {
     want("appointment") ? supabase.from("appointments").select("id, reason, scheduled_at, status, specialty_id").match(act).order("scheduled_at", { ascending: false }).limit(L) : null,
     want("note") ? supabase.from("clinical_notes").select("id, title, kind, noted_at, specialty_id").match(act).order("noted_at", { ascending: false }).limit(L) : null,
     want("symptom") ? supabase.from("symptom_entries").select("id, symptom, severity, body_site, onset_at, specialty_id").match(act).order("onset_at", { ascending: false }).limit(L) : null,
+    want("dental_exam") && dentOk ? supabase.from("dental_exams").select("id, kind, exam_date, examiner_name, is_baseline").match(base_).order("exam_date", { ascending: false }).limit(L) : null,
+    want("perio") && dentOk ? supabase.from("perio_exams").select("id, exam_date, examiner_name, dx_kind, dx_stage, dx_grade, dx_extent").match(base_).eq("status", "final").order("exam_date", { ascending: false }).limit(L) : null,
+    want("treatment") && dentOk ? supabase.from("treatment_items").select("id, name, teeth, completed_on").match(base_).eq("status", "completed").not("completed_on", "is", null).order("completed_on", { ascending: false }).limit(L) : null,
+    want("prescription") ? supabase.from("prescriptions").select("id, issued_on, prescriber_name, status, specialty_id").match(act).order("issued_on", { ascending: false }).limit(L) : null,
+    want("consent") ? supabase.from("consents").select("id, kind, title, version, signed_at, status, specialty_id, treatment_plan_id").match(act).order("signed_at", { ascending: false }).limit(L) : null,
   ]);
 
   const ev: Ev[] = [];
@@ -60,6 +74,19 @@ export default async function TimelinePage({ params, searchParams }: { params: {
   rows<Record<string, string>>(apt).forEach((r) => ev.push({ at: r.scheduled_at, kind: "appointment", title: r.reason ?? t("موعد", "Appointment"), href: `${base}/appointments`, specialty: r.specialty_id }));
   rows<Record<string, string>>(note).forEach((r) => ev.push({ at: r.noted_at, kind: "note", title: r.title ?? t("ملاحظة", "Note"), href: `${base}/notes`, specialty: r.specialty_id }));
   rows<Record<string, unknown>>(sym).forEach((r) => ev.push({ at: String(r.onset_at), kind: "symptom", title: [r.symptom, r.body_site].filter(Boolean).join(" — "), sub: r.severity != null ? `${t("الشدة", "Severity")} ${r.severity}/10` : undefined, href: `${base}/symptoms`, specialty: r.specialty_id as string | null }));
+  // each entry links to its place in the dental file (or to the list it belongs to)
+  const dental = `${base}/dental`;
+  rows<Record<string, string | boolean | null>>(dex).forEach((r) => ev.push({ at: String(r.exam_date), kind: "dental_exam", title: `${t("فحص أسنان", "Dental exam")} — ${lbl(EXAM_KIND, String(r.kind), lang)}`,
+    sub: [r.is_baseline ? t("فحص أساسي", "Baseline") : "", r.examiner_name].filter(Boolean).join(" · ") || undefined, href: `${dental}?tab=chart#exam-${r.id}`, specialty: dentId }));
+  rows<Record<string, string | null>>(pex).forEach((r) => ev.push({ at: String(r.exam_date), kind: "perio", title: `${t("مخطط اللثة", "Periodontal chart")}${dxLine(r, lang) ? ` — ${dxLine(r, lang)}` : ""}`,
+    sub: r.examiner_name ?? undefined, href: `${dental}?tab=perio`, specialty: dentId }));
+  rows<Record<string, unknown>>(tix).forEach((r) => ev.push({ at: String(r.completed_on), kind: "treatment", title: `${(r.teeth as number[] | null)?.length ? `${(r.teeth as number[]).join(", ")} — ` : ""}${r.name}`,
+    sub: t("علاج منجز", "Treatment completed"), href: `${dental}?tab=treatment`, specialty: dentId }));
+  rows<Record<string, string | null>>(rxs).forEach((r) => ev.push({ at: String(r.issued_on), kind: "prescription", title: `${t("وصفة", "Prescription")} — ${r.prescriber_name}`,
+    sub: r.status === "cancelled" ? t("ملغاة", "Cancelled") : undefined, href: r.specialty_id === dentId ? `${dental}?tab=care#prescriptions` : `${base}/medications#prescriptions`, specialty: r.specialty_id }));
+  rows<Record<string, string | number | null>>(cns).forEach((r) => ev.push({ at: String(r.signed_at), kind: "consent", title: `${r.title}`,
+    sub: `${lbl(CONSENT_KIND, String(r.kind), lang)} · ${t(`النسخة ${r.version}`, `v${r.version}`)}${r.status === "withdrawn" ? ` · ${t("مسحوبة", "withdrawn")}` : ""}`,
+    href: r.specialty_id === dentId || r.treatment_plan_id ? `${dental}?tab=treatment#consents` : undefined, specialty: r.specialty_id as string | null }));
   const dated = ev.filter((e) => !!e.at);
   dated.sort((a, b) => b.at.localeCompare(a.at));
   const shown = dated.slice(0, 400);

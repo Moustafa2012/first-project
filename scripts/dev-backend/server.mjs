@@ -204,8 +204,9 @@ async function handleRest(req, res, url, claims) {
       }
       // a set-returning function answers with its rows, as PostgREST does
       if (meta[0].set) {
-        const { rows } = await c.query(`select * from public.${q(fn)}(${named.join(", ")})`, params);
-        return { status: 200, rows: [rows], scalar: true };
+        // as JSON, like PostgREST: dates stay "YYYY-MM-DD" and numbers stay numbers
+        const { rows } = await c.query(`select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) as j from public.${q(fn)}(${named.join(", ")}) s`, params);
+        return { status: 200, rows: [rows[0].j], scalar: true };
       }
       const { rows } = await c.query(`select public.${q(fn)}(${named.join(", ")}) as result`, params);
       return { status: meta[0].ret === "void" ? 204 : 200, rows: meta[0].ret === "void" ? [] : [rows[0].result], scalar: true };
@@ -279,55 +280,97 @@ async function handleRest(req, res, url, claims) {
 }
 
 // ------------------------------------------------------------------ GoTrue-style auth
-const refreshTokens = new Map();
+// Sessions live in auth.sessions (as in GoTrue): every sign-in opens one, a refresh keeps it, /logout ends one / all / the
+// others, and an access token whose session is gone is refused by /user (403 session_not_found) like GoTrue does.
+const refreshTokens = new Map();              // refresh token -> { uid, sid }
+const attempts = new Map();                   // e-mail -> timestamps of recent failed password sign-ins (rate limit stand-in)
+const RATE_WINDOW_MS = 5 * 60_000, RATE_MAX_FAILURES = 10;
 const userJson = (u) => ({ id: u.id, aud: "authenticated", role: "authenticated", email: u.email, email_confirmed_at: u.created_at, phone: "", app_metadata: { provider: "email", providers: ["email"] }, user_metadata: u.raw_user_meta_data || {}, identities: [], created_at: u.created_at, updated_at: u.created_at });
-function sessionFor(u) {
+const su = async (sql, params) => { const c = await pool.connect(); try { return await c.query(sql, params); } finally { c.release(); } };
+async function sessionFor(u, req, sid) {
   const now = Math.floor(Date.now() / 1000);
-  const access = sign({ aud: "authenticated", exp: now + 3600, iat: now, sub: u.id, email: u.email, role: "authenticated", session_id: crypto.randomUUID() });
+  if (sid) await su("update auth.sessions set updated_at = now() where id = $1", [sid]);
+  else sid = (await su("insert into auth.sessions (user_id, user_agent) values ($1, $2) returning id", [u.id, String(req.headers["user-agent"] || "").slice(0, 400) || null])).rows[0].id;
+  const access = sign({ aud: "authenticated", exp: now + 3600, iat: now, sub: u.id, email: u.email, role: "authenticated", session_id: sid });
   const refresh = crypto.randomBytes(24).toString("base64url");
-  refreshTokens.set(refresh, u.id);
+  refreshTokens.set(refresh, { uid: u.id, sid });
   return { access_token: access, token_type: "bearer", expires_in: 3600, expires_at: now + 3600, refresh_token: refresh, user: userJson(u) };
 }
 const authErr = (res, status, error_code, msg) => json(res, status, { code: status, error_code, msg, error: error_code, error_description: msg });
+const bearerClaims = (req) => { const c = verify(/^Bearer (.+)$/i.exec(req.headers.authorization || "")?.[1]); return c && c.role === "authenticated" && c.sub ? c : null; };
+const sessionAlive = async (c) => !c.session_id || (await su("select 1 from auth.sessions where id = $1 and user_id = $2", [c.session_id, c.sub])).rowCount > 0;
 
 async function handleAuth(req, res, url) {
   const route = url.pathname.replace(/^\/auth\/v1/, "");
-  const body = ["POST", "PUT"].includes(req.method) ? JSON.parse((await readBody(req)).toString() || "{}") : {};
-  const su = async (sql, params) => { const c = await pool.connect(); try { return await c.query(sql, params); } finally { c.release(); } };
+  const body = ["POST", "PUT", "DELETE"].includes(req.method) ? JSON.parse((await readBody(req)).toString() || "{}") : {};
   if (route === "/signup" && req.method === "POST") {
     const email = String(body.email || "").trim().toLowerCase(), password = String(body.password || "");
     if (!/^\S+@\S+\.\S+$/.test(email)) return authErr(res, 422, "validation_failed", "Unable to validate email address: invalid format");
     if (password.length < 6) return authErr(res, 422, "weak_password", "Password should be at least 6 characters.");
+    if (Buffer.byteLength(password) > 72) return authErr(res, 422, "validation_failed", "Password cannot be longer than 72 characters.");
     const ex = await su("select 1 from auth.users where email = $1", [email]);
     if (ex.rowCount) return authErr(res, 422, "user_already_exists", "User already registered");
     const r = await su("insert into auth.users (email, raw_user_meta_data) values ($1, $2) returning *", [email, JSON.stringify(body.data || {})]);
     await su("insert into auth.shim_passwords (user_id, hash) values ($1, extensions.crypt($2, extensions.gen_salt('bf', 6)))", [r.rows[0].id, password]);
-    return json(res, 200, sessionFor(r.rows[0]));
+    return json(res, 200, await sessionFor(r.rows[0], req));
   }
   if (route === "/token" && req.method === "POST") {
     const grant = url.searchParams.get("grant_type");
     if (grant === "password") {
-      const r = await su("select u.* from auth.users u join auth.shim_passwords p on p.user_id = u.id where u.email = $1 and p.hash = extensions.crypt($2, p.hash)", [String(body.email || "").trim().toLowerCase(), String(body.password || "")]);
-      if (!r.rowCount) return authErr(res, 400, "invalid_credentials", "Invalid login credentials");
-      return json(res, 200, sessionFor(r.rows[0]));
+      const email = String(body.email || "").trim().toLowerCase();
+      const recent = (attempts.get(email) || []).filter((at) => Date.now() - at < RATE_WINDOW_MS);
+      if (recent.length >= RATE_MAX_FAILURES) return authErr(res, 429, "over_request_rate_limit", "Request rate limit reached");
+      const r = await su("select u.* from auth.users u join auth.shim_passwords p on p.user_id = u.id where u.email = $1 and u.deleted_at is null and p.hash = extensions.crypt($2, p.hash)", [email, String(body.password || "")]);
+      if (!r.rowCount) { attempts.set(email, [...recent, Date.now()]); return authErr(res, 400, "invalid_credentials", "Invalid login credentials"); }
+      attempts.delete(email);
+      return json(res, 200, await sessionFor(r.rows[0], req));
     }
     if (grant === "refresh_token") {
-      const uid = refreshTokens.get(body.refresh_token);
-      if (!uid) return authErr(res, 400, "refresh_token_not_found", "Invalid Refresh Token: Refresh Token Not Found");
+      const rt = refreshTokens.get(body.refresh_token);
+      if (!rt) return authErr(res, 400, "refresh_token_not_found", "Invalid Refresh Token: Refresh Token Not Found");
       refreshTokens.delete(body.refresh_token);
-      const r = await su("select * from auth.users where id = $1", [uid]);
-      return json(res, 200, sessionFor(r.rows[0]));
+      const alive = await su("select 1 from auth.sessions where id = $1 and user_id = $2", [rt.sid, rt.uid]);
+      if (!alive.rowCount) return authErr(res, 400, "refresh_token_not_found", "Invalid Refresh Token: Session Not Found");
+      const r = await su("select * from auth.users where id = $1 and deleted_at is null", [rt.uid]);
+      if (!r.rowCount) return authErr(res, 400, "refresh_token_not_found", "Invalid Refresh Token: User Not Found");
+      return json(res, 200, await sessionFor(r.rows[0], req, rt.sid));
     }
   }
   if (route === "/user") {
-    const c = verify(/^Bearer (.+)$/i.exec(req.headers.authorization || "")?.[1]);
-    if (!c || c.role !== "authenticated") return authErr(res, 401, "bad_jwt", "invalid JWT");
+    const c = bearerClaims(req);
+    if (!c) return authErr(res, 401, "bad_jwt", "invalid JWT");
+    if (!(await sessionAlive(c))) return authErr(res, 403, "session_not_found", "Session from session_id claim in JWT does not exist");
     if (req.method === "PUT" && body.password) await su("update auth.shim_passwords set hash = extensions.crypt($2, extensions.gen_salt('bf', 6)) where user_id = $1", [c.sub, String(body.password)]);
     const r = await su("select * from auth.users where id = $1", [c.sub]);
     if (!r.rowCount) return authErr(res, 401, "user_not_found", "User from sub claim in JWT does not exist");
     return json(res, 200, userJson(r.rows[0]));
   }
-  if (route === "/logout") { res.writeHead(204); return res.end(); }
+  if (route === "/logout" && req.method === "POST") {
+    const c = bearerClaims(req);
+    if (!c) return authErr(res, 401, "bad_jwt", "invalid JWT");
+    const scope = url.searchParams.get("scope") || "global";
+    if (!["global", "local", "others"].includes(scope)) return authErr(res, 400, "validation_failed", "scope must be global, local or others");
+    if (scope === "global") await su("delete from auth.sessions where user_id = $1", [c.sub]);
+    else if (scope === "others") await su("delete from auth.sessions where user_id = $1 and id is distinct from $2", [c.sub, c.session_id || null]);
+    else if (c.session_id) await su("delete from auth.sessions where id = $1 and user_id = $2", [c.session_id, c.sub]);
+    res.writeHead(204); return res.end();
+  }
+  // admin API (service role): DELETE /admin/users/:id, body { should_soft_delete }. A hard delete fails while other rows still reference the user.
+  const adminUser = /^\/admin\/users\/([0-9a-f-]{36})$/.exec(route);
+  if (adminUser && req.method === "DELETE") {
+    if (claimsOf(req).role !== "service_role") return authErr(res, 403, "not_admin", "User not allowed");
+    const id = adminUser[1];
+    if (!(await su("select 1 from auth.users where id = $1", [id])).rowCount) return authErr(res, 404, "user_not_found", "User not found");
+    if (body.should_soft_delete) {
+      await su("delete from auth.sessions where user_id = $1", [id]);
+      await su("delete from auth.shim_passwords where user_id = $1", [id]);
+      await su("update auth.users set email = 'deleted+' || id::text || '@invalid.local', deleted_at = now(), raw_user_meta_data = '{}'::jsonb where id = $1", [id]);
+    } else {
+      try { await su("delete from auth.users where id = $1", [id]); }
+      catch (e) { return authErr(res, 500, "unexpected_failure", "Database error deleting user"); }
+    }
+    return json(res, 200, {});
+  }
   if (route === "/recover") return json(res, 200, {});
   if (route === "/settings") return json(res, 200, { external: { email: true }, disable_signup: false, mailer_autoconfirm: true });
   return authErr(res, 501, "not_implemented", `${route} is not implemented by the test backend`);

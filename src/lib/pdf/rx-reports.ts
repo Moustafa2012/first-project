@@ -25,7 +25,7 @@ export const patientFromRow = (p: PatientRow): PdfPatient => ({
   blood: p.blood_abo ? `${p.blood_abo}${p.blood_rh ?? ""}` : null, verified: p.blood_group_verified, phone: p.phone,
 });
 
-function headline(p: PdfPatient, lang: Lang, tz: string): ReportMeta["headline"] {
+export function headline(p: PdfPatient, lang: Lang, tz: string): ReportMeta["headline"] {
   const t = tx(lang);
   return {
     name: lang === "en" && p.full_name_en ? p.full_name_en : p.full_name,

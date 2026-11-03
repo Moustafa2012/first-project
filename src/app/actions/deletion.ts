@@ -1,24 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { hasServiceRole } from "@/lib/supabase/admin";
-import { publicEnv } from "@/lib/env";
+import { verifyPassword } from "@/lib/password-check";
 import { explainError, requireUser } from "@/lib/auth";
 import { i18n } from "@/lib/i18n";
 import { UUID_RE } from "@/lib/data";
 import { purgePatient } from "@/lib/purge";
 import type { FormState } from "@/components/ui/client";
-
-/** Re-checks the password of the signed-in user without touching their session (a throw-away client). */
-async function passwordOk(email: string, password: string): Promise<boolean> {
-  if (!email || !password) return false;
-  const { url, key } = publicEnv();
-  const c = createSupabaseClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-  const { error } = await c.auth.signInWithPassword({ email, password });
-  return !error;
-}
 
 const field = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
 
@@ -28,7 +18,7 @@ export async function requestDeletion(_: FormState, fd: FormData): Promise<FormS
   const pid = field(fd, "_pid");
   if (!UUID_RE.test(pid)) return { error: t("طلب غير صالح.", "Invalid request.") };
   if (fd.get("ack") !== "on") return { error: t("أكّد أنك فهمت ما سيحدث.", "Confirm that you understand what will happen.") };
-  if (!(await passwordOk(user.email ?? "", String(fd.get("password") ?? "")))) return { error: t("كلمة المرور غير صحيحة.", "Incorrect password.") };
+  if (!(await verifyPassword(user.email ?? "", String(fd.get("password") ?? "")))) return { error: t("كلمة المرور غير صحيحة.", "Incorrect password.") };
   const { error } = await createClient().rpc("patient_request_deletion", { p_patient: pid, p_confirm: field(fd, "confirm") });
   if (error) return { error: explainError(error, t) };
   revalidatePath("/patients", "layout");
@@ -53,7 +43,7 @@ export async function deleteNow(_: FormState, fd: FormData): Promise<FormState> 
   const pid = field(fd, "_pid");
   if (!UUID_RE.test(pid)) return { error: t("طلب غير صالح.", "Invalid request.") };
   if (!hasServiceRole()) return { error: t("الحذف النهائي غير مُفعَّل على الخادم.", "Permanent deletion is not enabled on the server.") };
-  if (!(await passwordOk(user.email ?? "", String(fd.get("password") ?? "")))) return { error: t("كلمة المرور غير صحيحة.", "Incorrect password.") };
+  if (!(await verifyPassword(user.email ?? "", String(fd.get("password") ?? "")))) return { error: t("كلمة المرور غير صحيحة.", "Incorrect password.") };
 
   const supabase = createClient();
   const [{ data: p }, { data: m }] = await Promise.all([

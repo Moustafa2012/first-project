@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isConfigured, publicEnv } from "@/lib/env";
 
-const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot", "/auth", "/s/", "/api/health", "/api/cron/"];
+const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot", "/auth", "/s/", "/e/", "/api/health", "/api/cron/"];
 
 /** Refreshes the auth cookies and redirects anonymous visitors away from private pages. */
 export async function updateSession(request: NextRequest) {
@@ -12,7 +12,9 @@ export async function updateSession(request: NextRequest) {
   if (!isConfigured()) return response;
 
   const { url, key } = publicEnv();
+  const ua = request.headers.get("user-agent");
   const supabase = createServerClient(url, key, {
+    global: ua ? { headers: { "User-Agent": ua.slice(0, 400) } } : undefined,
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (list) => {

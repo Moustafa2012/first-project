@@ -2017,6 +2017,250 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await pdfOk(page.request, `${BASE}/api/patients/${pid}/consents/${await pc.getAttribute("data-consent")}/pdf`, "presented consent");
   });
 
+  // ---------------------------------------------------------------- the dental summary (ح4)
+  // A file of its own whose records are seeded here, so every figure below is exact; the shared test file above holds many records.
+  let sumPid = "";
+  const sumKey = process.env.SUPABASE_SERVICE_ROLE_KEY, sumUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const sumHeaders = { apikey: sumKey, Authorization: `Bearer ${sumKey}`, "Content-Type": "application/json", Prefer: "return=representation" };
+  const sumRest = async (method, table, query, body) => {
+    const r = await fetch(`${sumUrl}/rest/v1/${table}${query}`, { method, headers: sumHeaders, body: body === undefined ? undefined : JSON.stringify(body) });
+    const text = await r.text();
+    assert(r.ok, `${method} ${table}: ${r.status} ${text.slice(0, 200)}`);
+    return JSON.parse(text);
+  };
+  const sumDay = (n) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  // the text of a PDF when pdftotext is installed (the checks that read it are skipped otherwise)
+  const pdfText = (buf) => {
+    try { return execFileSync("pdftotext", ["-layout", "-", "-"], { input: buf, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }); } catch { return null; }
+  };
+  // the facts of the summary card, in one place: the same for the patient's page and for the doctor's link
+  const expectSummaryFacts = async (root, label) => {
+    const tile = (k) => root.locator(`[data-sum="${k}"]`);
+    const n = async (k, key) => (await tile(k).locator(`[data-sum-n="${key}"]`).innerText()).trim();
+    assert((await n("chart", "missing")) === "2" && (await n("chart", "restored")) === "2" && (await n("chart", "implants")) === "1" && (await n("chart", "open")) === "1", `${label}: the chart counts`);
+    const chart = await tile("chart").innerText();
+    assert(/18, 36/.test(chart) && /14, 26/.test(chart) && /\b46\b/.test(chart) && /\b16\b/.test(chart), `${label}: the teeth behind the counts: ${chart}`);
+    await tile("baseline").getByText("Dr Base").waitFor();
+    await tile("soft-tissue").getByText(/Suspicious lesion still open/i).waitFor();
+    await tile("soft-tissue").getByText(/Ulcer on the left cheek/).waitFor();
+    await tile("perio").getByText("Periodontitis — Stage II, Grade B, Localized").waitFor();
+    await tile("perio").locator('[data-sum="perio-change"]').getByText(/worse/i).first().waitFor();
+    await tile("perio").locator('[data-sum="perio-change"]').getByText(/attachment worsened at 1 site/).waitFor();
+    const pulp = await tile("pulp").innerText();
+    assert(/26\s+Cold: Lingering pain/.test(pulp) && /16\s+Percussion: Tender/.test(pulp) && !/Cold: Normal/.test(pulp) && !/\b14\b/.test(pulp), `${label}: only the abnormal pulp tests: ${pulp}`);
+    await tile("image").getByText("Panoramic").first().waitFor();
+    await tile("image").locator('[data-sum="bone"]').getByText(/S1 Coronal third/).waitFor();
+    await tile("image").getByText("Mild generalised bone loss").waitFor();
+    assert((await n("treatment", "proposed")) === "1" && (await n("treatment", "accepted")) === "2" && (await n("treatment", "completed")) === "1", `${label}: the treatment counts`);
+    const tr = await tile("treatment").innerText();
+    assert(/Scaling and polishing/.test(tr) && /Root canal treatment/.test(tr) && /Filling 16/.test(tr) && /Fissure sealant 14/.test(tr), `${label}: the treatments named: ${tr}`);
+    await tile("safety").getByText(/latex allergy/i).waitFor();
+    await tile("recall").getByText(/Dental check-up/).waitFor();
+    await tile("recall").getByText(/overdue/i).waitFor();
+  };
+
+  await step("dental summary: the patient's page shows the current chart, baseline, open lesion, periodontal diagnosis and change, abnormal pulp tests, the whole-mouth image and its bone reading, treatment, alerts and recall", async () => {
+    await page.goto(`${BASE}/patients/new`);
+    await page.fill("#full_name", "Sami Summary"); await page.fill("#full_name_en", "Sami Summary");
+    await page.fill("#date_of_birth", "1985-05-01"); await page.selectOption("#sex", "male");
+    await submit(page, "Create file");
+    await page.waitForURL(/\/patients\/[0-9a-f-]{36}\/profile\?new=1$/);
+    sumPid = page.url().split("/")[4];
+    // the empty file says so
+    await page.goto(`${BASE}/patients/${sumPid}/dental`);
+    await page.locator("#dental-summary").getByText("The dental file has nothing to summarise yet.").waitFor();
+    // the records, written the way the file would hold them (RLS is bypassed on purpose: this is fixture data)
+    const dentId = (await sumRest("GET", "medical_specialties", "?code=eq.dentistry&select=id"))[0].id;
+    const [e1] = await sumRest("POST", "dental_exams", "", { patient_id: sumPid, specialty_id: dentId, exam_date: sumDay(300), kind: "comprehensive", dentition: "permanent", examiner_name: "Dr Base", is_baseline: true,
+      sections: { soft_tissue: { cancer_screening: "suspicious", note: "Ulcer on the left cheek" } } });
+    await sumRest("POST", "dental_tooth_states", "", [[18, "extracted"], [36, "missing"], [46, "present"], [26, "present"], [16, "present"], [14, "present"], [28, "present"]]
+      .map(([tooth, status]) => ({ patient_id: sumPid, exam_id: e1.id, tooth, status })));
+    await sumRest("POST", "dental_findings", "", [[16, "caries"], [26, "filling"], [14, "crown"], [46, "implant"]]
+      .map(([tooth, kind]) => ({ patient_id: sumPid, specialty_id: dentId, exam_id: e1.id, tooth, kind, surfaces: [], evidence: "clinical", observed_on: sumDay(300) })));
+    await sumRest("POST", "dental_pulp_tests", "", [{ tooth: 26, test: "cold", result: "lingering" }, { tooth: 14, test: "cold", result: "normal" }, { tooth: 16, test: "percussion", result: "tender" }]
+      .map((x) => ({ patient_id: sumPid, exam_id: e1.id, ...x })));
+    for (const [date, pd, dx] of [[sumDay(200), [3, 3, 3, 3, 3, 3], { dx_kind: "gingivitis" }], [sumDay(20), [3, 3, 7, 3, 3, 3], { dx_kind: "periodontitis", dx_stage: "II", dx_grade: "B", dx_extent: "localized" }]]) {
+      const [pe] = await sumRest("POST", "perio_exams", "", { patient_id: sumPid, specialty_id: dentId, exam_date: date, status: "draft", examiner_name: "Dr Gums" });
+      await sumRest("POST", "perio_teeth", "", [{ patient_id: sumPid, exam_id: pe.id, tooth: 16, pd, gm: [0, 0, 0, 0, 0, 0] }]);
+      await sumRest("PATCH", "perio_exams", `?id=eq.${pe.id}`, { status: "final", finalized_at: new Date().toISOString(), ...dx });
+    }
+    await sumRest("POST", "imaging_studies", "", { patient_id: sumPid, specialty_id: dentId, modality: "panoramic", performed_on: sumDay(100), impression: "Mild generalised bone loss",
+      bone_levels: { s1: { level: "coronal_third", pattern: "horizontal" } } });
+    const [plan] = await sumRest("POST", "treatment_plans", "", { patient_id: sumPid, specialty_id: dentId, title: "Summary plan", status: "proposed", presented_by: "Dr Plan" });
+    const items = await sumRest("POST", "treatment_items", "", [
+      { name: "Scaling and polishing", phase: 1 }, { name: "Root canal treatment", teeth: [26], phase: 1 }, { name: "Filling 16", teeth: [16], phase: 2 }, { name: "Fissure sealant 14", teeth: [14], phase: 1 },
+    ].map((x) => ({ patient_id: sumPid, plan_id: plan.id, status: "proposed", ...x })));
+    await sumRest("PATCH", "treatment_plans", `?id=eq.${plan.id}`, { status: "accepted", accepted_on: sumDay(70) });
+    const itemId = (name) => items.find((i) => i.name === name).id;
+    for (const [name, patch] of [["Root canal treatment", { status: "accepted" }], ["Filling 16", { status: "accepted" }], ["Filling 16", { status: "scheduled", scheduled_for: sumDay(-20) }], ["Fissure sealant 14", { status: "accepted" }]]) {
+      await sumRest("PATCH", "treatment_items", `?id=eq.${itemId(name)}`, patch);
+    }
+    await sumRest("POST", "recalls", "", { patient_id: sumPid, specialty_id: dentId, kind: "dental_checkup", interval_months: 6, due_on: sumDay(5) });
+    await sumRest("POST", "allergies", "", { patient_id: sumPid, substance: "Latex gloves", category: "latex", severity: "moderate" });
+    await sumRest("POST", "prescriptions", "", { patient_id: sumPid, specialty_id: dentId, prescriber_name: "Dr Rx Summary", issued_on: sumDay(15) });
+    await sumRest("POST", "consents", "", { patient_id: sumPid, specialty_id: dentId, kind: "treatment", title: "Consent for the summary plan", body: "I agree to the plan.", treatment_plan_id: plan.id,
+      signer_name: "Sami Summary", signer_role: "patient", signature_path: `${sumPid}/signatures/seed.png`, signed_at: new Date(Date.now() - 10 * 86_400_000).toISOString() });
+    // completing a treatment goes through the app (the database refuses any other way)
+    await page.goto(`${BASE}/patients/${sumPid}/dental?tab=treatment`);
+    const seal = page.locator("li.treat-item", { hasText: "Fissure sealant 14" });
+    await seal.locator("summary", { hasText: "Change status" }).click();
+    await seal.locator('select[name="status"]').selectOption("completed");
+    await seal.getByRole("button", { name: "Save the status" }).click();
+    await page.locator("li.treat-item", { hasText: "Fissure sealant 14" }).getByText("Completed", { exact: true }).waitFor();
+    // the summary sits at the top of the dental page
+    await page.goto(`${BASE}/patients/${sumPid}/dental`);
+    const root = page.locator("#dental-summary");
+    await root.getByRole("heading", { name: "Dental summary" }).waitFor();
+    await expectSummaryFacts(root, "patient");
+    const order = await page.evaluate(() => ["#dental-summary", "#chart"].map((q) => document.querySelector(q).getBoundingClientRect().top + window.scrollY));
+    assert(order[0] < order[1], "the summary comes before the chart: " + order);
+    // each fact links to the place it comes from
+    assert((await root.locator('[data-sum="baseline"] a').getAttribute("href")).startsWith("#exam-"), "the baseline links to its exam");
+    assert(/tab=perio/.test(await root.locator('[data-sum="perio"] a').last().getAttribute("href")), "the diagnosis links to the periodontal chart");
+    assert(/tab=treatment/.test(await root.locator('[data-sum="treatment"] a').last().getAttribute("href")), "the treatment links to the plans");
+    await page.screenshot({ path: path.join(OUT, "dental-summary.png"), fullPage: true });
+  });
+
+  await step("dental summary: the PDF of the patient's file carries the same facts (and nothing the font lacks)", async () => {
+    await page.goto(`${BASE}/patients/${sumPid}/dental`);
+    const href = await page.locator("#dental-summary").getByRole("link", { name: /Dental summary \(PDF\)/ }).getAttribute("href");
+    assert(href === `/api/patients/${sumPid}/dental/summary/pdf`, "the PDF link: " + href);
+    const r = await page.request.get(`${BASE}${href}`);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]) && /no-store/.test(r.headers()["cache-control"]), "pdf " + r.status());
+    const buf = await r.body();
+    assert(buf.subarray(0, 5).toString() === "%PDF-" && buf.length > 4000, "a real PDF document (" + buf.length + " bytes)");
+    fs.writeFileSync(path.join(OUT, "dental-summary.pdf"), buf);
+    const text = pdfText(buf);
+    if (text) {
+      for (const needle of ["Dental summary", "Sami Summary", "Dr Base", "Ulcer on the left cheek", "Periodontitis", "Stage II, Grade B, Localized", "Fissure sealant 14", "Root canal treatment", "Mild generalised bone loss", "Lingering pain", "Latex allergy", "Dental check-up", "Overdue"]) {
+        assert(text.includes(needle), `the PDF says "${needle}"`);
+      }
+    }
+    assert((await page.request.get(`${BASE}${href}?dl=1`)).headers()["content-disposition"]?.startsWith("attachment"), "dl=1 downloads");
+    await ctx.addCookies([{ name: "lang", value: "ar", url: BASE }]);
+    const rAr = await page.request.get(`${BASE}${href}`);
+    await ctx.addCookies([{ name: "lang", value: "en", url: BASE }]);
+    const arBuf = await rAr.body();
+    assert(rAr.status() === 200 && arBuf.subarray(0, 5).toString() === "%PDF-", "the Arabic PDF renders: " + rAr.status());
+    fs.writeFileSync(path.join(OUT, "dental-summary-ar.pdf"), arBuf);
+    // another account cannot print this file, and a request without a session gets nothing
+    const octx = await newContext(browser); const other = await octx.newPage(); watch(other, "other-summary");
+    await signup(other, `sum-other-${stamp}@example.test`, "Summary Other");
+    const denied = await other.request.get(`${BASE}${href}`);
+    assert(denied.status() === 404, "another account gets nothing: " + denied.status());
+    await octx.close();
+    const anon = await newContext(browser);
+    const noSession = await anon.request.get(`${BASE}${href}`, { maxRedirects: 0 });
+    assert(noSession.status() === 401 || noSession.status() === 307, "the PDF needs a session: " + noSession.status());
+    await anon.close();
+  });
+
+  await step("dental summary: the timeline lists the dental exam, the final periodontal charts, the completed treatment, the prescription and the consent, each linking to its place", async () => {
+    await page.goto(`${BASE}/patients/${sumPid}/timeline`);
+    const entry = (text) => page.locator("ol.timeline li", { hasText: text }).first();
+    await entry("Dental exam — Comprehensive exam").waitFor();
+    assert((await entry("Dental exam — Comprehensive exam").locator("a").first().getAttribute("href")).includes(`/patients/${sumPid}/dental?tab=chart#exam-`), "the exam links to its card");
+    await entry("Periodontal chart — Periodontitis — Stage II").waitFor();
+    assert((await page.locator("ol.timeline li", { hasText: "Periodontal chart — Gingivitis" }).count()) === 1, "the earlier final chart is listed too");
+    assert((await entry("Periodontal chart — Periodontitis").locator("a").first().getAttribute("href")).endsWith("/dental?tab=perio"), "the chart links to the periodontal tab");
+    await entry("Treatment completed").getByText("Fissure sealant 14").waitFor();
+    assert((await entry("Treatment completed").locator("a").first().getAttribute("href")).endsWith("/dental?tab=treatment"), "the treatment links to the plan");
+    await entry("Prescription — Dr Rx Summary").waitFor();
+    assert((await entry("Prescription — Dr Rx Summary").locator("a").first().getAttribute("href")).endsWith("/dental?tab=care#prescriptions"), "the prescription links to the dental care tab");
+    await entry("Consent for the summary plan").getByText(/Consent to treatment · v1/).waitFor();
+    assert((await entry("Consent for the summary plan").locator("a").first().getAttribute("href")).endsWith("/dental?tab=treatment#consents"), "the consent links to the signed consents");
+    // the filters
+    await page.goto(`${BASE}/patients/${sumPid}/timeline?kind=perio`);
+    assert((await page.locator("ol.timeline li", { hasText: "Periodontal chart" }).count()) === 2 && (await page.locator("ol.timeline li", { hasText: "Prescription" }).count()) === 0, "the periodontal filter lists the two charts only");
+    await page.goto(`${BASE}/patients/${sumPid}/timeline?kind=consent`);
+    await page.locator("ol.timeline li", { hasText: "Consent for the summary plan" }).waitFor();
+    // a specialty other than dentistry hides the dental events
+    const cardio = await page.locator('select[name="specialty"] option', { hasText: "Cardiology" }).first().getAttribute("value");
+    await page.goto(`${BASE}/patients/${sumPid}/timeline?specialty=${cardio}`);
+    assert((await page.locator("ol.timeline li", { hasText: "Dental exam" }).count()) === 0, "dental events are not listed under another specialty");
+  });
+
+  await step("dental summary: a doctor on a link sees the same summary within the scope; the summary PDF follows the print permission", async () => {
+    // a link without printing
+    await page.goto(`${BASE}/patients/${sumPid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await fillClinician(page, "Dr Summary Reader");
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const linkNp = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pinNp = await page.locator('input[aria-label="PIN"]').inputValue();
+    const cn = await newContext(browser); const dn = await cn.newPage(); watch(dn, "summary-noprint");
+    await dn.goto(linkNp); await dn.fill("#pin", pinNp); await dn.getByRole("button", { name: "Open file" }).click(); await dn.waitForURL(/\/view$/);
+    await dn.locator("#dental-summary").getByRole("heading", { name: "Dental summary" }).waitFor();
+    assert((await dn.locator("#dental-summary").getByRole("link", { name: /Dental summary \(PDF\)/ }).count()) === 0, "no PDF link without the print permission");
+    assert((await cn.request.get(`${BASE}/s/${linkNp.split("/s/")[1]}/dental/pdf`)).status() === 403, "the summary PDF is refused when printing is not allowed");
+    await cn.close();
+    // a link that allows printing
+    await page.goto(`${BASE}/patients/${sumPid}/sharing/new?specialty=dentistry`);
+    await page.getByText("Always included (for safety)").waitFor();
+    await page.check('input[name="allow_print"]');
+    await fillClinician(page, "Dr Summary Printer");
+    await submit(page, "Create link & PIN");
+    await page.getByText("Share created").waitFor();
+    const link = (await page.locator('input[aria-label="Share link"]').inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.getByRole("button", { name: "Show" }).click();
+    const pin = await page.locator('input[aria-label="PIN"]').inputValue();
+    const c = await newContext(browser); const d = await c.newPage(); watch(d, "summary-doctor");
+    await d.goto(link); await d.fill("#pin", pin); await d.getByRole("button", { name: "Open file" }).click(); await d.waitForURL(/\/view$/);
+    const root = d.locator("#dental-summary");
+    await root.getByRole("heading", { name: "Dental summary" }).waitFor();
+    await expectSummaryFacts(root, "doctor");
+    const order = await d.evaluate(() => ["#dental-summary", "#dental"].map((q) => document.querySelector(q).getBoundingClientRect().top + window.scrollY));
+    assert(order[0] < order[1], "the summary comes before the tooth chart on the doctor's page: " + order);
+    await d.screenshot({ path: path.join(OUT, "dental-summary-doctor.png"), fullPage: true });
+    const token = link.split("/s/")[1];
+    const href = await root.getByRole("link", { name: /Dental summary \(PDF\)/ }).getAttribute("href");
+    assert(href === `/s/${token}/dental/pdf`, "the doctor's PDF link: " + href);
+    const r = await c.request.get(`${BASE}${href}`);
+    assert(r.status() === 200 && /application\/pdf/.test(r.headers()["content-type"]) && /no-store/.test(r.headers()["cache-control"]), "doctor pdf " + r.status());
+    const buf = await r.body();
+    assert(buf.subarray(0, 5).toString() === "%PDF-" && buf.length > 4000, "a real PDF document (" + buf.length + " bytes)");
+    fs.writeFileSync(path.join(OUT, "dental-summary-doctor.pdf"), buf);
+    const text = pdfText(buf);
+    if (text) for (const needle of ["Dental summary", "Dr Base", "Stage II, Grade B, Localized", "Fissure sealant 14", "Lingering pain", "Mild generalised bone loss", "Latex allergy"]) assert(text.includes(needle), `the doctor's PDF says "${needle}"`);
+    const anon = await newContext(browser);
+    assert((await anon.request.get(`${BASE}${href}`)).status() === 401, "the doctor's PDF needs a session");
+    await anon.close();
+    // the doctor on a phone, in Arabic: the summary fits the width
+    const mc = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
+    await mc.addCookies([...(await c.cookies()).filter((x) => x.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
+    const m = await mc.newPage(); watch(m, "summary-doctor-mobile");
+    await m.goto(`${BASE}/s/${token}/view`);
+    await m.locator("#dental-summary").getByRole("heading", { name: "ملخص الأسنان" }).waitFor();
+    assert((await m.locator("html").getAttribute("dir")) === "rtl", "rtl");
+    const over = await m.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(over <= 1, `horizontal overflow of ${over}px on the doctor's summary`);
+    await m.screenshot({ path: path.join(OUT, "dental-summary-doctor-ar-mobile.png"), fullPage: true });
+    await mc.close(); await c.close();
+  });
+
+  await step("dental summary: in Arabic on a phone the patient's summary and timeline fit the width", async () => {
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
+    await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); watch(mp, "summary-mobile");
+    for (const p of ["/dental", "/timeline"]) {
+      const r = await mp.goto(`${BASE}/patients/${sumPid}${p}`);
+      assert(r.status() === 200, `${p} => ${r.status()}`);
+      assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
+      if (p === "/dental") {
+        await mp.locator("#dental-summary").getByRole("heading", { name: "ملخص الأسنان" }).waitFor();
+        await mp.locator('#dental-summary [data-sum="perio"]').getByText(/المرحلة II/).waitFor();
+      }
+      const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      const culprits = over > 1 ? await mp.evaluate(() => [...document.querySelectorAll("body *")].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > document.documentElement.clientWidth + 1 || r.left < -1); })
+        .slice(0, 4).map((el) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className).split(" ")[0]}`)) : [];
+      assert(over <= 1, `horizontal overflow of ${over}px on ${p} (${culprits.join(", ")})`);
+      if (p === "/dental") await mp.screenshot({ path: path.join(OUT, "dental-summary-ar-mobile.png"), fullPage: true });
+    }
+    await m.close();
+  });
+
   await step("safety rules: an administrator reviews, edits and deactivates a rule; the review is recorded and cleared by an edit; others cannot open the page", async () => {
     const actx = await newContext(browser); const adm = await actx.newPage(); watch(adm, "rules-admin");
     const who = `Rules Admin ${stamp}`;
@@ -2191,12 +2435,558 @@ const submit = async (scope, name) => { await scope.getByRole("button", { name, 
     await page.locator("header.patient-head, header.card").first().waitFor();
   });
 
+  // ---------------------------------------------------------------- account: sessions, activity, deletion (migration 0032)
+  // Every scenario creates its own throw-away accounts; nothing of the accounts above is touched.
+  const PW = "correct-horse-battery";
+  const pgq = async (text, params = []) => {
+    const { Client } = require("pg");
+    const c = new Client({ host: process.env.SHIM_PGHOST, port: Number(process.env.SHIM_PGPORT), user: "postgres", database: "app" });
+    await c.connect();
+    try { return await c.query(text, params); } finally { await c.end(); }
+  };
+  const uidOf = async (email) => (await pgq("select id from auth.users where email = $1", [email])).rows[0]?.id;
+  const throwaway = async (tag, name, extra = {}) => {
+    const email = `${tag}-${stamp}@example.test`;
+    const tctx = await newContext(browser, extra); const tpage = await tctx.newPage(); watch(tpage, tag);
+    await signup(tpage, email, name);
+    return { email, ctx: tctx, page: tpage };
+  };
+  const signIn = async (p, email, pw = PW) => {
+    await p.goto(`${BASE}/login`); await p.fill("#email", email); await p.fill("#password", pw);
+    await p.getByRole("button", { name: "Sign in", exact: true }).click();
+  };
+  const cron = (secret) => fetch(`${BASE}/api/cron/purge`, secret === undefined ? {} : { headers: { authorization: `Bearer ${secret}` } });
+  const fileFor = async (p, name) => {
+    await p.goto(`${BASE}/patients/new`);
+    await p.fill("#full_name", name); await p.fill("#date_of_birth", "1985-05-05"); await p.selectOption("#sex", "male");
+    await submit(p, "Create file");
+    await p.waitForURL(/\/patients\/[0-9a-f-]{36}\/profile\?new=1$/);
+    return p.url().split("/")[4];
+  };
+  let sess = null;
+
+  await step("sessions: a second browser signs in, both are listed with this one marked, ending the other signs it out; sign out all others; a new password signs the others out", async () => {
+    sess = await throwaway("sess", "Session Tester");
+    const phoneUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1";
+    const ctx2 = await newContext(browser, { userAgent: phoneUA }); const p2 = await ctx2.newPage(); watch(p2, "sess2");
+    await signIn(p2, sess.email); await p2.waitForURL(/\/patients$/);
+    const me = sess.page;
+    await me.goto(`${BASE}/account#sessions`);
+    const items = me.locator(".session-item");
+    await items.nth(1).waitFor();
+    assert((await items.count()) === 2, "two sessions are listed");
+    const mine = me.locator(".session-item[data-current='true']");
+    assert((await mine.count()) === 1 && /this device/i.test(await mine.innerText()) && /Chrome/.test(await mine.innerText()), "this device is marked and named");
+    const other = items.filter({ hasText: "Safari on iOS" });
+    assert((await other.count()) === 1 && (await other.getByRole("button").count()) === 1, "the phone is listed with its approximate device and a sign-out button");
+    assert((await mine.getByRole("button").count()) === 0, "the current session has no sign-out button");
+    await p2.goto(`${BASE}/account`); await p2.getByRole("heading", { name: "My account" }).waitFor();
+    await other.getByRole("button", { name: "Sign out the session on Safari on iOS" }).click();
+    await me.waitForFunction(() => document.querySelectorAll(".session-item").length === 1);
+    await p2.goto(`${BASE}/patients`); await p2.waitForURL(/\/login/);
+    // the activity log names the sign-ins and the change
+    await me.reload();
+    const act = me.locator(".activity-list");
+    assert((await act.getByText("Signed in", { exact: true }).count()) >= 2, "both sign-ins are in the activity");
+    assert((await act.getByText("A session was signed out").count()) === 1, "ending a session is in the activity");
+    assert((await act.getByText("Safari on iOS").count()) >= 1, "with the approximate device");
+    // two more devices, then "sign out all other sessions"
+    const ctx3 = await newContext(browser); const p3 = await ctx3.newPage(); watch(p3, "sess3");
+    await signIn(p2, sess.email); await p2.waitForURL(/\/patients$/);
+    await signIn(p3, sess.email); await p3.waitForURL(/\/patients$/);
+    await me.reload();
+    await me.waitForFunction(() => document.querySelectorAll(".session-item").length === 3);
+    me.once("dialog", (d) => d.accept());
+    await me.getByRole("button", { name: "Sign out all other sessions" }).click();
+    await me.waitForFunction(() => document.querySelectorAll(".session-item").length === 1);
+    await me.getByText("There are no other sessions.").waitFor();
+    for (const q of [p2, p3]) { await q.goto(`${BASE}/patients`); await q.waitForURL(/\/login/); }
+    // a new password ends the other sign-ins too
+    await signIn(p2, sess.email); await p2.waitForURL(/\/patients$/);
+    await me.goto(`${BASE}/account#password-card`);
+    await me.fill("#password", "another-long-passphrase");
+    await me.getByRole("button", { name: "Update", exact: true }).click();
+    await me.getByText("Password updated. Your other sessions were signed out.").waitFor();
+    await p2.goto(`${BASE}/patients`); await p2.waitForURL(/\/login/);
+    await me.goto(`${BASE}/account`); await me.getByRole("heading", { name: "My account" }).waitFor();
+    await signIn(p2, sess.email, PW); await p2.getByRole("alert").waitFor();
+    await signIn(p2, sess.email, "another-long-passphrase"); await p2.waitForURL(/\/patients$/);
+    await ctx2.close(); await ctx3.close();
+  });
+
+  await step("account page: Arabic RTL on a phone without horizontal scroll; every control has a name; each card is labelled by its heading", async () => {
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
+    await m.addCookies([...(await sess.ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); watch(mp, "mobile-account");
+    const r = await mp.goto(`${BASE}/account`);
+    assert(r.status() === 200 && (await mp.locator("html").getAttribute("dir")) === "rtl", "rtl account page");
+    await mp.getByRole("heading", { name: "الجلسات النشطة" }).waitFor();
+    await mp.getByRole("heading", { name: "حذف الحساب" }).waitFor();
+    await mp.getByText("هذا الجهاز").waitFor();
+    const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(over <= 1, `horizontal overflow of ${over}px on the account page`);
+    const bad = await mp.evaluate(() => {
+      const named = (el) => (el.labels && el.labels.length) || el.getAttribute("aria-label") || el.getAttribute("aria-labelledby") || (el.tagName === "BUTTON" && el.textContent.trim());
+      const controls = [...document.querySelectorAll("#main input:not([type=hidden]):not([aria-hidden=true]), #main select, #main textarea, #main button")].filter((el) => el.offsetParent !== null || el.type === "file");
+      const unnamed = controls.filter((el) => !named(el)).map((el) => `${el.tagName.toLowerCase()}#${el.id || el.name}`);
+      const cards = [...document.querySelectorAll("#main section.card[id]")].filter((s) => { const ref = s.getAttribute("aria-labelledby"); const h = ref && document.getElementById(ref); return !h || !h.textContent.trim(); }).map((s) => s.id);
+      return { unnamed, cards };
+    });
+    assert(bad.unnamed.length === 0, `controls without an accessible name: ${bad.unnamed.join(", ")}`);
+    assert(bad.cards.length === 0, `cards not labelled by their heading: ${bad.cards.join(", ")}`);
+    await mp.screenshot({ path: path.join(OUT, "mobile-account-ar.png"), fullPage: true });
+    await m.close();
+    await sess.ctx.close();
+  });
+
+  await step("sign-in: a wrong password gets one generic message; repeated attempts get a clear rate-limit message", async () => {
+    const rctx = await newContext(browser); const rp = await rctx.newPage(); watch(rp, "rate");
+    await rp.goto(`${BASE}/login`);
+    await rp.fill("#email", `ratelimit-${stamp}@example.test`);
+    for (let i = 0; i < 11; i++) {
+      await rp.fill("#password", `wrong-password-${i}`);
+      await Promise.all([
+        rp.waitForResponse((r) => r.request().method() === "POST" && r.url().startsWith(`${BASE}/login`)),
+        rp.getByRole("button", { name: "Sign in", exact: true }).click(),
+      ]);
+      if (i === 0) await rp.getByRole("alert").getByText("Incorrect email or password.").waitFor();
+    }
+    await rp.getByRole("alert").getByText(/Too many attempts/).waitFor();
+    await rctx.close();
+  });
+
+  await step("account deletion: typed e-mail + password, 30-day grace, cancel by signing in, delete again, purge through the cron route; another account is untouched", async () => {
+    const u = await throwaway("del", "Doomed User");
+    const p = u.page;
+    const fid = await fileFor(p, "Doomed File");
+    const uid = await uidOf(u.email);
+    await p.goto(`${BASE}/account#delete-account`);
+    await p.getByRole("list", { name: "Files that go with the account" }).getByText("Doomed File").waitFor();
+    await p.fill("#del-confirm", "someone-else@example.test"); await p.fill("#del-password", PW); await p.check('input[name="ack"]');
+    await submit(p, "Delete my account");
+    await p.getByText("does not match your account's email").waitFor();
+    await p.fill("#del-confirm", u.email); await p.fill("#del-password", "not-my-password");
+    await submit(p, "Delete my account");
+    await p.getByText("Incorrect password.").waitFor();
+    await p.fill("#del-confirm", u.email.toUpperCase()); await p.fill("#del-password", PW);
+    await submit(p, "Delete my account");
+    await p.waitForURL(/\/login\?deleted=1&on=\d{4}-\d{2}-\d{2}/);
+    await p.getByText("Your account is scheduled for deletion").waitFor();
+    const row = (await pgq("select scheduled_for > now() + interval '29 days' as ok, files from account_deletions where user_id = $1 and completed_at is null", [uid])).rows[0];
+    assert(row && row.ok && row.files.includes(fid), "scheduled 30 days ahead, with the file");
+    assert((await pgq("select deletion_requested_at is not null as d from patients where id = $1", [fid])).rows[0].d, "the file entered the file deletion");
+    await p.goto(`${BASE}/patients`); await p.waitForURL(/\/login/);
+    // the retention job refuses a missing or wrong secret and purges nothing inside the grace period
+    assert((await cron()).status === 401 && (await cron("wrong-secret-wrong-secret-0000")).status === 401, "the cron route refuses a missing or wrong secret");
+    let j = await (await cron(process.env.CRON_SECRET)).json();
+    assert(j.accounts && j.accounts.purged === 0 && j.accounts.failed === 0, "nothing purged inside the grace period: " + JSON.stringify(j));
+    assert((await pgq("select count(*)::int n from patients where id = $1", [fid])).rows[0].n === 1, "the file is still there");
+    // signing in again cancels
+    await signIn(p, u.email);
+    await p.waitForURL(/\/account\?restored=1/);
+    await p.getByText("Your account deletion was cancelled").waitFor();
+    assert((await pgq("select count(*)::int n from account_deletions where user_id = $1", [uid])).rows[0].n === 0, "the request is gone");
+    assert((await pgq("select deletion_requested_at is null as ok from patients where id = $1", [fid])).rows[0].ok, "the file is restored");
+    await p.goto(`${BASE}/account#activity`);
+    await p.locator(".activity-list").getByText("Account deletion requested").waitFor();
+    await p.locator(".activity-list").getByText("Account deletion cancelled (by signing in)").waitFor();
+    // delete again, let the grace period pass, purge
+    await p.goto(`${BASE}/account#delete-account`);
+    await p.fill("#del-confirm", u.email); await p.fill("#del-password", PW); await p.check('input[name="ack"]');
+    await submit(p, "Delete my account");
+    await p.waitForURL(/\/login\?deleted=1/);
+    await pgq("update account_deletions set requested_at = now() - interval '31 days', scheduled_for = now() - interval '1 day' where user_id = $1", [uid]);
+    await pgq("update patients set deletion_scheduled_for = now() - interval '1 day' where deletion_requested_by = $1", [uid]);
+    j = await (await cron(process.env.CRON_SECRET)).json();
+    assert(j.failed === 0 && j.purged >= 1 && j.accounts.failed === 0 && j.accounts.purged === 1, "the job purged the file and the account: " + JSON.stringify(j));
+    assert((await pgq("select count(*)::int n from patients where id = $1", [fid])).rows[0].n === 0, "the file is erased");
+    assert((await pgq("select count(*)::int n from auth.users where id = $1", [uid])).rows[0].n === 0 && (await pgq("select count(*)::int n from profiles where id = $1", [uid])).rows[0].n === 0, "the identity and profile are erased");
+    const tomb = (await pgq("select method, completed_at is not null as done from account_deletions where user_id = $1", [uid])).rows[0];
+    assert(tomb && tomb.method === "deleted" && tomb.done, "the tombstone records a complete deletion");
+    assert((await pgq("select count(*)::int n from patients where id = $1", [pid])).rows[0].n === 1, "another account's file is untouched");
+    await signIn(p, u.email); await p.getByRole("alert").getByText("Incorrect email or password.").waitFor();
+    await u.ctx.close();
+  });
+
+  await step("account deletion with shared files: the other members are listed (remove / transfer work); a caregiver's account is anonymised and the owner's file stays intact", async () => {
+    const owner = await throwaway("own", "Owner Two");
+    const x = await throwaway("cgx", "Caregiver Ex"), z = await throwaway("cgz", "Caregiver Zed"), v = await throwaway("cgv", "Caregiver Vee");
+    const f1 = await fileFor(owner.page, "Owner File One"), f2 = await fileFor(owner.page, "Owner File Two"), f3 = await fileFor(owner.page, "Owner File Three");
+    const ids = { x: await uidOf(x.email), z: await uidOf(z.email), v: await uidOf(v.email), o: await uidOf(owner.email) };
+    for (const [f, who] of [[f1, "x"], [f2, "z"], [f3, "v"]]) await pgq("insert into patient_members (patient_id, user_id, role, can_write, can_share) values ($1, $2, 'caregiver', true, false)", [f, ids[who]]);
+    // the caregiver records an allergy in the owner's file
+    await x.page.goto(`${BASE}/patients/${f1}/allergies`);
+    await openSummary(x.page, "Add allergy");
+    await x.page.fill("#allergies_new_substance", "Latex (by the caregiver)");
+    await x.page.selectOption("#allergies_new_severity", "mild"); await x.page.selectOption("#allergies_new_certainty", "confirmed");
+    await submit(x.page, "Save");
+    await x.page.getByText("Saved.").first().waitFor();
+    // the owner cannot delete: the shared files are listed with their members
+    const op = owner.page;
+    await op.goto(`${BASE}/account#delete-account`);
+    await op.getByText("Files shared with other people block the deletion").waitFor();
+    assert((await op.locator("#del-confirm").count()) === 0, "no deletion form while files are shared");
+    for (const [name, member] of [["Owner File One", "Caregiver Ex"], ["Owner File Two", "Caregiver Zed"], ["Owner File Three", "Caregiver Vee"]]) {
+      const sec = op.locator("section.member-file", { hasText: name });
+      await sec.getByText(member, { exact: true }).waitFor();
+      assert(/Caregiver/.test(await sec.innerText()), "the member's role is shown");
+    }
+    // remove one member, transfer another file
+    op.once("dialog", (d) => d.accept());
+    await op.locator("section.member-file", { hasText: "Owner File Three" }).getByRole("button", { name: "Remove Caregiver Vee from Owner File Three" }).click();
+    await op.locator("section.member-file", { hasText: "Owner File Three" }).waitFor({ state: "detached" });
+    assert((await pgq("select revoked_at is not null as r from patient_members where patient_id = $1 and user_id = $2", [f3, ids.v])).rows[0].r, "the removed member is revoked");
+    const gone = await v.page.goto(`${BASE}/patients/${f3}`);
+    assert(gone.status() === 404, "the removed member can no longer open the file");
+    op.once("dialog", (d) => d.accept());
+    await op.locator("section.member-file", { hasText: "Owner File Two" }).getByRole("button", { name: "Make Caregiver Zed the owner of Owner File Two" }).click();
+    await op.locator("section.member-file", { hasText: "Owner File Two" }).waitFor({ state: "detached" });
+    const roles = (await pgq("select user_id, role from patient_members where patient_id = $1", [f2])).rows;
+    assert(roles.find((r) => r.user_id === ids.z)?.role === "owner" && roles.find((r) => r.user_id === ids.o)?.role === "guardian", "ownership moved to the member");
+    await op.locator("section.member-file", { hasText: "Owner File One" }).getByText("Caregiver Ex", { exact: true }).waitFor();
+
+    // the caregiver deletes his account (he owns no file); the grace period passes
+    const xp = x.page;
+    await xp.goto(`${BASE}/account#delete-account`);
+    await xp.fill("#del-confirm", x.email); await xp.fill("#del-password", PW); await xp.check('input[name="ack"]');
+    await submit(xp, "Delete my account");
+    await xp.waitForURL(/\/login\?deleted=1/);
+    await pgq("update account_deletions set requested_at = now() - interval '31 days', scheduled_for = now() - interval '1 day' where user_id = $1", [ids.x]);
+    const j = await (await cron(process.env.CRON_SECRET)).json();
+    assert(j.failed === 0 && j.accounts.failed === 0 && j.accounts.purged === 1, "the job purged the account: " + JSON.stringify(j));
+    const tomb = (await pgq("select method from account_deletions where user_id = $1", [ids.x])).rows[0];
+    assert(tomb && tomb.method === "anonymised", "records of another account name him, so the identity is anonymised, not erased: " + JSON.stringify(tomb));
+    const au = (await pgq("select email, deleted_at is not null as d from auth.users where id = $1", [ids.x])).rows[0];
+    assert(au && au.d && /^deleted\+/.test(au.email), "the identity no longer carries his e-mail");
+    assert((await pgq("select count(*)::int n from patient_members where user_id = $1", [ids.x])).rows[0].n === 0, "his access is gone");
+    assert((await pgq("select count(*)::int n from allergies where patient_id = $1 and recorded_by = $2", [f1, ids.x])).rows[0].n === 1, "his record in the owner's file is untouched");
+    assert((await pgq("select full_name from profiles where id = $1", [ids.x])).rows[0].full_name === "", "his profile is blanked");
+    assert((await pgq("select full_name from profiles where id = $1", [ids.o])).rows[0].full_name === "Owner Two", "the owner's profile is untouched");
+    await signIn(xp, x.email); await xp.getByRole("alert").getByText("Incorrect email or password.").waitFor();
+    await op.goto(`${BASE}/patients/${f1}/allergies`);
+    await op.getByText("Latex (by the caregiver)", { exact: true }).waitFor();
+    // with the caregiver gone the owner has nothing left that blocks
+    await op.goto(`${BASE}/account#delete-account`);
+    await op.locator("#del-confirm").waitFor();
+    for (const c of [owner, x, z, v]) await c.ctx.close();
+  });
+
+  // ---------------------------------------------------------------- care: reminders, needs attention, emergency card, members (migration 0031)
+  const ymd = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  const remTitle = `Renew passport ${stamp}`, repTitle = `Weigh-in ${stamp}`;
+
+  await step("reminders: write one, see it on the file, the centre and the bell; done closes it", async () => {
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    await page.getByText(/no sending service is connected/).first().waitFor();
+    await page.fill("#rem_title", remTitle); await page.fill("#rem_due", ymd(1));
+    await submit(page, "Add reminder");
+    await page.getByText("The reminder was added.").waitFor();
+    await page.reload();
+    const item = page.locator("li.reminder", { hasText: remTitle });
+    await item.waitFor();
+    assert((await item.getAttribute("data-state")) === "soon" && (await item.getAttribute("data-kind")) === "custom", "a written reminder inside its lead time is soon");
+    await page.goto(`${BASE}/patients`);
+    const n = Number(await page.getByTestId("reminder-count").first().innerText());
+    assert(n >= 1, "the bell counts it: " + n);
+    await page.goto(`${BASE}/reminders`);
+    await page.locator("li.reminder", { hasText: remTitle }).waitFor();
+    await page.locator("section.card", { hasText: "Alice Alpha" }).first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    await page.locator("li.reminder", { hasText: remTitle }).getByRole("button", { name: "Done" }).click();
+    await page.locator("li.reminder", { hasText: remTitle }).waitFor({ state: "detached" });
+    await page.locator("article.rec", { hasText: remTitle }).getByText("Done", { exact: true }).waitFor();
+  });
+
+  await step("reminders: a repeating one moves on when done; one written by mistake is invalidated with a reason", async () => {
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    await page.fill("#rem_title", repTitle); await page.fill("#rem_due", ymd(0)); await page.fill("#rem_rep", "1");
+    await submit(page, "Add reminder");
+    await page.getByText("The reminder was added.").waitFor();
+    await page.reload();
+    await page.locator("li.reminder", { hasText: repTitle }).getByRole("button", { name: "Done" }).click();
+    await page.locator("li.reminder", { hasText: repTitle }).waitFor({ state: "detached" });
+    const art = page.locator("article.rec", { hasText: repTitle });
+    await art.getByText("Open", { exact: true }).waitFor();
+    await art.getByText("every 1 mo").waitFor();
+    await art.locator("summary", { hasText: "Entered in error" }).click();
+    await art.locator('input[name="reason"]').fill("added twice");
+    page.once("dialog", (d) => d.accept());
+    await art.getByRole("button", { name: "Invalidate" }).click();
+    await art.waitFor({ state: "detached" });
+    await page.reload();
+    assert((await page.locator("article.rec", { hasText: repTitle }).count()) === 0, "an invalidated reminder leaves the active list");
+  });
+
+  await step("reminders: an open test request past its target date is gathered with its record", async () => {
+    await page.goto(`${BASE}/patients/${pid}/test-orders`);
+    await openSummary(page, "Add test request");
+    await page.fill("#test-orders_new_name", "Overdue E2E test");
+    await page.fill("#test-orders_new_requested_on", ymd(-10)); await page.fill("#test-orders_new_target_on", ymd(-5));
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+    await page.goto(`${BASE}/patients/${pid}/reminders`);
+    const item = page.locator("li.reminder", { hasText: "Overdue E2E test" });
+    await item.waitFor();
+    assert((await item.getAttribute("data-state")) === "overdue" && (await item.getAttribute("data-kind")) === "test_order", "overdue test request: " + (await item.getAttribute("data-state")) + " " + (await item.getAttribute("data-kind")) + " " + (await item.innerText()).replace(/\s+/g, " "));
+    await item.getByText("5 days overdue").waitFor();
+    await item.getByRole("link", { name: /Requested test not done/ }).click();
+    await page.waitForURL(/\/test-orders$/);
+  });
+
+  await step("needs attention: the latest abnormal lab against its reference, with the trend; a lab comparison of two reports", async () => {
+    await page.goto(`${BASE}/patients/${pid}/labs/new`);
+    await page.fill("#title", "CBC follow-up E2E");
+    await page.selectOption("#r0_type", { label: "Hemoglobin (Hb) (g/dL)" });
+    await page.fill("#r0_value", "11.8"); await page.fill("#r0_ref_low", "12"); await page.fill("#r0_ref_high", "16");
+    await submit(page, "Save report");
+    await page.getByText("Report and results saved.").waitFor();
+    await page.goto(`${BASE}/patients/${pid}`);
+    await page.getByRole("heading", { name: "Needs your attention" }).waitFor();
+    const lab = page.getByTestId("attention-lab").filter({ hasText: "Hemoglobin" });
+    await lab.waitFor();
+    assert((await lab.innerText()).includes("11.8"), "the latest value is shown: " + (await lab.innerText()));
+    await lab.getByText(/closer to range|further out|steady/).waitFor();
+    await page.goto(`${BASE}/patients`);
+    await page.locator("a.card", { hasText: "Alice Alpha" }).first().getByText(/\d+ lab out of range/).waitFor();
+    // compare two reports by date
+    await page.goto(`${BASE}/patients/${pid}/labs?view=compare`);
+    const val = async (sel, text) => page.locator(`${sel} option`, { hasText: text }).first().getAttribute("value");
+    await page.selectOption("#cmp_a", await val("#cmp_a", "CBC panel"));
+    await page.selectOption("#cmp_b", await val("#cmp_b", "CBC follow-up E2E"));
+    await submit(page, "Compare");
+    const row = page.getByTestId("compare-table").locator("tr", { hasText: "Hemoglobin" });
+    await row.waitFor();
+    const txt = await row.innerText();
+    assert(txt.includes("10.2") && txt.includes("11.8") && txt.includes("+1.6"), "values side by side with the change: " + txt);
+  });
+
+  const careAr = async (url) => {   // a page opened on a phone in Arabic must not scroll sideways
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
+    await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); watch(mp, "care-mobile");
+    const r = await mp.goto(url);
+    assert(r.status() === 200, `${url} => ${r.status()}`);
+    assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
+    const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    await m.close();
+    return over;
+  };
+
+  let emLink = "", emLink2 = "";
+  await step("emergency card: a card with the core fields; the public link is off by default", async () => {
+    // records that must (and must not) reach the card
+    await page.goto(`${BASE}/patients/${pid}/medications`);
+    for (const [name, sensitive] of [["LongTerm E2E med", false], ["Secret E2E med", true]]) {
+      await openSummary(page, "Add medication");
+      await page.fill("#medications_new_name_generic", name);
+      const form = page.locator("form:has(#medications_new_name_generic)");
+      await form.getByLabel("Long-term (taken continuously)").check();
+      if (sensitive) await form.getByLabel("Sensitive (shared only when explicitly allowed)").check();
+      await submit(page, "Save");
+      await page.getByText("Saved.").first().waitFor();
+      await page.reload();
+    }
+    await page.goto(`${BASE}/patients/${pid}/conditions`);
+    await openSummary(page, "Add condition");
+    await page.fill("#conditions_new_name", "Secret E2E dx");
+    await page.selectOption("#conditions_new_category", "chronic");
+    await page.locator("form:has(#conditions_new_name)").getByLabel("Sensitive (shared only when explicitly allowed)").check();
+    await submit(page, "Save");
+    await page.getByText("Saved.").first().waitFor();
+
+    await page.goto(`${BASE}/patients/${pid}/emergency`);
+    const card = page.getByTestId("emergency-card");
+    await card.waitFor();
+    const txt = await card.innerText();
+    for (const w of ["Alice Alpha", "A+", "Penicillin", "Hypertension", "LongTerm E2E med", "Omar Alpha", "+966511111111"]) assert(txt.includes(w), `the card shows ${w}`);
+    for (const w of ["Secret E2E", "1098765432", "+966500000001", "Entered by mistake"]) assert(!txt.includes(w), `the card must not show ${w}`);
+    await page.getByTestId("emergency-status").getByText("Link is off").waitFor();
+    assert(!(await page.getByLabel(/Also show items I marked sensitive/).isChecked()), "the sensitive opt-in starts off");
+    // the PDF card (no QR: no token is kept)
+    const res = await page.request.get(`${BASE}/api/patients/${pid}/emergency/pdf`);
+    assert(res.status() === 200 && /pdf/.test(res.headers()["content-type"]) && (await res.body()).subarray(0, 4).toString() === "%PDF", "the card PDF");
+  });
+
+  await step("emergency card: switch the link on; it shows the card only, with no sign-in, and a QR", async () => {
+    await page.goto(`${BASE}/patients/${pid}/emergency`);
+    await page.getByRole("button", { name: "Switch the link on" }).click();
+    await page.getByTestId("emergency-link-box").waitFor();
+    emLink = (await page.getByTestId("emergency-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    assert(/\/e\/[A-Za-z0-9_-]{32}$/.test(emLink), "link: " + emLink);
+    await page.locator(".emergency-qr svg").waitFor();
+    await page.getByTestId("emergency-status").getByText("Link is on").waitFor();
+    // a stranger without an account opens it
+    const anon = await newContext(browser); const ap = await anon.newPage(); watch(ap, "anon");
+    const r = await ap.goto(emLink);
+    assert(r.status() === 200, "public card opens: " + r.status());
+    assert(/noindex/.test(r.headers()["x-robots-tag"] ?? "") && /no-store/.test(r.headers()["cache-control"] ?? ""), "never indexed or cached");
+    const t = await ap.getByTestId("emergency-card").innerText();
+    for (const w of ["Alice Alpha", "A+", "Penicillin", "Hypertension", "LongTerm E2E med", "Omar Alpha"]) assert(t.includes(w), `public card shows ${w}`);
+    for (const w of ["Secret E2E", "1098765432", "+966500000001", "Entered by mistake", "Metformin"]) assert(!t.includes(w), `public card must not show ${w}`);
+    assert((await ap.locator("nav, .rail, a[href='/patients']").count()) === 0, "no navigation into the app");
+    const html = await ap.content();
+    assert(!/SH-\d{8}/.test(html), "no file number");
+    // phone, Arabic
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA" });
+    await m.addCookies([{ name: "lang", value: "ar", url: BASE }]);
+    const mp = await m.newPage(); await mp.goto(emLink);
+    await mp.getByText("بطاقة الطوارئ الطبية").first().waitFor();
+    assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");
+    const over = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(over <= 1, "public card overflows by " + over);
+    await mp.screenshot({ path: path.join(OUT, "mobile-emergency-public-ar.png"), fullPage: true });
+    await m.close(); await anon.close();
+    for (const u of [`${BASE}/patients/${pid}/emergency`, `${BASE}/patients/${pid}/reminders`, `${BASE}/patients/${pid}/members`, `${BASE}/patients/${pid}/labs?view=compare`, `${BASE}/reminders`, `${BASE}/patients/${pid}`]) {
+      const o = await careAr(u); assert(o <= 1, `${u} overflows by ${o}px`);
+    }
+  });
+
+  await step("emergency card: the sensitive opt-in, the QR on the PDF, regenerating and switching off", async () => {
+    const anon = await newContext(browser); const ap = await anon.newPage(); watch(ap, "anon2");
+    await page.goto(`${BASE}/patients/${pid}/emergency`);
+    await page.getByLabel(/Also show items I marked sensitive/).check();
+    await page.locator("form:has(input[name=include_sensitive])").getByRole("button", { name: "Save" }).click();
+    await page.getByText("What the card shows was saved.").waitFor();
+    await ap.goto(emLink);
+    const t = await ap.getByTestId("emergency-card").innerText();
+    assert(t.includes("Secret E2E dx") && t.includes("Secret E2E med"), "with the opt-in the sensitive items appear");
+    await page.reload();
+    await page.getByLabel(/Also show items I marked sensitive/).uncheck();
+    await page.locator("form:has(input[name=include_sensitive])").getByRole("button", { name: "Save" }).click();
+    await page.getByText("What the card shows was saved.").waitFor();
+    await ap.goto(emLink);
+    assert(!(await ap.getByTestId("emergency-card").innerText()).includes("Secret E2E"), "opting out hides them at once");
+    // regenerate: the old link dies, the new one works, the PDF carries a QR only for the current token
+    await page.reload();
+    page.once("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Regenerate the link" }).click();
+    await page.getByTestId("emergency-link-box").waitFor();
+    emLink2 = (await page.getByTestId("emergency-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    assert(emLink2 !== emLink && /\/e\/[A-Za-z0-9_-]{32}$/.test(emLink2), "a new link");
+    await ap.goto(emLink);
+    await ap.getByText("This link is not available").waitFor();
+    await ap.goto(emLink2);
+    await ap.getByTestId("emergency-card").waitFor();
+    const token = emLink2.split("/e/")[1];
+    const withQr = await page.request.post(`${BASE}/api/patients/${pid}/emergency/pdf`, { form: { token } });
+    const bogus = await page.request.post(`${BASE}/api/patients/${pid}/emergency/pdf`, { form: { token: "x".repeat(32) } });
+    assert(withQr.status() === 200 && bogus.status() === 200, "both PDFs render");
+    assert((await withQr.body()).length > (await bogus.body()).length + 500, "the current token adds a QR; a wrong one adds nothing");
+    // a wrong link: tries are rate limited per address
+    const wrong = (n) => `${BASE}/e/${String(n).padStart(2, "0")}${"w".repeat(30)}`;
+    for (let i = 0; i < 9; i++) { await ap.goto(wrong(i)); await ap.getByText("This link is not available").waitFor(); }
+    await ap.goto(wrong(9));
+    await ap.getByText("Too many requests").waitFor();
+    await ap.goto(emLink2);
+    await ap.getByText("Too many requests").waitFor();
+    // switch it off
+    await page.reload();
+    page.once("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Switch the link off" }).click();
+    await page.getByTestId("emergency-status").getByText("Link is off").waitFor();
+    const anon2 = await newContext(browser); const bp = await anon2.newPage();
+    await bp.goto(emLink2);
+    await bp.getByText("This link is not available").waitFor();
+    await page.reload();
+    await page.getByTestId("emergency-status").getByText("Link is off").waitFor();
+    await page.getByText("Attempt on a switched-off link").first().waitFor();
+    await page.getByText("Card opened").first().waitFor();
+    await anon.close(); await anon2.close();
+  });
+
+  const cBobEmail = `carebob-${stamp}@example.test`, eveEmail = `eve-${stamp}@example.test`;
+  let inviteLinkText = "";
+  await step("members: invite by e-mail as editor; the link is shown once and only its hash is kept", async () => {
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    await page.fill("#inv_email", cBobEmail); await page.selectOption("#inv_access", "editor");
+    await submit(page, "Create the invitation link");
+    await page.getByTestId("invite-link-box").waitFor();
+    inviteLinkText = (await page.getByTestId("invite-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    assert(/\/invite\/[A-Za-z0-9_-]{32}$/.test(inviteLinkText), "invite link: " + inviteLinkText);
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const row = page.locator('[data-testid="invite-row"]', { hasText: cBobEmail });
+    await row.getByText("Waiting").waitFor();
+    await row.getByText("Editor").waitFor();
+    assert(!(await page.content()).includes(inviteLinkText.split("/invite/")[1]), "the token is not in the page after it was shown");
+    await page.fill("#inv_email", "not-an-address"); await page.evaluate(() => document.querySelector("form:has(#inv_email)").noValidate = true);
+    await submit(page, "Create the invitation link");
+    await page.getByText("Enter a valid e-mail address.").waitFor();
+  });
+
+  const cBobCtx = await newContext(browser); const cBob = await cBobCtx.newPage(); watch(cBob, "cBob");
+  await step("members: only the invited account can use the link; the editor joins and can write but not manage", async () => {
+    const eveCtx = await newContext(browser); const eve = await eveCtx.newPage(); watch(eve, "eve");
+    await signup(eve, eveEmail, "Eve Gamma");
+    await eve.goto(inviteLinkText);
+    await eve.getByText("This invitation is for another account").waitFor();
+    assert((await eve.getByRole("button", { name: "Accept the invitation" }).count()) === 0, "no accept button for a stranger");
+    assert((await eve.goto(`${BASE}/patients/${pid}`)).status() === 404, "and no access");
+    await eveCtx.close();
+
+    await signup(cBob, cBobEmail, "Bob Beta");
+    assert((await cBob.goto(`${BASE}/patients/${pid}`)).status() === 404, "before accepting there is no access");
+    await cBob.goto(inviteLinkText);
+    await cBob.getByText(/You were invited to the file/).waitFor();
+    await cBob.getByText(/an editor/).waitFor();
+    await cBob.getByRole("button", { name: "Accept the invitation" }).click();
+    await cBob.waitForURL(new RegExp(`/patients/${pid}$`));
+    await cBob.getByRole("heading", { name: "Alice Alpha" }).waitFor();
+    await cBob.getByText("You are an editor").waitFor();
+    // an editor writes
+    await cBob.goto(`${BASE}/patients/${pid}/reminders`);
+    await cBob.fill("#rem_title", `Bob reminder ${stamp}`); await cBob.fill("#rem_due", ymd(2));
+    await submit(cBob, "Add reminder");
+    await cBob.getByText("The reminder was added.").waitFor();
+    // but cannot manage: no members page, no sharing, no way to switch the emergency link on
+    assert((await cBob.goto(`${BASE}/patients/${pid}/members`)).status() === 404, "no members page");
+    await cBob.goto(`${BASE}/patients/${pid}/sharing`);
+    await cBob.getByText("Page not found").waitFor();
+    assert((await cBob.getByRole("link", { name: "New share" }).count()) === 0, "no way to create a share");
+    await cBob.goto(`${BASE}/patients/${pid}/emergency`);
+    await cBob.getByTestId("emergency-card").waitFor();
+    assert((await cBob.getByRole("button", { name: "Switch the link on" }).count()) === 0, "no emergency link controls for an editor");
+    // a used link cannot be used again
+    await cBob.goto(inviteLinkText);
+    await cBob.getByText("This invitation is not available").waitFor();
+    // the owner sees the new member
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const row = page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" });
+    await row.getByText("Editor").waitFor();
+    await page.locator('[data-testid="invite-row"]', { hasText: cBobEmail }).getByText("Accepted").waitFor();
+  });
+
+  await step("members: removing a member ends their access at once", async () => {
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const row = page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" });
+    page.once("dialog", (d) => d.accept());
+    await row.getByRole("button", { name: "Remove" }).click();
+    await page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" }).getByText("Removed").waitFor();
+    assert((await cBob.goto(`${BASE}/patients/${pid}`)).status() === 404, "the removed member loses the file");
+    assert((await cBob.goto(`${BASE}/patients/${pid}/reminders`)).status() === 404, "and its pages");
+    await page.reload();
+    await page.locator('[data-testid="member-row"]', { hasText: "Bob Beta" }).getByText("Removed").waitFor();
+    // the owner cannot be removed
+    assert((await page.locator('[data-testid="member-row"]', { hasText: "Alice Alpha" }).getByRole("button", { name: "Remove" }).count()) === 0, "no remove button for the owner");
+    // a second invitation to the same address replaces the waiting one, and a cancelled one stops working
+    await page.fill("#inv_email", cBobEmail); await page.selectOption("#inv_access", "viewer");
+    await submit(page, "Create the invitation link");
+    const link2 = (await page.getByTestId("invite-link").inputValue()).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.goto(`${BASE}/patients/${pid}/members`);
+    const inv = page.locator('[data-testid="invite-row"]', { hasText: cBobEmail }).filter({ hasText: "Waiting" });
+    page.once("dialog", (d) => d.accept());
+    await inv.getByRole("button", { name: "Cancel invitation" }).click();
+    await page.locator('[data-testid="invite-row"]', { hasText: cBobEmail }).getByText("Cancelled").first().waitFor();
+    await cBob.goto(link2);
+    await cBob.getByText("This invitation is not available").waitFor();
+    await cBobCtx.close();
+  });
+
   // ---------------------------------------------------------------- responsive + RTL
   await step("mobile viewport (Arabic, RTL): no horizontal scroll on key pages", async () => {
     const m = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ar-SA", timezoneId: "Asia/Riyadh" });
     await m.addCookies([...(await ctx.cookies()).filter((c) => c.name !== "lang"), { name: "lang", value: "ar", url: BASE }]);
     const mp = await m.newPage(); watch(mp, "mobile");
-    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/dental?tab=treatment", "/dental?tab=care", "/medications", "/sharing/new", "/documents", "/timeline"]) {
+    for (const p of ["", "/profile", "/vitals", "/labs", "/specialties", "/dental", "/dental?tab=treatment", "/dental?tab=care", "/medications", "/sharing/new", "/documents", "/timeline", "/reminders", "/emergency", "/members", "/labs?view=compare"]) {
       const r = await mp.goto(`${BASE}/patients/${pid}${p}`);
       assert(r.status() === 200, `${p} => ${r.status()}`);
       assert((await mp.locator("html").getAttribute("dir")) === "rtl", "rtl");

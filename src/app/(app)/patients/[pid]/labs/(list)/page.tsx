@@ -10,10 +10,12 @@ import { LAB_GROUP, LAB_STATUS, lbl } from "@/lib/labels";
 import { buildSeries, inWindow, plottable, previousWindow, resolveWindow, shiftForward } from "@/lib/clinical/series";
 import { qs } from "@/lib/qs";
 import type { LabReportRow, ObservationRow } from "@/lib/types";
-import { Banner, Card, Chip, Empty, PageHead } from "@/components/ui";
+import { Banner, Card, Chip, Empty, InterpChip, PageHead } from "@/components/ui";
 import { TrendChart } from "@/components/observations/TrendChart";
 import { ObservationTable } from "@/components/observations/ObservationTable";
 import { DerivedCard } from "@/components/observations/DerivedCard";
+import { compareReports, reportDate } from "@/lib/care/labs-compare";
+import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
 type SP = Record<string, string | undefined>;
 
@@ -25,7 +27,7 @@ export default async function LabsPage({ params, searchParams }: { params: { pid
   const labTypes = forSex(types, p.sex).filter((x) => x.category === "lab");
   const base = `/patients/${p.id}/labs`;
   const supabase = createClient();
-  const view = searchParams.view === "trends" ? "trends" : "reports";
+  const view = searchParams.view === "trends" ? "trends" : searchParams.view === "compare" ? "compare" : "reports";
 
   const [{ data: reps }, { data: obsData }] = await Promise.all([
     supabase.from("lab_reports").select("*").eq("patient_id", p.id).eq("record_status", "active").order("collected_at", { ascending: false, nullsFirst: false }).limit(200),
@@ -46,8 +48,65 @@ export default async function LabsPage({ params, searchParams }: { params: { pid
     <nav className="tabs" aria-label={t("العرض", "View")}>
       <Link href={base} aria-current={view === "reports" ? "true" : undefined}>{t("التقارير", "Reports")}</Link>
       <Link href={`${base}?view=trends`} aria-current={view === "trends" ? "true" : undefined}>{t("التتبع والمقارنة", "Trends & comparison")}</Link>
+      <Link href={`${base}?view=compare`} aria-current={view === "compare" ? "true" : undefined}>{t("مقارنة تقريرين", "Compare two reports")}</Link>
     </nav>
   );
+
+  if (view === "compare") {
+    // two reports side by side: the later one is "b", the earlier "a" by default
+    const withObs = reports.filter((r) => obs.some((o) => o.report_id === r.id));
+    const byDate = [...withObs].sort((x, y) => reportDate(y).localeCompare(reportDate(x)));
+    const pick = (id: string | undefined, fallback: LabReportRow | undefined) => withObs.find((r) => r.id === id) ?? fallback;
+    const rb = pick(searchParams.b, byDate[0]), ra = pick(searchParams.a, byDate.find((r) => r.id !== rb?.id));
+    const rows = ra && rb ? compareReports(obs.filter((o) => o.report_id === ra.id), obs.filter((o) => o.report_id === rb.id)) : [];
+    const tyOf = new Map(types.map((x) => [x.id, x]));
+    const nameOf = (r: (typeof rows)[number]) => r.customName || (tyOf.get(r.typeId) ? (lang === "ar" ? tyOf.get(r.typeId)!.name_ar : tyOf.get(r.typeId)!.name_en) : "");
+    const optLabel = (r: LabReportRow) => `${reportDate(r)} — ${r.title}`;
+    return (
+      <>
+        {head}{tabs}
+        {withObs.length < 2 ? <Empty>{t("تحتاج تقريرين على الأقل بنتائج للمقارنة.", "You need at least two reports with results to compare.")}</Empty> : (
+          <>
+            <Card title={t("اختر تاريخي التقريرين", "Choose the two report dates")}>
+              <form method="get" action={base} className="row" data-testid="compare-form">
+                <input type="hidden" name="view" value="compare" />
+                <div className="field"><label htmlFor="cmp_a">{t("التقرير الأول (الأقدم)", "First report (earlier)")}</label>
+                  <select id="cmp_a" name="a" defaultValue={ra?.id}>{byDate.map((r) => <option key={r.id} value={r.id}>{optLabel(r)}</option>)}</select></div>
+                <div className="field"><label htmlFor="cmp_b">{t("التقرير الثاني", "Second report")}</label>
+                  <select id="cmp_b" name="b" defaultValue={rb?.id}>{byDate.map((r) => <option key={r.id} value={r.id}>{optLabel(r)}</option>)}</select></div>
+                <button className="btn primary" type="submit">{t("قارن", "Compare")}</button>
+              </form>
+            </Card>
+            {ra && rb && ra.id === rb.id ? <Banner tone="warn">{t("اختر تقريرين مختلفين.", "Choose two different reports.")}</Banner> : null}
+            {ra && rb && ra.id !== rb.id && (
+              <Card title={`${reportDate(ra)} ↔ ${reportDate(rb)}`}>
+                {rows.length === 0 ? <Empty>{t("لا نتائج للمقارنة.", "No results to compare.")}</Empty> : (
+                  <div className="table-wrap">
+                    <table className="t" data-testid="compare-table">
+                      <thead><tr><th>{t("التحليل", "Test")}</th><th><span className="ltr">{reportDate(ra)}</span></th><th><span className="ltr">{reportDate(rb)}</span></th><th>{t("التغير", "Change")}</th></tr></thead>
+                      <tbody>{rows.map((r) => {
+                        const Arrow = r.dir === "up" ? ArrowUp : r.dir === "down" ? ArrowDown : Minus;
+                        const cell = (c: typeof r.a) => c ? (<><strong className="ltr">{c.value}</strong> <span className="muted small ltr">{c.unit ?? ""}</span> <InterpChip value={c.interpretation} lang={lang} /></>) : <span className="muted">—</span>;
+                        return (
+                          <tr key={r.key}>
+                            <td>{nameOf(r)}</td><td className="nowrap">{cell(r.a)}</td><td className="nowrap">{cell(r.b)}</td>
+                            <td className="nowrap">{r.delta != null ? (
+                              <span className="row" style={{ gap: ".25rem" }}><Arrow size={14} aria-hidden="true" /><span className="ltr">{r.delta > 0 ? "+" : ""}{r.delta}{r.pct != null ? ` (${r.pct > 0 ? "+" : ""}${r.pct}%)` : ""}</span></span>
+                            ) : <span className="muted small">{r.unitChanged ? t("وحدة مختلفة: لا فرق", "different unit: no difference") : !r.a ? t("جديد", "new") : !r.b ? t("غير مُعاد", "not repeated") : "—"}</span>}</td>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="small muted" style={{ marginBlockStart: ".5rem" }}>{t("«التغير» يُحسب فقط بين قيمتين بالوحدة نفسها؛ لا تُحوَّل الوحدات.", "“Change” is computed only between two values in the same unit; units are never converted.")}</p>
+              </Card>
+            )}
+          </>
+        )}
+      </>
+    );
+  }
 
   if (view === "reports") {
     const byReport = new Map<string, ObservationRow[]>();

@@ -14,6 +14,7 @@ export type Block =
   | { t: "table"; cols: { label: string; w: number; align?: "start" | "end" }[]; rows: Cell[][] }
   | { t: "chart"; title: string; caption?: string; unit?: string; series: { label: string; pts: { t: number; v: number }[] }[]; refs?: { y: number; label?: string }[]; dateLabel: (ms: number) => string }
   | { t: "image"; data: Buffer; w: number; h: number; caption?: string }     // a PNG / JPEG (e.g. a drawn signature), fitted into w x h
+  | { t: "qr"; d: string; size: number; px: number; caption?: string }       // a QR code: the module path of src/lib/qr.ts qrPath (size units square), drawn px points wide, as vectors
   | { t: "space"; h?: number };
 
 export interface ReportMeta {
@@ -151,6 +152,16 @@ export function renderPdf(meta: ReportMeta, blocks: Block[]): Promise<Buffer> {
       try { doc.image(b.data, L + 4, y + 4, { fit: [b.w, b.h], align: "center", valign: "center" }); } catch { /* an unreadable image leaves an empty frame */ }
       y += b.h + 12;
       if (b.caption) { text(b.caption, L, y, W, { size: 8, color: C.muted }); y += 13; }
+      y += 4;
+      continue;
+    }
+    if (b.t === "qr") {
+      need(b.px + 30);
+      doc.save().roundedRect(L, y, b.px + 8, b.px + 8, 4).fill("#ffffff").restore();
+      doc.save().roundedRect(L, y, b.px + 8, b.px + 8, 4).lineWidth(0.5).strokeColor(C.line).stroke().restore();
+      doc.save().translate(L + 4, y + 4).scale(b.px / b.size).path(b.d).fill("#000000").restore();
+      y += b.px + 12;
+      if (b.caption) { for (const ln of wrap(doc, b.caption, W, 8, false, rtl)) { need(12); text(ln, L, y, W, { size: 8, color: C.muted }); y += 11; } }
       y += 4;
       continue;
     }

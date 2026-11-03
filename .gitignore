@@ -1,5 +1,27 @@
-# What a project can make again, and nobody needs to keep.
+# Dependencies
+node_modules
 node_modules/
+
+# Next.js
+.next
+.next/cache/
+out
+next-env.d.ts
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build & caches
+.turbo/
+.cache/
+.vercel
+*.log
+.DS_Store
+
+# Other environments
 .venv/
 venv/
 __pycache__/
@@ -7,8 +29,3 @@ target/
 vendor/
 .gradle/
 DerivedData/
-.next/cache/
-.turbo/
-.cache/
-.DS_Store
-*.log

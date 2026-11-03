@@ -40,6 +40,18 @@
       "created_at": "2026-11-03T00:36:48.168Z",
       "sender": "ios",
       "is_cancelled": false
+    },
+    {
+      "id": "38642452-64d1-4dd4-acc2-dd581c3ef860",
+      "role": "agent",
+      "content": "To work on your repository, please tap the **GitHub mark at the top of the chat** to connect your GitHub account. \n\nBecause the repository is private, I cannot clone it directly via URL. Connecting it through the GitHub button at the top will grant access and link the repository to this workspace so we can start working on it right away!",
+      "status": "completed",
+      "model": "gemini-3.8-flash-high",
+      "client_type": "gemini-bridge",
+      "parent_message_id": "7330a083-efbe-4b8f-b1a0-21ca25dc9866",
+      "created_at": "2026-11-03T00:37:10.529Z",
+      "sender": "macOS",
+      "is_cancelled": false
     }
   ]
 }
